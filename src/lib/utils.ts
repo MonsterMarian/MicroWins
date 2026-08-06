@@ -19,6 +19,13 @@ export function formatNumber(n: number): string {
   return new Intl.NumberFormat("cs-CZ", { maximumFractionDigits: 4 }).format(rounded);
 }
 
+/** Jedno desetinné místo - pro přírůstky a tempo ("+3,3 b.", "2,8 % / den"). */
+export function formatTenth(n: number): string {
+  return new Intl.NumberFormat("cs-CZ", { maximumFractionDigits: 1 }).format(
+    Math.round(n * 10) / 10,
+  );
+}
+
 /** Přijímá "2.5" i české "2,5". Prázdný vstup -> NaN. */
 export function parseNumber(input: string): number {
   const cleaned = input.trim().replace(",", ".");

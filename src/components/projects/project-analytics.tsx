@@ -17,7 +17,7 @@ import {
   projectById,
   projectStats,
 } from "@/lib/projects";
-import { cn, formatNumber, plural } from "@/lib/utils";
+import { cn, formatTenth, plural } from "@/lib/utils";
 
 export function ProjectAnalytics({ projectId }: { projectId: string }) {
   const { state, today, hydrated } = useStore();
@@ -125,7 +125,7 @@ export function ProjectAnalytics({ projectId }: { projectId: string }) {
               <CardTitle>Deník změn</CardTitle>
               <CardDescription>
                 {changes.length} {plural(changes.length, "změna", "změny", "změn")}
-                {best > 0 ? ` · nejlepší den +${formatNumber(best)} b.` : ""}
+                {best > 0 ? ` · nejlepší den +${formatTenth(best)} b.` : ""}
               </CardDescription>
             </div>
           </div>
@@ -160,7 +160,7 @@ export function ProjectAnalytics({ projectId }: { projectId: string }) {
                       <TrendingDown className="size-3" />
                     )}
                     {c.delta > 0 ? "+" : ""}
-                    {formatNumber(c.delta)} %
+                    {formatTenth(c.delta)} %
                   </span>
                 </li>
               ))}

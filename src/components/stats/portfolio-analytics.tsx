@@ -8,7 +8,7 @@ import { ProgressBar } from "@/components/ui/progress";
 import { useStore } from "@/components/providers/store-provider";
 import { formatDate } from "@/lib/date";
 import { displayPercent, portfolioActivity, portfolioStats, projectStats } from "@/lib/projects";
-import { cn, formatNumber, plural } from "@/lib/utils";
+import { cn, formatTenth, plural } from "@/lib/utils";
 
 /** Projektová část analýzy - postup napříč projekty a denní tempo. */
 export function PortfolioAnalytics() {
@@ -28,7 +28,7 @@ export function PortfolioAnalytics() {
   if (state.projects.length === 0) return null;
 
   const activeDays = activity.filter((a) => a.gain > 0).length;
-  const totalGain = formatNumber(activity.reduce((s, a) => s + a.gain, 0));
+  const totalGain = formatTenth(activity.reduce((s, a) => s + a.gain, 0));
 
   return (
     <div className="flex flex-col gap-4">
@@ -66,7 +66,7 @@ export function PortfolioAnalytics() {
                 <span className="min-w-0 flex-1 truncate text-sm">{s.project.name}</span>
                 {s.deltaToday > 0.05 ? (
                   <span className="tabular text-xs text-progress">
-                    +{formatNumber(s.deltaToday)} b. dnes
+                    +{formatTenth(s.deltaToday)} b. dnes
                   </span>
                 ) : null}
                 <span

@@ -3,7 +3,7 @@
 import * as React from "react";
 import { formatDate } from "@/lib/date";
 import type { SeriesPoint } from "@/lib/projects";
-import { cn, formatNumber } from "@/lib/utils";
+import { cn, formatTenth } from "@/lib/utils";
 
 /**
  * Vývoj postupu v čase - jedna řada, takže bez legendy (název grafu ji nese).
@@ -169,7 +169,7 @@ export function ProgressAreaChart({
             top: Math.max(0, yOf(hovered.percent) - 42),
           }}
         >
-          <div className="tabular font-medium">{formatNumber(hovered.percent)} %</div>
+          <div className="tabular font-medium">{formatTenth(hovered.percent)} %</div>
           <div className="text-muted-foreground">{formatDate(hovered.date)}</div>
         </div>
       ) : null}

@@ -41,7 +41,7 @@ import {
   type TaskFilter,
 } from "@/lib/projects";
 import { dayRows, streaks } from "@/lib/stats";
-import { cn, formatNumber, plural } from "@/lib/utils";
+import { cn, formatTenth, plural } from "@/lib/utils";
 
 type Tab = "overview" | "projects" | "tasks" | "today";
 
@@ -158,7 +158,7 @@ function OverviewTab({ onNewProject }: { onNewProject: () => void }) {
       icon: TrendingUp,
       label: "Průměrný postup",
       value: `${displayPercent(p.avgPercent)} %`,
-      hint: p.todayDelta > 0 ? `dnes +${formatNumber(p.todayDelta)} b.` : "dnes beze změny",
+      hint: p.todayDelta > 0 ? `dnes +${formatTenth(p.todayDelta)} b.` : "dnes beze změny",
       accent: p.todayDelta > 0,
     },
     {
@@ -214,7 +214,7 @@ function OverviewTab({ onNewProject }: { onNewProject: () => void }) {
                     {displayPercent(m.percent)} %
                   </span>
                   <Badge variant="outline" className="tabular border-progress/40 text-progress">
-                    +{formatNumber(m.delta)} b.
+                    +{formatTenth(m.delta)} b.
                   </Badge>
                 </Link>
               ))
@@ -519,7 +519,7 @@ function TodayTab() {
                 <span className="text-lg">{m.project.icon}</span>
                 <span className="min-w-0 flex-1 truncate text-sm">{m.project.name}</span>
                 <Badge variant="outline" className="tabular border-progress/40 text-progress">
-                  +{formatNumber(m.delta)} b.
+                  +{formatTenth(m.delta)} b.
                 </Badge>
               </Link>
             ))

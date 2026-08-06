@@ -36,7 +36,7 @@ import {
   taskPercent,
   tasksOfProject,
 } from "@/lib/projects";
-import { cn, formatNumber, plural } from "@/lib/utils";
+import { cn, formatTenth, plural } from "@/lib/utils";
 
 type TaskSort = "custom" | "name" | "progress" | "due";
 
@@ -161,7 +161,7 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
               )}
             >
               {stats.deltaToday > 0.05 ? "+" : ""}
-              {formatNumber(stats.deltaToday)} % dnes
+              {formatTenth(stats.deltaToday)} % dnes
             </span>
           </div>
 
@@ -219,7 +219,7 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
               <dd className="tabular font-medium">
                 {stats.targetPerDay === null
                   ? "-"
-                  : `${formatNumber(stats.targetPerDay)} % / den`}
+                  : `${formatTenth(stats.targetPerDay)} % / den`}
               </dd>
             </div>
             <div className="flex items-center gap-2">

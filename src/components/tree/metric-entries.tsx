@@ -1,14 +1,22 @@
 "use client";
 
 import * as React from "react";
-import { Trash2, Trophy } from "lucide-react";
+import { Check, Trash2, Trophy } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { useStore } from "@/components/providers/store-provider";
 import { formatDate, formatDateRelative } from "@/lib/date";
-import { aggregationOf, entriesOfMetric, totalsByDay } from "@/lib/domain";
+import {
+  aggregationOf,
+  entriesOfMetric,
+  isMarkedOn,
+  onceEntry,
+  summarizeFlag,
+  totalsByDay,
+} from "@/lib/domain";
 import type { TreeNode } from "@/lib/types";
-import { formatNumber } from "@/lib/utils";
+import { formatNumber, plural } from "@/lib/utils";
 
 /** Záznamy metriky seskupené po dnech - "x za jeden den" je denní veličina. */
 export function MetricEntries({ metric }: { metric: TreeNode }) {
@@ -97,6 +105,120 @@ export function MetricEntries({ metric }: { metric: TreeNode }) {
         Poslední zápis {formatDateRelative(entries[0].date, today)}.
       </li>
     </ul>
+  );
+}
+
+/**
+ * Zaškrtávací win: seznam odškrtnutých dnů + doplnění zapomenutého dne.
+ * Žádná čísla - jen "ten den ano".
+ */
+export function CheckEntries({ node }: { node: TreeNode }) {
+  const { state, today, toggleCheck } = useStore();
+  const summary = summarizeFlag(state, node, today);
+  const [date, setDate] = React.useState(today);
+
+  const days = React.useMemo(
+    () => entriesOfMetric(state.entries, node.id),
+    [state.entries, node.id],
+  );
+
+  const alreadyMarked = isMarkedOn(state.entries, node.id, date);
+
+  return (
+    <div className="flex flex-col gap-2">
+      {days.length === 0 ? (
+        <p className="px-2 py-3 text-sm text-muted-foreground">
+          Zatím nezaškrtnuto. První zaškrtnutí je rovnou microwin.
+        </p>
+      ) : (
+        <ul className="flex flex-col">
+          {days.map((d) => (
+            <li
+              key={d.id}
+              className="flex items-center gap-2 border-b border-dashed py-1.5 last:border-0"
+            >
+              <span className="w-28 shrink-0 text-xs text-muted-foreground">
+                {d.date === today ? "dnes" : formatDate(d.date)}
+              </span>
+              <Badge variant="win">
+                <Check /> hotovo
+              </Badge>
+              <div className="ml-auto">
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={`Zrušit ${formatDate(d.date)}`}
+                  onClick={() => toggleCheck(node.id, d.date)}
+                  className="text-muted-foreground hover:text-destructive"
+                >
+                  <Trash2 />
+                </Button>
+              </div>
+            </li>
+          ))}
+          <li className="pt-2 text-xs text-muted-foreground">
+            {summary.dayCount} {plural(summary.dayCount, "den", "dny", "dní")} celkem
+            {summary.lastDate ? `, naposledy ${formatDateRelative(summary.lastDate, today)}` : ""}.
+          </li>
+        </ul>
+      )}
+
+      <div className="flex items-end gap-2 border-t pt-2">
+        <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+          Doplnit den
+          <Input
+            type="date"
+            value={date}
+            max={today}
+            onChange={(e) => setDate(e.target.value || today)}
+            className="h-8 w-40"
+          />
+        </label>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={alreadyMarked}
+          onClick={() => toggleCheck(node.id, date)}
+        >
+          <Check /> {alreadyMarked ? "Už je zaškrtnuto" : "Zaškrtnout"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** Jednorázový win: jen datum, poznámka a fakt, že je hotový. */
+export function OnceDetail({ node }: { node: TreeNode }) {
+  const { state, today } = useStore();
+  const entry = onceEntry(state.entries, node.id);
+
+  if (!entry) {
+    return (
+      <p className="px-2 py-3 text-sm text-muted-foreground">
+        Bez data - uprav win a doplň den, kdy se to stalo.
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5 py-1">
+      <div className="flex items-center gap-2">
+        <span className="w-28 shrink-0 text-xs text-muted-foreground">
+          {entry.date === today ? "dnes" : formatDate(entry.date)}
+        </span>
+        <Badge variant="win">
+          <Trophy /> hotovo
+        </Badge>
+        <span className="text-xs text-muted-foreground">
+          {formatDateRelative(entry.date, today)}
+        </span>
+      </div>
+      {entry.note ? (
+        <p className="whitespace-pre-wrap rounded-md bg-muted/40 px-3 py-2 text-sm">{entry.note}</p>
+      ) : (
+        <p className="px-1 text-xs text-muted-foreground">Bez poznámky.</p>
+      )}
+    </div>
   );
 }
 

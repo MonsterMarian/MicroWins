@@ -64,6 +64,11 @@ export function formatDateRelative(iso: ISODate, today: ISODate = todayISO()): s
   return formatDate(iso);
 }
 
+/** Číslo dne v měsíci (1-31). */
+export function dayOfMonth(iso: ISODate): number {
+  return fromISODate(iso).getDate();
+}
+
 /** Pondělkem začínající týden (0 = pondělí). */
 export function weekdayMondayFirst(iso: ISODate): number {
   return (fromISODate(iso).getDay() + 6) % 7;

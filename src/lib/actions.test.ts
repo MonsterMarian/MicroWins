@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { addCategory, addEntry, addMetric, deleteEntry, deleteNode } from "./actions";
-import { formatMetricLabel, recordOf, summarizeMetric } from "./domain";
+import {
+  addCategory,
+  addCheck,
+  addEntry,
+  addMetric,
+  addOnce,
+  deleteEntry,
+  deleteNode,
+  toggleCheck,
+  updateOnce,
+} from "./actions";
+import { childrenOf, formatMetricLabel, recordOf, summarizeFlag, summarizeMetric } from "./domain";
 import { streaks, dayRows, totals } from "./stats";
 import { EMPTY_STATE, type MicroWinsState } from "./types";
 
@@ -172,6 +182,161 @@ describe("rekord a microwin", () => {
     expect(after.nodes).toHaveLength(0);
     expect(after.entries).toHaveLength(0);
     expect(after.microwins).toHaveLength(0);
+  });
+});
+
+describe("zaškrtávací win (check)", () => {
+  function withCheck() {
+    const a = addCategory(EMPTY_STATE, null, "Fitness");
+    const c = addCheck(a.state, a.node.id, "Ranní protažení");
+    return { state: c.state, checkId: c.node.id };
+  }
+
+  it("zaškrtnutí dneška je microwin bez čísla", () => {
+    const { state, checkId } = withCheck();
+    const r = toggleCheck(state, checkId, undefined, TODAY);
+
+    expect(r.checked).toBe(true);
+    expect(r.state.entries).toHaveLength(1);
+    expect(r.state.entries[0].value).toBe(1);
+    expect(r.state.microwins).toHaveLength(1);
+    expect(r.microwin?.value).toBe(1);
+    expect(r.microwin?.previousRecord).toBe(0);
+  });
+
+  it("opakované zaškrtnutí dává microwin každý den, ne jen poprvé", () => {
+    const { state, checkId } = withCheck();
+    const d1 = toggleCheck(state, checkId, "2026-08-04", TODAY);
+    const d2 = toggleCheck(d1.state, checkId, "2026-08-05", TODAY);
+    const d3 = toggleCheck(d2.state, checkId, TODAY, TODAY);
+
+    expect(d3.state.microwins).toHaveLength(3);
+    expect(streaks(d3.state, TODAY).current).toBe(3);
+  });
+
+  it("dvojí zaškrtnutí téhož dne microwin nezdvojí", () => {
+    const { state, checkId } = withCheck();
+    const on = toggleCheck(state, checkId, TODAY, TODAY);
+    const off = toggleCheck(on.state, checkId, TODAY, TODAY);
+    const again = toggleCheck(off.state, checkId, TODAY, TODAY);
+
+    expect(again.state.entries).toHaveLength(1);
+    expect(again.state.microwins).toHaveLength(1);
+  });
+
+  it("odškrtnutí microwin toho dne zase odebere", () => {
+    const { state, checkId } = withCheck();
+    const on = toggleCheck(state, checkId, TODAY, TODAY);
+    const off = toggleCheck(on.state, checkId, TODAY, TODAY);
+
+    expect(off.checked).toBe(false);
+    expect(off.state.entries).toHaveLength(0);
+    expect(off.state.microwins).toHaveLength(0);
+  });
+
+  it("zpětné zaškrtnutí win dává ke svému dni (na rozdíl od metriky)", () => {
+    const { state, checkId } = withCheck();
+    const r = toggleCheck(state, checkId, "2026-08-01", TODAY);
+
+    expect(r.state.microwins).toHaveLength(1);
+    expect(r.state.microwins[0].date).toBe("2026-08-01");
+    expect(r.state.entries[0].backdated).toBe(true);
+  });
+
+  it("budoucí den zaškrtnout nejde", () => {
+    const { state, checkId } = withCheck();
+    const r = toggleCheck(state, checkId, "2026-08-07", TODAY);
+
+    expect(r.state.entries).toHaveLength(0);
+    expect(r.state.microwins).toHaveLength(0);
+  });
+
+  it("souhrn počítá dny i sérii", () => {
+    const { state, checkId } = withCheck();
+    let s = toggleCheck(state, checkId, "2026-08-04", TODAY).state;
+    s = toggleCheck(s, checkId, "2026-08-05", TODAY).state;
+    s = toggleCheck(s, checkId, TODAY, TODAY).state;
+
+    const node = s.nodes.find((n) => n.id === checkId)!;
+    const summary = summarizeFlag(s, node, TODAY);
+
+    expect(summary.dayCount).toBe(3);
+    expect(summary.doneToday).toBe(true);
+    expect(summary.streak).toBe(3);
+    expect(summary.lastDate).toBe(TODAY);
+    expect(summary.path).toBe("Fitness");
+  });
+
+  it("v přehledu dnů má check text bez čísla", () => {
+    const { state, checkId } = withCheck();
+    const s = toggleCheck(state, checkId, TODAY, TODAY).state;
+    const rows = dayRows(s);
+
+    expect(rows[0].items[0].text).toBe("Ranní protažení");
+    expect(rows[0].items[0].kind).toBe("check");
+  });
+});
+
+describe("jednorázový win (once)", () => {
+  it("vytvořením vzniká uzel, záznam i microwin", () => {
+    const a = addCategory(EMPTY_STATE, null, "Business");
+    const r = addOnce(a.state, a.node.id, { name: "První nabídka", note: "48 000" }, TODAY);
+
+    expect(r.node.kind).toBe("once");
+    expect(r.state.entries).toHaveLength(1);
+    expect(r.state.entries[0].note).toBe("48 000");
+    expect(r.state.microwins).toHaveLength(1);
+    expect(r.microwin?.date).toBe(TODAY);
+  });
+
+  it("zapsaný ke staršímu dni patří tomu dni", () => {
+    const r = addOnce(EMPTY_STATE, null, { name: "Dodělal jsem web", date: "2026-07-30" }, TODAY);
+
+    expect(r.state.microwins[0].date).toBe("2026-07-30");
+    expect(totals(r.state, TODAY).today).toBe(0);
+  });
+
+  it("budoucí datum spadne na dnešek", () => {
+    const r = addOnce(EMPTY_STATE, null, { name: "Zítřek", date: "2026-09-01" }, TODAY);
+
+    expect(r.state.entries[0].date).toBe(TODAY);
+    expect(r.state.microwins[0].date).toBe(TODAY);
+  });
+
+  it("přesun data přesune i microwin", () => {
+    const r = addOnce(EMPTY_STATE, null, { name: "Web hotov" }, TODAY);
+    const moved = updateOnce(r.state, r.node.id, { date: "2026-08-01" }, TODAY);
+
+    expect(moved.microwins).toHaveLength(1);
+    expect(moved.microwins[0].date).toBe("2026-08-01");
+    expect(moved.entries[0].date).toBe("2026-08-01");
+  });
+
+  it("smazání záznamu microwin odebere", () => {
+    const r = addOnce(EMPTY_STATE, null, { name: "Web hotov" }, TODAY);
+    const after = deleteEntry(r.state, r.state.entries[0].id, TODAY);
+
+    expect(after.microwins).toHaveLength(0);
+  });
+});
+
+describe("pořadí ve složce", () => {
+  it("nahoře čísla, pak zaškrtávací, nakonec jednorázové", () => {
+    const cat = addCategory(EMPTY_STATE, null, "Business");
+    const parent = cat.node.id;
+
+    // schválně v opačném pořadí, než se má zobrazit
+    let s = addOnce(cat.state, parent, { name: "jednorázový" }, TODAY).state;
+    s = addCheck(s, parent, "zaškrtávací").state;
+    s = addMetric(s, parent, { name: "X čísel" }).state;
+    s = addCategory(s, parent, "podsložka").state;
+
+    expect(childrenOf(s.nodes, parent).map((n) => n.kind)).toEqual([
+      "category",
+      "metric",
+      "check",
+      "once",
+    ]);
   });
 });
 

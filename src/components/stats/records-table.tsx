@@ -2,12 +2,10 @@
 
 import * as React from "react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { useStore } from "@/components/providers/store-provider";
 import { formatDate } from "@/lib/date";
 import { metricsOf, summarizeMetric } from "@/lib/domain";
-import { byRootCategory } from "@/lib/stats";
-import { cn, formatNumber, plural } from "@/lib/utils";
+import { cn, formatNumber } from "@/lib/utils";
 
 export function RecordsTable() {
   const { state, today } = useStore();
@@ -86,39 +84,6 @@ export function RecordsTable() {
             ))}
           </tbody>
         </table>
-      </CardContent>
-    </Card>
-  );
-}
-
-export function CategoryBreakdown() {
-  const { state } = useStore();
-  const rows = React.useMemo(() => byRootCategory(state), [state]);
-  const total = rows.reduce((s, r) => s + r.count, 0);
-
-  if (rows.length === 0) return null;
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Rozložení podle oblastí</CardTitle>
-        <CardDescription>Kde microwiny opravdu padají.</CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-2.5">
-        {rows.map((r) => {
-          const pct = Math.round((r.count / total) * 100);
-          return (
-            <div key={r.node.id} className="flex items-center gap-3">
-              <span className="w-28 shrink-0 truncate text-sm">{r.node.name}</span>
-              <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
-                <div className="h-full rounded-full bg-win" style={{ width: `${pct}%` }} />
-              </div>
-              <Badge variant="outline" className="tabular shrink-0">
-                {r.count} {plural(r.count, "microwin", "microwiny", "microwinů")} · {pct} %
-              </Badge>
-            </div>
-          );
-        })}
       </CardContent>
     </Card>
   );

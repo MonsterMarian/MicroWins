@@ -47,16 +47,7 @@ export function saveState(state: MicroWinsState): void {
   }
 }
 
-export function exportState(state: MicroWinsState): string {
-  return JSON.stringify(state, null, 2);
-}
-
-export function downloadState(state: MicroWinsState): void {
-  const blob = new Blob([exportState(state)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `microwins-${new Date().toISOString().slice(0, 10)}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
+/**
+ * Záloha a obnova žijí v `lib/backup.ts` - kromě stavu musí umět i nastavení
+ * a v nativní appce zapsat soubor, protože stahovací odkaz ve WebView nefunguje.
+ */

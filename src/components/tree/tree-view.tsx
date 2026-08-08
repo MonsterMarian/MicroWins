@@ -2,12 +2,15 @@
 
 import * as React from "react";
 import {
+  Check,
   ChevronRight,
   FolderPlus,
   Gauge,
   Pencil,
   Plus,
   Sparkles,
+  Square,
+  Star,
   Trash2,
   Trophy,
 } from "lucide-react";
@@ -16,10 +19,20 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
 import { useStore } from "@/components/providers/store-provider";
+import { useToast } from "@/components/providers/toast-provider";
 import { EntryDialog } from "./entry-dialog";
-import { MetricEntries } from "./metric-entries";
+import { CheckEntries, MetricEntries, OnceDetail } from "./metric-entries";
 import { NodeDialog, type NodeDialogState } from "./node-dialog";
-import { childrenOf, microwinsInSubtree, subtreeIds, summarizeMetric } from "@/lib/domain";
+import { formatDate } from "@/lib/date";
+import { tapFeedback, winFeedback } from "@/lib/native";
+import {
+  childrenOf,
+  microwinsInSubtree,
+  onceEntry,
+  subtreeIds,
+  summarizeFlag,
+  summarizeMetric,
+} from "@/lib/domain";
 import type { TreeNode } from "@/lib/types";
 import { cn, formatNumber, plural } from "@/lib/utils";
 
@@ -54,16 +67,21 @@ export function TreeView() {
         <div>
           <h2 className="text-sm font-semibold tracking-tight">Strom úspěchů</h2>
           <p className="text-xs text-muted-foreground">
-            Kategorie → podkategorie → metrika se záznamy.
+            Složky → winy: číselné, zaškrtávací nebo jednorázové.
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setNodeRequest({ kind: "category", parentId: null })}
-        >
-          <FolderPlus /> Kategorie
-        </Button>
+        <div className="flex gap-1.5">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setNodeRequest({ kind: "category", parentId: null })}
+          >
+            <FolderPlus /> Složka
+          </Button>
+          <Button size="sm" onClick={() => setNodeRequest({ kind: "metric", parentId: null })}>
+            <Plus /> Win
+          </Button>
+        </div>
       </header>
 
       <Card className="p-1.5">
@@ -71,16 +89,16 @@ export function TreeView() {
           <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
             <p className="text-sm font-medium">Zatím prázdno</p>
             <p className="max-w-sm text-sm text-muted-foreground">
-              Založ kategorii (Business, Fitness), pod ni metriku s textem typu
-              {" "}
-              <span className="font-mono text-xs">X cold calls za den</span> a zapisuj.
+              Založ složku (Business, Fitness) a pod ni win: číselný
+              (<span className="font-mono text-xs">X cold calls za den</span>), zaškrtávací
+              (Ranní protažení) nebo jednorázový.
             </p>
             <div className="flex gap-2">
               <Button
                 size="sm"
                 onClick={() => setNodeRequest({ kind: "category", parentId: null })}
               >
-                <FolderPlus /> Nová kategorie
+                <FolderPlus /> Nová složka
               </Button>
               <Button size="sm" variant="outline" onClick={loadDemo}>
                 <Sparkles /> Ukázková data
@@ -138,12 +156,24 @@ interface RowProps {
 
 function NodeRow(props: RowProps) {
   const { node, depth, expanded, onToggle, onAddEntry, onNodeRequest, onDelete } = props;
-  const { state, today } = useStore();
+  const { state, today, toggleCheck } = useStore();
+  const { toast } = useToast();
   const isOpen = expanded.has(node.id);
   const children = childrenOf(state.nodes, node.id);
-  const isMetric = node.kind === "metric";
-  const summary = isMetric ? summarizeMetric(state, node, today) : null;
-  const hasBody = isMetric || children.length > 0;
+  const isCategory = node.kind === "category";
+  const hasBody = !isCategory || children.length > 0;
+
+  const check = node.kind === "check" ? summarizeFlag(state, node, today) : null;
+
+  const onCheck = () => {
+    const res = toggleCheck(node.id);
+    void (res.checked ? winFeedback() : tapFeedback());
+    toast(
+      res.checked
+        ? { tone: "win", title: `Microwin! ${node.name}`, description: "Dnešek je odškrtnutý." }
+        : { tone: "warn", title: "Odškrtnuto", description: `${node.name} - dnešní microwin padl.` },
+    );
+  };
 
   return (
     <li>
@@ -168,56 +198,28 @@ function NodeRow(props: RowProps) {
           />
         </button>
 
-        {isMetric ? (
-          <Gauge className="size-3.5 shrink-0 text-muted-foreground" />
-        ) : (
-          <span className="size-1.5 shrink-0 rounded-full bg-muted-foreground/50" />
-        )}
+        <KindIcon node={node} />
 
         <span
-          className={cn(
-            "min-w-0 truncate",
-            isMetric ? "text-sm" : "text-sm font-medium",
-          )}
+          className={cn("min-w-0 truncate text-sm", isCategory && "font-medium")}
           title={node.name}
         >
           {node.name}
         </span>
 
-        {summary ? (
-          <div className="flex shrink-0 items-center gap-1.5">
-            <Badge variant="outline" className="tabular">
-              rekord{" "}
-              {summary.record.value > 0 ? formatNumber(summary.record.value) : "—"}
-              {summary.record.value > 0 && node.unit ? ` ${node.unit}` : ""}
-            </Badge>
-            {summary.todayTotal > 0 ? (
-              <Badge variant={summary.hasMicrowinToday ? "win" : "default"} className="tabular">
-                {summary.hasMicrowinToday ? <Trophy /> : null}
-                dnes {formatNumber(summary.todayTotal)}
-              </Badge>
-            ) : null}
-          </div>
-        ) : (
-          <CategoryBadge nodeId={node.id} />
-        )}
+        {node.kind === "metric" ? <MetricBadges node={node} /> : null}
+        {node.kind === "check" && check ? <CheckBadges summary={check} /> : null}
+        {node.kind === "once" ? <OnceBadge node={node} /> : null}
+        {isCategory ? <CategoryBadge nodeId={node.id} /> : null}
 
         <div className="ml-auto flex shrink-0 items-center gap-0.5 opacity-100 transition-opacity sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100">
-          {!isMetric ? (
-            <>
-              <IconAction
-                label="Přidat podkategorii"
-                onClick={() => onNodeRequest({ kind: "category", parentId: node.id })}
-              >
-                <FolderPlus />
-              </IconAction>
-              <IconAction
-                label="Přidat metriku"
-                onClick={() => onNodeRequest({ kind: "metric", parentId: node.id })}
-              >
-                <Gauge />
-              </IconAction>
-            </>
+          {isCategory ? (
+            <IconAction
+              label="Přidat do složky"
+              onClick={() => onNodeRequest({ kind: "metric", parentId: node.id })}
+            >
+              <Plus />
+            </IconAction>
           ) : null}
           <IconAction
             label="Upravit"
@@ -230,16 +232,45 @@ function NodeRow(props: RowProps) {
           </IconAction>
         </div>
 
-        {isMetric ? (
+        {node.kind === "metric" ? (
           <Button size="sm" className="ml-1 shrink-0" onClick={() => onAddEntry(node)}>
             <Plus /> Zápis
           </Button>
         ) : null}
+
+        {node.kind === "check" && check ? (
+          <Button
+            size="sm"
+            variant={check.doneToday ? "win" : "outline"}
+            className="ml-1 shrink-0"
+            aria-pressed={check.doneToday}
+            aria-label={check.doneToday ? "Odškrtnout dnešek" : "Zaškrtnout dnešek"}
+            title={check.doneToday ? "Odškrtnout dnešek" : "Zaškrtnout dnešek"}
+            onClick={onCheck}
+          >
+            {check.doneToday ? <Check /> : <Square />}
+            <span className="hidden sm:inline">
+              {check.doneToday ? "Dnes hotovo" : "Dnes"}
+            </span>
+          </Button>
+        ) : null}
       </div>
 
-      {isOpen && isMetric ? (
+      {isOpen && node.kind === "metric" ? (
         <div style={{ paddingLeft: depth * 18 + 34 }} className="pb-2 pr-2">
           <MetricEntries metric={node} />
+        </div>
+      ) : null}
+
+      {isOpen && node.kind === "check" ? (
+        <div style={{ paddingLeft: depth * 18 + 34 }} className="pb-2 pr-2">
+          <CheckEntries node={node} />
+        </div>
+      ) : null}
+
+      {isOpen && node.kind === "once" ? (
+        <div style={{ paddingLeft: depth * 18 + 34 }} className="pb-2 pr-2">
+          <OnceDetail node={node} />
         </div>
       ) : null}
 
@@ -251,6 +282,65 @@ function NodeRow(props: RowProps) {
         </ul>
       ) : null}
     </li>
+  );
+}
+
+function KindIcon({ node }: { node: TreeNode }) {
+  if (node.kind === "metric") return <Gauge className="size-3.5 shrink-0 text-muted-foreground" />;
+  if (node.kind === "check")
+    return <Check className="size-3.5 shrink-0 text-muted-foreground" />;
+  if (node.kind === "once") return <Star className="size-3.5 shrink-0 text-muted-foreground" />;
+  return <span className="size-1.5 shrink-0 rounded-full bg-muted-foreground/50" />;
+}
+
+function MetricBadges({ node }: { node: TreeNode }) {
+  const { state, today } = useStore();
+  const summary = summarizeMetric(state, node, today);
+
+  return (
+    <div className="flex shrink-0 items-center gap-1.5">
+      <Badge variant="outline" className="tabular">
+        rekord {summary.record.value > 0 ? formatNumber(summary.record.value) : "—"}
+        {summary.record.value > 0 && node.unit ? ` ${node.unit}` : ""}
+      </Badge>
+      {summary.todayTotal > 0 ? (
+        <Badge variant={summary.hasMicrowinToday ? "win" : "default"} className="tabular">
+          {summary.hasMicrowinToday ? <Trophy /> : null}
+          dnes {formatNumber(summary.todayTotal)}
+        </Badge>
+      ) : null}
+    </div>
+  );
+}
+
+function CheckBadges({ summary }: { summary: ReturnType<typeof summarizeFlag> }) {
+  return (
+    <div className="flex shrink-0 items-center gap-1.5">
+      <Badge variant="outline" className="tabular hidden sm:inline-flex">
+        {summary.dayCount} {plural(summary.dayCount, "den", "dny", "dní")}
+      </Badge>
+      {summary.streak > 1 ? (
+        <Badge variant="outline" className="tabular hidden sm:inline-flex">
+          série {summary.streak}
+        </Badge>
+      ) : null}
+      {summary.doneToday ? (
+        <Badge variant="win">
+          <Trophy /> dnes
+        </Badge>
+      ) : null}
+    </div>
+  );
+}
+
+function OnceBadge({ node }: { node: TreeNode }) {
+  const { state } = useStore();
+  const entry = onceEntry(state.entries, node.id);
+
+  return (
+    <Badge variant="outline" className="tabular shrink-0">
+      {entry ? formatDate(entry.date) : "bez data"}
+    </Badge>
   );
 }
 
@@ -314,7 +404,7 @@ function DeleteDialog({
       open
       onOpenChange={(open) => !open && onCancel()}
       title={`Smazat "${node.name}"?`}
-      description="Smazání je nevratné - záznamy i microwiny podstromu zmizí."
+      description="Smazání je nevratné - záznamy i microwiny celého podstromu zmizí."
       footer={
         <>
           <Button variant="ghost" onClick={onCancel}>

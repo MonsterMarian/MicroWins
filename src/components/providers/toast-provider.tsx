@@ -50,7 +50,8 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     <ToastContext.Provider value={api}>
       {children}
       <div
-        className="pointer-events-none fixed inset-x-0 bottom-0 z-[60] flex flex-col items-center gap-2 p-4 sm:items-end"
+        // Na mobilu nad spodní lištou, ne pod ní.
+        className="mw-safe-bottom pointer-events-none fixed inset-x-0 bottom-16 z-[60] flex flex-col items-center gap-2 p-4 sm:bottom-0 sm:items-end"
         role="status"
         aria-live="polite"
       >

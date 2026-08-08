@@ -58,7 +58,7 @@ export function PortfolioAnalytics() {
           {rows.map((s) => (
             <Link
               key={s.project.id}
-              href={`/projects/${s.project.id}`}
+              href={`/projects?id=${s.project.id}`}
               className="flex flex-col gap-1 rounded-md px-1 py-1 hover:bg-accent/50"
             >
               <div className="flex items-center gap-2">

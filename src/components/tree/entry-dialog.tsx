@@ -16,6 +16,7 @@ import {
   recordOf,
   type Evaluation,
 } from "@/lib/domain";
+import { tapFeedback, winFeedback } from "@/lib/native";
 import type { Entry, TreeNode } from "@/lib/types";
 import { formatNumber, parseNumber } from "@/lib/utils";
 
@@ -86,6 +87,7 @@ export function EntryDialog({
     }
 
     const label = formatMetricLabel(metric.name, res.evaluation.dayTotal, metric.unit);
+    void (res.evaluation.isMicrowin ? winFeedback() : tapFeedback());
 
     if (res.evaluation.isMicrowin) {
       toast({

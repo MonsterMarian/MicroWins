@@ -108,7 +108,7 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
           {project.name}
         </h1>
         <Link
-          href={`/projects/${project.id}/stats`}
+          href={`/projects/stats?id=${project.id}`}
           className="inline-flex size-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
           aria-label="Statistiky projektu"
           title="Statistiky projektu"

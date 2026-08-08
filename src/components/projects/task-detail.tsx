@@ -185,7 +185,7 @@ export function TaskDetail({ taskId }: { taskId: string }) {
             <Row icon={FolderOpen} label="Projekt">
               {project ? (
                 <Link
-                  href={`/projects/${project.id}`}
+                  href={`/projects?id=${project.id}`}
                   className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs hover:bg-accent"
                 >
                   <span>{project.icon}</span>
@@ -284,7 +284,7 @@ export function TaskDetail({ taskId }: { taskId: string }) {
               const childPercent = taskPercent(state, child);
               return (
                 <li key={child.id} className="flex items-center gap-3 px-5 py-2.5">
-                  <Link href={`/tasks/${child.id}`} className="min-w-0 flex-1">
+                  <Link href={`/tasks?id=${child.id}`} className="min-w-0 flex-1">
                     <div className="truncate text-sm">{child.name}</div>
                     <div className="tabular text-xs text-muted-foreground">
                       {formatNumber(child.current)} / {formatNumber(child.target)}
@@ -375,7 +375,7 @@ export function TaskDetail({ taskId }: { taskId: string }) {
               variant="destructive"
               onClick={() => {
                 deleteTask(task.id);
-                router.push(`/projects/${task.projectId}`);
+                router.push(`/projects?id=${task.projectId}`);
               }}
             >
               <Trash2 /> Smazat

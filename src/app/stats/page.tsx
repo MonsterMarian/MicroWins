@@ -2,10 +2,11 @@
 
 import * as React from "react";
 import { useStore } from "@/components/providers/store-provider";
-import { DayTable, LastDaysStrip } from "@/components/stats/day-table";
+import { LastDaysStrip } from "@/components/stats/day-table";
+import { FlagsTable } from "@/components/stats/flags-table";
 import { Heatmap } from "@/components/stats/heatmap";
 import { PortfolioAnalytics } from "@/components/stats/portfolio-analytics";
-import { CategoryBreakdown, RecordsTable } from "@/components/stats/records-table";
+import { RecordsTable } from "@/components/stats/records-table";
 import { StatCards } from "@/components/stats/stat-cards";
 import { cn } from "@/lib/utils";
 
@@ -65,10 +66,9 @@ export default function StatsPage() {
             <LastDaysStrip />
           </section>
 
-          <DayTable />
           {state.microwins.length > 0 ? <Heatmap /> : null}
-          <CategoryBreakdown />
           <RecordsTable />
+          <FlagsTable />
         </>
       ) : (
         <PortfolioAnalytics />

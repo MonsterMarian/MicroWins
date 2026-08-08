@@ -1,19 +1,32 @@
 /**
  * Datový model MicroWins.
  *
- * Strom: uzly typu `category` mohou obsahovat další kategorie i metriky.
- * Uzel typu `metric` je list stromu - drží šablonu textu s "X" a záznamy.
+ * Strom: uzly typu `category` mohou obsahovat další kategorie i všechny tři
+ * druhy winů. Winy jsou vždy listy stromu.
  *
  *  - Business                      (category)
  *  -- cold calls                   (category)
- *  --- X cold calls za den         (metric)
+ *  --- X cold calls za den         (metric - číslo, honí se rekord)
  *      [2; 1.1.2026] [4; 5.6.2026] (entries)
+ *  -- Ranní protažení              (check - jen ANO, opakuje se)
+ *      [1; 5.8.2026] [1; 6.8.2026] (entries, hodnota vždy 1)
+ *  -- Odeslal jsem první nabídku   (once - stane se jednou, poznámka + datum)
+ *      [1; 2.8.2026]               (jediný entry)
  */
 
 /** Datum ve tvaru YYYY-MM-DD (lokální den, ne UTC). */
 export type ISODate = string;
 
-export type NodeKind = "category" | "metric";
+/**
+ * - `category`: složka, může obsahovat další složky i winy.
+ * - `metric`: číselný win. Microwin padne, když denní součet překoná rekord.
+ * - `check`: nekvantifikovatelný opakovaný win. Zaškrtnutí dne = microwin dne.
+ * - `once`: jednorázový win. Zapíše se jednou, k jednomu dni, a je hotový.
+ */
+export type NodeKind = "category" | "metric" | "check" | "once";
+
+/** Winy jsou listy stromu - všechno kromě kategorie. */
+export const WIN_KINDS = ["metric", "check", "once"] as const satisfies readonly NodeKind[];
 
 /**
  * Jak se sčítají záznamy ve stejném dni.
@@ -26,7 +39,10 @@ export interface TreeNode {
   id: string;
   parentId: string | null;
   kind: NodeKind;
-  /** Kategorie: název. Metrika: šablona textu s "X", např. "X cold calls za den". */
+  /**
+   * Kategorie: název. Metrika: šablona textu s "X" ("X cold calls za den").
+   * Check a once: prostý text winu ("Ranní protažení").
+   */
   name: string;
   /** Jen pro metriku - jednotka do popisků, např. "H" nebo "km". */
   unit?: string;
@@ -37,27 +53,29 @@ export interface TreeNode {
 
 export interface Entry {
   id: string;
+  /** Uzel, ke kterému záznam patří (metric, check i once). */
   metricId: string;
   /** Den, ke kterému záznam patří. Výchozí = dnešek, lze zadat i starší. */
   date: ISODate;
-  /** Vždy > 0, může být desetinné (2.5). */
+  /** Vždy > 0, může být desetinné (2.5). U check a once vždy 1. */
   value: number;
   note?: string;
   createdAt: string;
-  /** true = záznam byl zapsán zpětně (date !== den zápisu) -> nikdy nedává microwin. */
+  /** true = záznam byl zapsán zpětně (date !== den zápisu). */
   backdated: boolean;
 }
 
 export interface Microwin {
   id: string;
+  /** Uzel, ke kterému microwin patří (metric, check i once). */
   metricId: string;
-  /** Den, kdy byl microwin získán - vždy den zápisu (dnešek). */
+  /** Den, ke kterému microwin patří. */
   date: ISODate;
-  /** Denní součet metriky v okamžiku udělení. */
+  /** Denní součet metriky v okamžiku udělení. U check a once vždy 1. */
   value: number;
   /** Nejlepší denní součet z ostatních dnů před udělením (0 = žádný). */
   previousRecord: number;
-  /** true = první záznam metriky vůbec. */
+  /** true = první záznam uzlu vůbec. */
   firstEver: boolean;
   createdAt: string;
 }

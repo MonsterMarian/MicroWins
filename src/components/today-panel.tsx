@@ -1,41 +1,29 @@
 "use client";
 
 import * as React from "react";
-import { Flame, Plus, Target, Trophy } from "lucide-react";
+import { CalendarCheck, Check, Flag, Flame, Trophy } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { ProgressBar } from "@/components/ui/progress";
 import { useStore } from "@/components/providers/store-provider";
-import { EntryDialog } from "@/components/tree/entry-dialog";
 import { dayName, formatDate } from "@/lib/date";
-import { metricsOf, summarizeMetric } from "@/lib/domain";
-import { dayRows, streaks } from "@/lib/stats";
-import type { TreeNode } from "@/lib/types";
+import { dayRows, streaks, winDetail } from "@/lib/stats";
+import {
+  achievedMilestones,
+  nextMilestones,
+  type MilestoneKind,
+  type WinMilestone,
+} from "@/lib/milestones";
 import { formatNumber, plural } from "@/lib/utils";
 
 export function TodayPanel() {
   const { state, today } = useStore();
-  const [entryFor, setEntryFor] = React.useState<TreeNode | null>(null);
 
   const streak = React.useMemo(() => streaks(state, today), [state, today]);
   const todayRow = React.useMemo(
     () => dayRows(state).find((r) => r.date === today) ?? null,
     [state, today],
   );
-
-  // Metriky seřazené podle toho, jak blízko jsou dnes rekordu.
-  const chase = React.useMemo(() => {
-    return metricsOf(state.nodes)
-      .map((metric) => summarizeMetric(state, metric, today))
-      .filter((s) => !s.hasMicrowinToday)
-      .sort((a, b) => {
-        if (a.record.value === 0 || b.record.value === 0) {
-          return Number(b.record.value === 0) - Number(a.record.value === 0);
-        }
-        return a.toRecord / a.record.value - b.toRecord / b.record.value;
-      })
-      .slice(0, 4);
-  }, [state, today]);
 
   const count = todayRow?.count ?? 0;
 
@@ -76,11 +64,7 @@ export function TodayPanel() {
             >
               <Trophy className="size-4 shrink-0 text-win" />
               <span className="text-sm font-medium">{item.text}</span>
-              <span className="text-xs text-muted-foreground">
-                {item.firstEver
-                  ? "první zápis"
-                  : `předchozí rekord ${formatNumber(item.previousRecord)}`}
-              </span>
+              <span className="text-xs text-muted-foreground">{winDetail(item)}</span>
               {item.path ? (
                 <span className="ml-auto text-xs text-muted-foreground">{item.path}</span>
               ) : null}
@@ -89,40 +73,86 @@ export function TodayPanel() {
         </ul>
       ) : null}
 
-      {chase.length > 0 ? (
-        <div className="border-t bg-muted/30 px-5 py-3">
-          <p className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-            <Target className="size-3.5" />
-            {count === 0 ? "Co dnes zlomit" : "Ještě jde zlomit"}
-          </p>
-          <ul className="flex flex-col gap-1">
-            {chase.map((s) => (
-              <li key={s.metric.id} className="flex items-center gap-2 text-sm">
-                <span className="min-w-0 truncate">{s.metric.name}</span>
-                <span className="tabular shrink-0 text-xs text-muted-foreground">
-                  {s.record.value === 0
-                    ? "bez rekordu - stačí cokoliv > 0"
-                    : `dnes ${formatNumber(s.todayTotal)} / rekord ${formatNumber(s.record.value)} · chybí ${formatNumber(s.toRecord)}`}
-                </span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="ml-auto shrink-0"
-                  onClick={() => setEntryFor(s.metric)}
-                >
-                  <Plus /> Zápis
-                </Button>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-
-      <EntryDialog
-        metric={entryFor}
-        open={entryFor !== null}
-        onOpenChange={(open) => !open && setEntryFor(null)}
-      />
+      <MilestonesSection />
     </Card>
+  );
+}
+
+const KIND_ICON: Record<MilestoneKind, React.ComponentType<{ className?: string }>> = {
+  total: Trophy,
+  streak: Flame,
+  activeDays: CalendarCheck,
+};
+
+/**
+ * Milníky se nikde nezaškrtávají - `lib/milestones.ts` je počítá ze stavu,
+ * takže se překlopí ve chvíli, kdy microwin nebo den série skutečně padne.
+ */
+function MilestonesSection() {
+  const { state } = useStore();
+  const next = React.useMemo(() => nextMilestones(state), [state]);
+  const done = React.useMemo(() => achievedMilestones(state), [state]);
+
+  if (next.length === 0 && done.length === 0) return null;
+
+  return (
+    <div className="border-t bg-muted/30 px-5 py-3">
+      <p className="mb-2.5 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+        <Flag className="size-3.5" />
+        Milníky
+        {done.length > 0 ? (
+          <span className="tabular font-normal">
+            · {done.length} {plural(done.length, "splněný", "splněné", "splněných")}
+          </span>
+        ) : null}
+      </p>
+
+      <ul className="flex flex-col gap-2.5">
+        {next.map((m) => (
+          <MilestoneRow key={m.id} milestone={m} />
+        ))}
+      </ul>
+
+      {done.length > 0 ? (
+        <ul className="mt-3 flex flex-wrap gap-1.5 border-t pt-3">
+          {done.slice(0, 8).map((m) => (
+            <li key={m.id}>
+              <Badge
+                variant="outline"
+                className="tabular"
+                title={m.achievedOn ? `splněno ${formatDate(m.achievedOn)}` : undefined}
+              >
+                <Check /> {m.label}
+              </Badge>
+            </li>
+          ))}
+          {done.length > 8 ? (
+            <li className="self-center text-xs text-muted-foreground">
+              a další {done.length - 8}
+            </li>
+          ) : null}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
+function MilestoneRow({ milestone }: { milestone: WinMilestone }) {
+  const Icon = KIND_ICON[milestone.kind];
+  const remaining = Math.max(0, milestone.target - milestone.current);
+  const pct = (milestone.current / milestone.target) * 100;
+
+  return (
+    <li className="flex flex-col gap-1">
+      <div className="flex items-center gap-2">
+        <Icon className="size-3.5 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 truncate text-sm">{milestone.label}</span>
+        <span className="tabular ml-auto shrink-0 text-xs text-muted-foreground">
+          {formatNumber(milestone.current)} / {formatNumber(milestone.target)} · chybí{" "}
+          {formatNumber(remaining)}
+        </span>
+      </div>
+      <ProgressBar value={pct} size="sm" tone="win" />
+    </li>
   );
 }

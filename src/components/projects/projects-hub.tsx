@@ -205,7 +205,7 @@ function OverviewTab({ onNewProject }: { onNewProject: () => void }) {
               movers.map((m) => (
                 <Link
                   key={m.project.id}
-                  href={`/projects/${m.project.id}`}
+                  href={`/projects?id=${m.project.id}`}
                   className="flex items-center gap-3 rounded-md px-1 py-1.5 hover:bg-accent/60"
                 >
                   <span className="text-lg">{m.project.icon}</span>
@@ -237,7 +237,7 @@ function OverviewTab({ onNewProject }: { onNewProject: () => void }) {
               </div>
             ) : (
               closest.map((c) => (
-                <Link key={c.project.id} href={`/projects/${c.project.id}`} className="flex flex-col gap-1">
+                <Link key={c.project.id} href={`/projects?id=${c.project.id}`} className="flex flex-col gap-1">
                   <div className="flex items-center gap-2">
                     <span>{c.project.icon}</span>
                     <span className="min-w-0 flex-1 truncate text-sm">{c.project.name}</span>
@@ -419,7 +419,7 @@ function TasksTab() {
         groups.map((g) => (
           <Card key={g.project.id} className="overflow-hidden">
             <Link
-              href={`/projects/${g.project.id}`}
+              href={`/projects?id=${g.project.id}`}
               className="flex items-center gap-2 border-b px-4 py-2.5 text-sm font-medium hover:bg-accent/50"
             >
               <span>{g.project.icon}</span>
@@ -513,7 +513,7 @@ function TodayTab() {
             movers.map((m) => (
               <Link
                 key={m.project.id}
-                href={`/projects/${m.project.id}`}
+                href={`/projects?id=${m.project.id}`}
                 className="flex items-center gap-3 rounded-md px-1 py-1.5 hover:bg-accent/60"
               >
                 <span className="text-lg">{m.project.icon}</span>

@@ -14,9 +14,11 @@ import { STATE_VERSION } from "./types";
 /**
  * Ukázková data.
  *
- * Strom je přesně podle zadání:
+ * Strom ukazuje všechny tři druhy winů:
  *  - Business / cold calls / "X cold calls za den"  [2; 1.1.2026] [4; 5.6.2026]
+ *  - Business / "Odeslal jsem první nabídku" (once)
  *  - Fitness  / "X H tréninku"
+ *  - Fitness  / "Ranní protažení" (check, tři dny po sobě)
  *
  * Projekty odpovídají tomu, co aplikace umí: cíl, deadline, úkoly s postupem
  * a historie postupu pro graf.
@@ -41,6 +43,13 @@ export function seedState(today: ISODate = todayISO()): MicroWinsState {
       aggregation: "sum",
       createdAt: stamp(2),
     },
+    {
+      id: "one_offer",
+      parentId: "cat_business",
+      kind: "once",
+      name: "Odeslal jsem první nabídku klientovi",
+      createdAt: stamp(5),
+    },
     { id: "cat_fitness", parentId: null, kind: "category", name: "Fitness", createdAt: stamp(3) },
     {
       id: "met_gym",
@@ -50,6 +59,13 @@ export function seedState(today: ISODate = todayISO()): MicroWinsState {
       unit: "H",
       aggregation: "sum",
       createdAt: stamp(4),
+    },
+    {
+      id: "chk_stretch",
+      parentId: "cat_fitness",
+      kind: "check",
+      name: "Ranní protažení",
+      createdAt: stamp(6),
     },
   ];
 
@@ -67,6 +83,11 @@ export function seedState(today: ISODate = todayISO()): MicroWinsState {
     entry("ent_cc2", "met_coldcalls", "2026-06-05", 4),
     entry("ent_gym1", "met_gym", addDays(today, -3), 1.5),
     entry("ent_gym2", "met_gym", addDays(today, -1), 2.5),
+    // zaškrtávací win: tři dny po sobě, dnešek zatím ne
+    entry("ent_str1", "chk_stretch", addDays(today, -3), 1),
+    entry("ent_str2", "chk_stretch", addDays(today, -2), 1),
+    entry("ent_str3", "chk_stretch", addDays(today, -1), 1),
+    { ...entry("ent_offer", "one_offer", addDays(today, -6), 1), note: "Studio Krejčí, 48 000 Kč." },
   ];
 
   const microwins: Microwin[] = [
@@ -104,6 +125,43 @@ export function seedState(today: ISODate = todayISO()): MicroWinsState {
       value: 2.5,
       previousRecord: 1.5,
       firstEver: false,
+      createdAt: stamp(0),
+    },
+    // check a once: hodnota vždy 1, rekord se nehoní
+    {
+      id: "win_str1",
+      metricId: "chk_stretch",
+      date: addDays(today, -3),
+      value: 1,
+      previousRecord: 0,
+      firstEver: true,
+      createdAt: stamp(0),
+    },
+    {
+      id: "win_str2",
+      metricId: "chk_stretch",
+      date: addDays(today, -2),
+      value: 1,
+      previousRecord: 0,
+      firstEver: false,
+      createdAt: stamp(0),
+    },
+    {
+      id: "win_str3",
+      metricId: "chk_stretch",
+      date: addDays(today, -1),
+      value: 1,
+      previousRecord: 0,
+      firstEver: false,
+      createdAt: stamp(0),
+    },
+    {
+      id: "win_offer",
+      metricId: "one_offer",
+      date: addDays(today, -6),
+      value: 1,
+      previousRecord: 0,
+      firstEver: true,
       createdAt: stamp(0),
     },
   ];

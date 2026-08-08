@@ -1,9 +1,11 @@
-import type { Aggregation, Entry, ISODate, MicroWinsState, TreeNode } from "./types";
+import { addDays } from "./date";
+import type { Aggregation, Entry, ISODate, MicroWinsState, NodeKind, TreeNode } from "./types";
 import { formatNumber } from "./utils";
 
 /**
- * Pravidla MicroWins (jádro aplikace, čisté funkce bez stavu):
+ * Pravidla MicroWins (jádro aplikace, čisté funkce bez stavu).
  *
+ * Metrika (číselný win):
  * 1. Hodnota záznamu je vždy číslo > 0, může být desetinné (2.5 H).
  *    0 se ignoruje (není to chyba, jen se nic nestane), záporné číslo je chyba.
  * 2. Denní součet metriky = agregace všech záznamů daného dne (sum / max).
@@ -15,6 +17,13 @@ import { formatNumber } from "./utils";
  *    posunout rekord, protože rekord je vlastnost dne, ne okamžiku zápisu.
  * 6. Za jednu metriku je za den maximálně jeden microwin. Když se výkon
  *    během dne ještě zlepší, microwin se aktualizuje (nezdvojuje se).
+ *
+ * Check (opakovaný win bez čísla) a once (jednorázový win):
+ * 7. Nemají rekord ani agregaci - jde jen o "stalo se / nestalo se".
+ *    Záznam dne existuje = microwin toho dne, jeden na den a uzel.
+ * 8. Proto tu neplatí pravidlo 5: zaškrtnutí zapomenutého dne je pravda o tom
+ *    dni, ne dohánění rekordu. Odškrtnutí microwin zase odebere.
+ * 9. Once má nejvýš jeden záznam - jeho datum je datum winu.
  */
 
 export const EPS = 1e-9;
@@ -29,14 +38,35 @@ export function gt(a: number, b: number): boolean {
 
 // --- strom ------------------------------------------------------------------
 
+/**
+ * Pořadí uvnitř složky: podsložky, pak číselné metriky, pak opakované checky
+ * a úplně dole jednorázové winy.
+ */
+export const KIND_ORDER: Record<NodeKind, number> = {
+  category: 0,
+  metric: 1,
+  check: 2,
+  once: 3,
+};
+
 export function childrenOf(nodes: TreeNode[], parentId: string | null): TreeNode[] {
   return nodes
     .filter((n) => n.parentId === parentId)
     .sort((a, b) => {
-      // kategorie nahoře, pak podle vytvoření
-      if (a.kind !== b.kind) return a.kind === "category" ? -1 : 1;
+      const byKind = KIND_ORDER[a.kind] - KIND_ORDER[b.kind];
+      if (byKind !== 0) return byKind;
       return a.createdAt.localeCompare(b.createdAt);
     });
+}
+
+/** Win = list stromu, tedy všechno kromě kategorie. */
+export function isWinNode(node: TreeNode | undefined): boolean {
+  return node !== undefined && node.kind !== "category";
+}
+
+/** Check a once sdílí pravidlo "záznam dne = microwin dne". */
+export function isFlagKind(kind: NodeKind): boolean {
+  return kind === "check" || kind === "once";
 }
 
 export function nodeById(nodes: TreeNode[], id: string): TreeNode | undefined {
@@ -77,6 +107,10 @@ export function subtreeIds(nodes: TreeNode[], rootId: string): string[] {
 
 export function metricsOf(nodes: TreeNode[]): TreeNode[] {
   return nodes.filter((n) => n.kind === "metric");
+}
+
+export function winNodesOf(nodes: TreeNode[]): TreeNode[] {
+  return nodes.filter((n) => n.kind !== "category");
 }
 
 // --- popisky ----------------------------------------------------------------
@@ -262,6 +296,61 @@ export function summarizeMetric(
     lastEntryDate: entries[0]?.date ?? null,
     hasMicrowinToday: microwins.some((m) => m.date === today),
     microwinCount: microwins.length,
+  };
+}
+
+// --- check a once -----------------------------------------------------------
+
+/** Dny, ke kterým uzel má záznam (u checku = zaškrtnuté dny). */
+export function markedDates(entries: Entry[], nodeId: string): Set<ISODate> {
+  return new Set(entries.filter((e) => e.metricId === nodeId).map((e) => e.date));
+}
+
+export function isMarkedOn(entries: Entry[], nodeId: string, date: ISODate): boolean {
+  return entries.some((e) => e.metricId === nodeId && e.date === date);
+}
+
+/** Once má nejvýš jeden záznam - ten nese datum a poznámku winu. */
+export function onceEntry(entries: Entry[], nodeId: string): Entry | undefined {
+  return entriesOfMetric(entries, nodeId)[0];
+}
+
+export interface FlagSummary {
+  node: TreeNode;
+  path: string;
+  doneToday: boolean;
+  /** Kolik dnů je odškrtnutých (u once 0 nebo 1). */
+  dayCount: number;
+  firstDate: ISODate | null;
+  lastDate: ISODate | null;
+  /** Aktuální série dnů zpětně od dneška (u once se nepoužívá). */
+  streak: number;
+}
+
+export function summarizeFlag(
+  state: MicroWinsState,
+  node: TreeNode,
+  today: ISODate,
+): FlagSummary {
+  const dates = [...markedDates(state.entries, node.id)].sort();
+  const set = new Set(dates);
+
+  // série: od dneška (nebo včerejška, pokud dnešek chybí) zpět po dnech
+  let streak = 0;
+  let cursor = set.has(today) ? today : addDays(today, -1);
+  while (set.has(cursor)) {
+    streak++;
+    cursor = addDays(cursor, -1);
+  }
+
+  return {
+    node,
+    path: breadcrumb(state.nodes, node.id),
+    doneToday: set.has(today),
+    dayCount: dates.length,
+    firstDate: dates[0] ?? null,
+    lastDate: dates[dates.length - 1] ?? null,
+    streak,
   };
 }
 

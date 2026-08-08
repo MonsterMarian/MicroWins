@@ -3,10 +3,12 @@
 Dvě propojené věci v jedné aplikaci:
 
 1. **Projekty** - velké cíle rozsekané na měřitelné úkoly, postup v procentech, deadline, tempo, graf vývoje a deník změn.
-2. **Strom microwinů** - stromová evidence denních rekordů. Microwin padne ve chvíli, kdy dnešek překoná dosavadní rekord.
+2. **Strom winů** - stromová evidence úspěchů ve třech druzích: číselné (honí se rekord), zaškrtávací (jen ANO, opakují se) a jednorázové (staly se jednou).
 3. **Analýza** - série (streaky), kalendář microwinů, rekordy podle metrik a tempo projektů.
 
-Data žijí lokálně v prohlížeči (`localStorage`), takže aplikace funguje offline a bez účtu. Export i import je v dialogu **Data** v hlavičce.
+Data žijí lokálně (`localStorage`), takže aplikace funguje offline a bez účtu. Export i import je v dialogu **Data** v hlavičce.
+
+Běží v prohlížeči i jako **nativní Android appka** - viz [ANDROID.md](ANDROID.md).
 
 ---
 
@@ -29,27 +31,39 @@ Aplikace běží na `http://localhost:3000`. První spuštění nabídne načten
 | `npm run test` | testy doménové logiky (Vitest) |
 | `npm run type-check` | `tsc --noEmit` |
 | `npm run ci:validate` | typy + testy |
+| `npm run android:apk` | export + sync + sestavení APK |
+| `npm run android:assets` | přegeneruje ikonu a splash |
 
 ---
 
 ## Část 1 - strom úspěchů
 
-Strom má libovolnou hloubku. Uzel je buď **kategorie** (může obsahovat další kategorie i metriky), nebo **metrika** (list, drží text a záznamy).
+Strom má libovolnou hloubku. Uzel je buď **složka** (může obsahovat další složky i winy), nebo **win** - a ten je jednoho ze tří druhů:
+
+| Druh | K čemu | Microwin padne |
+|---|---|---|
+| **číselný** (metric) | co jde změřit: hovory, hodiny, kilometry | když denní součet **k dnešku** překoná rekord |
+| **zaškrtávací** (check) | co se opakuje, ale nekvantifikuje: protažení, meditace | za **každý** odškrtnutý den |
+| **jednorázový** (once) | co se stalo jednou: první nabídka, dodělaný web | jednou, ke dni, kdy se to stalo |
 
 ```
 - Business
 -- cold calls
---- X cold calls za den
+--- X cold calls za den          (číselný)
     [2; 1. 1. 2026]
     [4; 5. 6. 2026]
+-- Odeslal jsem první nabídku    (jednorázový; 2. 8. 2026 + poznámka)
 - Fitness
--- X tréninku            (jednotka H)
+-- X tréninku                    (číselný, jednotka H)
+-- Ranní protažení               (zaškrtávací; 4 dny, série 4)
 ```
 
-Text metriky obsahuje zástupné **X**. Všude v přehledech se X nahradí hodnotou daného dne:
-`X cold calls za den` + hodnota 4 → **„4 cold calls za den"**.
+Ve složce se řadí odshora: podsložky, číselné winy, zaškrtávací, jednorázové.
 
-### Pravidla zápisu
+Text číselného winu obsahuje zástupné **X**. Všude v přehledech se X nahradí hodnotou daného dne:
+`X cold calls za den` + hodnota 4 → **„4 cold calls za den"**. Zaškrtávací a jednorázový win mají prostý text bez X.
+
+### Pravidla zápisu (číselný win)
 
 | Pravidlo | Chování |
 |---|---|
@@ -66,6 +80,12 @@ Text metriky obsahuje zástupné **X**. Všude v přehledech se X nahradí hodno
 | Jeden den, jedna metrika | nejvýš jeden microwin; když se výkon během dne zlepší, microwin se aktualizuje |
 
 Zpětný zápis, který přeskočí dnešní výkon, dnešní microwin odebere - rekord byl ve skutečnosti vyšší. Minulé microwiny se nepřepisují, jsou to získané fakty.
+
+### Pravidla zaškrtávacího a jednorázového winu
+
+Žádný rekord, žádná agregace - jen „stalo se / nestalo se". Záznam dne = microwin toho dne, nejvýš jeden.
+
+Zpětné zaškrtnutí tu microwin **dává** (na rozdíl od číselného winu). Důvod: u čísla je microwin o překonání rekordu v přítomnosti a zpětný zápis by ho fabrikoval. U zaškrtnutí není co překonávat - buď ses ten den protáhl, nebo ne, a doplnění zapomenutého dne je pravda o tom dni. Odškrtnutí microwin zase odebere.
 
 ---
 

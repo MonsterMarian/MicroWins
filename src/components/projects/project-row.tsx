@@ -19,7 +19,7 @@ export function ProjectRow({ project }: { project: Project }) {
 
   return (
     <Link
-      href={`/projects/${project.id}`}
+      href={`/projects?id=${project.id}`}
       className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-accent/60"
     >
       <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-muted text-lg">

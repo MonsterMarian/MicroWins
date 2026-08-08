@@ -1,16 +1,28 @@
 import { addDays, diffDays, todayISO, weekdayMondayFirst } from "./date";
 import { breadcrumb, formatMetricLabel, nodeById, pathOf, subtreeIds } from "./domain";
-import type { ISODate, MicroWinsState, Microwin, TreeNode } from "./types";
+import type { ISODate, MicroWinsState, Microwin, NodeKind, TreeNode } from "./types";
+import { formatNumber } from "./utils";
 
 export interface MicrowinItem {
   microwin: Microwin;
-  /** Šablona metriky s "X" nahrazeným hodnotou daného dne. */
+  /** Metrika: šablona s "X" nahrazeným hodnotou dne. Check a once: prostý text. */
   text: string;
+  /** Druh winu, ze kterého microwin padl. */
+  kind: NodeKind;
   /** "Business / cold calls" */
   path: string;
   value: number;
   previousRecord: number;
   firstEver: boolean;
+}
+
+/** Jednořádkové vysvětlení pod textem winu - u každého druhu jiné. */
+export function winDetail(item: MicrowinItem): string {
+  if (item.kind === "check") return "zaškrtnuto";
+  if (item.kind === "once") return "jednorázový win";
+  return item.firstEver
+    ? "první zápis"
+    : `předchozí rekord ${formatNumber(item.previousRecord)}`;
 }
 
 export interface DayRow {
@@ -25,10 +37,14 @@ export function dayRows(state: MicroWinsState): DayRow[] {
 
   for (const m of state.microwins) {
     const metric = nodeById(state.nodes, m.metricId);
-    if (!metric) continue; // metrika byla smazána
+    if (!metric) continue; // uzel byl smazán
     const item: MicrowinItem = {
       microwin: m,
-      text: formatMetricLabel(metric.name, m.value, metric.unit),
+      text:
+        metric.kind === "metric"
+          ? formatMetricLabel(metric.name, m.value, metric.unit)
+          : metric.name,
+      kind: metric.kind,
       path: breadcrumb(state.nodes, metric.id),
       value: m.value,
       previousRecord: m.previousRecord,

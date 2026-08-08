@@ -63,7 +63,7 @@ export function ProjectAnalytics({ projectId }: { projectId: string }) {
           variant="ghost"
           size="icon"
           aria-label="Zpět"
-          onClick={() => router.push(`/projects/${projectId}`)}
+          onClick={() => router.push(`/projects?id=${projectId}`)}
         >
           <ArrowLeft />
         </Button>

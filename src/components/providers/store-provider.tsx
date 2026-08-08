@@ -3,9 +3,10 @@
 import * as React from "react";
 import * as actions from "@/lib/actions";
 import * as projectActions from "@/lib/project-actions";
+import { applySettings, exportBackup, parseBackup, type ExportOutcome } from "@/lib/backup";
 import { todayISO } from "@/lib/date";
 import { seedState } from "@/lib/seed";
-import { downloadState, loadState, parseState, saveState } from "@/lib/storage";
+import { loadState, saveState } from "@/lib/storage";
 import {
   EMPTY_STATE,
   type ISODate,
@@ -23,12 +24,16 @@ export interface StoreApi {
   hydrated: boolean;
   addCategory: (parentId: string | null, name: string) => TreeNode;
   addMetric: (parentId: string | null, input: actions.MetricInput) => TreeNode;
+  addCheck: (parentId: string | null, name: string) => TreeNode;
+  addOnce: (parentId: string | null, input: actions.OnceInput) => actions.AddOnceResult;
   updateNode: (
     id: string,
     patch: Partial<Pick<TreeNode, "name" | "unit" | "aggregation">>,
   ) => void;
+  updateOnce: (id: string, patch: actions.OncePatch) => void;
   deleteNode: (id: string) => void;
   addEntry: (input: actions.AddEntryInput) => actions.AddEntryResult;
+  toggleCheck: (id: string, date?: ISODate) => actions.ToggleCheckResult;
   deleteEntry: (id: string) => void;
 
   createProject: (input: projectActions.ProjectInput) => Project;
@@ -50,8 +55,10 @@ export interface StoreApi {
 
   loadDemo: () => void;
   reset: () => void;
+  /** Načte zálohu (nový formát i starší holý export). */
   importJson: (text: string) => boolean;
-  exportJson: () => void;
+  /** Vyexportuje celou zálohu - sdílením v appce, stažením v prohlížeči. */
+  exportJson: () => Promise<ExportOutcome>;
 }
 
 const StoreContext = React.createContext<StoreApi | null>(null);
@@ -114,10 +121,26 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         commit(res.state);
         return res.node;
       },
+      addCheck: (parentId, name) => {
+        const res = actions.addCheck(ref.current, parentId, name);
+        commit(res.state);
+        return res.node;
+      },
+      addOnce: (parentId, input) => {
+        const res = actions.addOnce(ref.current, parentId, input, todayISO());
+        commit(res.state);
+        return res;
+      },
       updateNode: (id, patch) => commit(actions.updateNode(ref.current, id, patch, todayISO())),
+      updateOnce: (id, patch) => commit(actions.updateOnce(ref.current, id, patch, todayISO())),
       deleteNode: (id) => commit(actions.deleteNode(ref.current, id)),
       addEntry: (input) => {
         const res = actions.addEntry(ref.current, input, todayISO());
+        if (res.state !== ref.current) commit(res.state);
+        return res;
+      },
+      toggleCheck: (id, date) => {
+        const res = actions.toggleCheck(ref.current, id, date, todayISO());
         if (res.state !== ref.current) commit(res.state);
         return res;
       },
@@ -159,12 +182,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       loadDemo: () => commit(seedState(todayISO())),
       reset: () => commit(EMPTY_STATE),
       importJson: (text) => {
-        const parsed = parseState(text);
+        const parsed = parseBackup(text);
         if (!parsed) return false;
-        commit(parsed);
+        commit(parsed.state);
+        applySettings(parsed.settings);
         return true;
       },
-      exportJson: () => downloadState(ref.current),
+      exportJson: () => exportBackup(ref.current),
     }),
     [state, today, hydrated, commit],
   );

@@ -40,7 +40,7 @@ export function TaskRow({
         {done ? <Check className="size-4" /> : <span>{task.icon}</span>}
       </button>
 
-      <Link href={`/tasks/${task.id}`} className="min-w-0 flex-1">
+      <Link href={`/tasks?id=${task.id}`} className="min-w-0 flex-1">
         <div className={cn("truncate text-sm", done && "text-muted-foreground line-through")}>
           {task.name}
         </div>

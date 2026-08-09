@@ -30,3 +30,5 @@ taste/*.psd
 
 # Živé aktualizace: balík se schválně verzuje, appka si ho z GitHubu stahuje.
 # Staré balíky maže build skript, v repozitáři zůstává jen ten poslední.
+
+harness/

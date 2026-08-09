@@ -8,7 +8,6 @@ import {
   Moon,
   RefreshCw,
   Sun,
-  Trash2,
   Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -40,19 +39,19 @@ export function SettingsDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const { state, exportJson, importJson, reset } = useStore();
+  const { state, exportJson, importJson } = useStore();
   const { toast } = useToast();
   const fileRef = React.useRef<HTMLInputElement>(null);
   const [busy, setBusy] = React.useState(false);
   const [pasteOpen, setPasteOpen] = React.useState(false);
   const [pasted, setPasted] = React.useState("");
-  const [confirmReset, setConfirmReset] = React.useState(false);
+
   const [native, setNative] = React.useState(false);
 
   React.useEffect(() => setNative(isNative()), []);
   React.useEffect(() => {
     if (!open) {
-      setConfirmReset(false);
+
       setPasteOpen(false);
       setPasted("");
     }
@@ -185,29 +184,7 @@ export function SettingsDialog({
             </button>
           )}
 
-          {/* Mazání patří k záloze, ne do zvláštní sekce - kdo maže, měl by
-              mít export na dosah. */}
-          <Button
-            variant={confirmReset ? "destructive" : "ghost"}
-            className="mt-1 justify-start"
-            onClick={() => {
-              if (!confirmReset) {
-                setConfirmReset(true);
-                return;
-              }
-              reset();
-              setConfirmReset(false);
-              toast({ tone: "warn", title: "Data smazána" });
-              onOpenChange(false);
-            }}
-          >
-            <Trash2 /> {confirmReset ? "Opravdu smazat všechno?" : "Smazat všechna data"}
-          </Button>
-          {confirmReset ? (
-            <p className="px-1 text-xs text-muted-foreground">
-              Nevratné. Nejdřív si udělej zálohu.
-            </p>
-          ) : null}
+
         </Section>
 
         {native ? <UpdateSection /> : null}

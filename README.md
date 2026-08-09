@@ -22,7 +22,7 @@ npm install
 npm run dev
 ```
 
-Aplikace běží na `http://localhost:3000`. První spuštění nabídne načtení ukázkových dat.
+Aplikace běží na `http://localhost:3000`.
 
 | Skript | Co dělá |
 |---|---|
@@ -134,8 +134,7 @@ src/
     projects.ts             výpočty postupu projektů
     project-actions.ts      přechody stavu projektů
     stats.ts                série, tabulka dnů, kalendář
-    storage.ts              localStorage + export/import
-    seed.ts                 ukázková data
+    storage.ts              localStorage + export/import
 ```
 
 Doménová logika je oddělená od Reactu, takže je testovatelná: `src/lib/actions.test.ts` a `src/lib/projects.test.ts` pokrývají pravidla microwinů i výpočty projektů (44 testů).

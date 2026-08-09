@@ -8,7 +8,6 @@ import {
   Gauge,
   Pencil,
   Plus,
-  Sparkles,
   Square,
   Star,
   Trash2,
@@ -37,7 +36,7 @@ import type { TreeNode } from "@/lib/types";
 import { cn, formatNumber, plural } from "@/lib/utils";
 
 export function TreeView() {
-  const { state, hydrated, deleteNode, loadDemo } = useStore();
+  const { state, hydrated, deleteNode } = useStore();
   const [expanded, setExpanded] = React.useState<Set<string>>(new Set());
   const [entryFor, setEntryFor] = React.useState<TreeNode | null>(null);
   const [nodeRequest, setNodeRequest] = React.useState<NodeDialogState | null>(null);
@@ -93,17 +92,9 @@ export function TreeView() {
               (<span className="font-mono text-xs">X cold calls za den</span>), zaškrtávací
               (Ranní protažení) nebo jednorázový.
             </p>
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                onClick={() => setNodeRequest({ kind: "category", parentId: null })}
-              >
-                <FolderPlus /> Nová složka
-              </Button>
-              <Button size="sm" variant="outline" onClick={loadDemo}>
-                <Sparkles /> Ukázková data
-              </Button>
-            </div>
+            <Button size="sm" onClick={() => setNodeRequest({ kind: "category", parentId: null })}>
+              <FolderPlus /> Nová složka
+            </Button>
           </div>
         ) : (
           <ul>

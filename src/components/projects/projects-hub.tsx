@@ -10,7 +10,6 @@ import {
   FolderKanban,
   Plus,
   Search,
-  Sparkles,
   TrendingUp,
   Trophy,
 } from "lucide-react";
@@ -53,7 +52,7 @@ const TABS: { id: Tab; label: string }[] = [
 ];
 
 export function ProjectsHub() {
-  const { state, loadDemo } = useStore();
+  const { state } = useStore();
   const [tab, setTab] = React.useState<Tab>("overview");
   const [dialogOpen, setDialogOpen] = React.useState(false);
 
@@ -99,14 +98,9 @@ export function ProjectsHub() {
               Projekt drží procenta, deadline a úkoly. Postup se zaznamenává den po dni, takže
               vznikne graf i deník změn.
             </p>
-            <div className="flex gap-2">
-              <Button size="sm" onClick={() => setDialogOpen(true)}>
-                <Plus /> Nový projekt
-              </Button>
-              <Button size="sm" variant="outline" onClick={loadDemo}>
-                <Sparkles /> Ukázková data
-              </Button>
-            </div>
+            <Button size="sm" onClick={() => setDialogOpen(true)}>
+              <Plus /> Nový projekt
+            </Button>
           </CardContent>
         </Card>
       ) : tab === "overview" ? (

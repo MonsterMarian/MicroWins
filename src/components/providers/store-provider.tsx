@@ -5,7 +5,6 @@ import * as actions from "@/lib/actions";
 import * as projectActions from "@/lib/project-actions";
 import { applySettings, exportBackup, parseBackup, type ExportOutcome } from "@/lib/backup";
 import { todayISO } from "@/lib/date";
-import { seedState } from "@/lib/seed";
 import { loadState, saveState } from "@/lib/storage";
 import {
   EMPTY_STATE,
@@ -53,7 +52,6 @@ export interface StoreApi {
   createMilestone: (projectId: string, name: string, date: ISODate | null) => Milestone;
   deleteMilestone: (id: string) => void;
 
-  loadDemo: () => void;
   reset: () => void;
   /** Načte zálohu (nový formát i starší holý export). */
   importJson: (text: string) => boolean;
@@ -179,7 +177,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       },
       deleteMilestone: (id) => commit(projectActions.deleteMilestone(ref.current, id)),
 
-      loadDemo: () => commit(seedState(todayISO())),
       reset: () => commit(EMPTY_STATE),
       importJson: (text) => {
         const parsed = parseBackup(text);

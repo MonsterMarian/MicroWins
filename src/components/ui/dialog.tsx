@@ -70,6 +70,10 @@ export function Dialog({
         aria-label={title}
         className={cn(
           "animate-in-up relative z-10 w-full max-w-md rounded-t-xl border bg-card p-5 shadow-lg sm:rounded-xl",
+          // Dlouhý obsah (typicky Nastavení) se musí dát doscrollovat, jinak
+          // konec zůstane pod okrajem obrazovky. Spodní odsazení počítá
+          // s pruhem gest, aby poslední tlačítko nekončilo pod ním.
+          "max-h-[88dvh] overflow-y-auto pb-[calc(2rem+var(--mw-safe-bottom))] sm:max-h-[85dvh] sm:pb-5",
           className,
         )}
       >

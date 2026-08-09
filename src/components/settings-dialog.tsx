@@ -7,7 +7,6 @@ import {
   Download,
   Moon,
   RefreshCw,
-  Sparkles,
   Sun,
   Trash2,
   Upload,
@@ -41,7 +40,7 @@ export function SettingsDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const { state, exportJson, importJson, loadDemo, reset } = useStore();
+  const { state, exportJson, importJson, reset } = useStore();
   const { toast } = useToast();
   const fileRef = React.useRef<HTMLInputElement>(null);
   const [busy, setBusy] = React.useState(false);
@@ -185,26 +184,12 @@ export function SettingsDialog({
               Nebo vlož zálohu jako text
             </button>
           )}
-        </Section>
 
-        {native ? <UpdateSection /> : null}
-
-        <Section title="Ostatní">
-          <Button
-            variant="ghost"
-            className="justify-start"
-            onClick={() => {
-              loadDemo();
-              toast({ tone: "info", title: "Ukázková data načtena" });
-              onOpenChange(false);
-            }}
-          >
-            <Sparkles /> Načíst ukázková data
-          </Button>
-
+          {/* Mazání patří k záloze, ne do zvláštní sekce - kdo maže, měl by
+              mít export na dosah. */}
           <Button
             variant={confirmReset ? "destructive" : "ghost"}
-            className="justify-start"
+            className="mt-1 justify-start"
             onClick={() => {
               if (!confirmReset) {
                 setConfirmReset(true);
@@ -224,6 +209,8 @@ export function SettingsDialog({
             </p>
           ) : null}
         </Section>
+
+        {native ? <UpdateSection /> : null}
       </div>
     </Dialog>
   );

@@ -207,15 +207,25 @@ export async function applyPendingUpdate(): Promise<ApplyResult> {
  * která obsah nese zabalený v base64.
  */
 async function fetchManifest(url: string): Promise<UpdateManifest> {
+  // ŽÁDNÉ vlastní hlavičky.
+  //
+  // Hlavička mimo bezpečný seznam CORS (třeba Cache-Control) si vynutí
+  // předletový OPTIONS dotaz. GitHub API ho sice zodpoví, ale Cache-Control
+  // v access-control-allow-headers nemá, a raw na OPTIONS vrací rovnou 403.
+  // Obě cesty tím padnou naráz a stahování skončí na "Failed to fetch".
+  //
+  // `cache: "no-store"` je volba fetche, ne hlavička - preflight nespouští.
   const res = await fetch(`${url}${url.includes("?") ? "&" : "?"}t=${Date.now()}`, {
     cache: "no-store",
-    headers: { "Cache-Control": "no-cache", Accept: "application/vnd.github.raw+json" },
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
   const body = (await res.json()) as UpdateManifest & { content?: string; encoding?: string };
   if (body.encoding === "base64" && body.content) {
-    return JSON.parse(atob(body.content.replace(/\s/g, ""))) as UpdateManifest;
+    // Přes bajty, ne přímo z atob: atob vrací znaky po bajtech a diakritika
+    // v poznámce by se rozsypala.
+    const bytes = Uint8Array.from(atob(body.content.replace(/\s/g, "")), (c) => c.charCodeAt(0));
+    return JSON.parse(new TextDecoder().decode(bytes)) as UpdateManifest;
   }
   return body;
 }

@@ -46,7 +46,11 @@ if(localStorage.getItem("microwins:ota:booting")){
       localStorage.removeItem("microwins:ota:booting");
       localStorage.removeItem("microwins:ota:current");
       localStorage.removeItem("microwins:ota:pending");
-      w.setServerBasePath({path:""}).then(function(){return w.persistServerBasePath()});
+      // Bez .then: setServerBasePath se z principu nedočká odpovědi, protože
+      // překreslení WebView je ve frontě dřív. Voláme a překreslíme sami.
+      w.setServerBasePath({path:""});
+      w.persistServerBasePath();
+      setTimeout(function(){ window.location.reload(); }, 400);
     }catch(e){}
   },10000);
 }

@@ -115,14 +115,26 @@ export function pendingBundleVersion(): string | null {
  * Ušetřené kilobajty za to nestojí.
  */
 
-/** Balík z APK, ke kterému se dá vždycky vrátit. */
+/**
+ * Balík z APK, ke kterému se dá vždycky vrátit.
+ *
+ * Záznamy se přepisují jako první: `setServerBasePath` se nedočká odpovědi
+ * (viz `applyPendingUpdate`), takže na něj nečekáme a rovnou překreslíme.
+ */
 export async function revertToBundled(): Promise<void> {
   if (!isNative()) return;
-  await WebView.setServerBasePath({ path: "" });
-  await WebView.persistServerBasePath();
   write(CURRENT_KEY, null);
   write(PENDING_KEY, null);
   write(BOOTING_KEY, null);
+  void WebView.setServerBasePath({ path: "" });
+  void WebView.persistServerBasePath();
+  setTimeout(() => {
+    try {
+      window.location.reload();
+    } catch {
+      // nic lepšího už neuděláme
+    }
+  }, 400);
 }
 
 /**
@@ -217,23 +229,29 @@ export async function applyPendingUpdate(): Promise<ApplyResult> {
     write(PENDING_KEY, null);
     write(BOOTING_KEY, target);
 
-    await withTimeout(WebView.setServerBasePath({ path: dir }), "WebView.setServerBasePath");
-    // Bez await: překreslení WebView ruší JS i s rozdělanými voláními, takže
-    // uložení nemusí doběhnout. Nevadí - kontrola na začátku tohohle bloku
-    // cestu při každém startu nasadí znovu.
+    // Na setServerBasePath se schválně NEČEKÁ.
+    //
+    // Bridge.setServerBasePath dělá tohle:
+    //     localServer.hostFiles(path);                   // synchronně
+    //     webView.post(() -> webView.loadUrl(appUrl));   // překreslení do fronty
+    // a teprve pak plugin zavolá call.resolve(). Překreslení je ve frontě dřív
+    // než doručení odpovědi do JS, takže odpověď z principu nikdy nedorazí -
+    // `await` na tomhle volání čeká navždy.
+    //
+    // Podstatné je, že `hostFiles` doběhne hned: nový adresář se servíruje
+    // okamžitě. Stačí tedy překreslit a nečekat na potvrzení.
+    void WebView.setServerBasePath({ path: dir });
     void WebView.persistServerBasePath();
 
-    // Pojistka: nativní strana se má překreslit sama. Když to neudělá,
-    // dotlačíme to z JS - soubory už servíruje nový adresář, takže obyčejné
-    // znovunačtení stačí. Když překreslení přijde, tenhle časovač zanikne
-    // i s celým kontextem.
+    // Když se nativní překreslení nedostaví, dotlačíme ho z JS. Soubory už
+    // servíruje nový adresář, takže obyčejné znovunačtení stačí.
     setTimeout(() => {
       try {
         window.location.reload();
       } catch {
         // nic lepšího už neuděláme
       }
-    }, 1200);
+    }, 400);
 
     return { applied: target };
   } catch (e) {

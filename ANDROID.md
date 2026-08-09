@@ -90,8 +90,12 @@ Skript to na konci kontroluje a při nesouladu skončí chybou.
 npm run android:release
 ```
 
-Postaví balík i APK z jednoho buildu, takže mají stejnou verzi. Nutné jen při
-zásahu do nativní části.
+Postaví balík i APK z jednoho buildu (takže mají stejnou verzi) a rovnou APK
+podepíše do `../MicroWins.apk`. Nutné jen při zásahu do nativní části.
+
+Samotné podepsání jde spustit i zvlášť: `npm run android:sign`. Schémata v1+v2+v3,
+v4 vypnuté - to používá jen `adb install --incremental` a nechává po sobě
+soubor `.apk.idsig`.
 
 ### Když se něco pokazí
 

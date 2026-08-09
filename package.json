@@ -15,7 +15,8 @@
     "ota:bundle": "node scripts/release.mjs",
     "android:sync": "cap sync android",
     "android:apk": "npm run ota:bundle && npm run android:sync && cd android && gradlew.bat assembleDebug",
-    "android:release": "npm run ota:bundle && npm run android:sync && cd android && gradlew.bat assembleRelease"
+    "android:release": "npm run ota:bundle && npm run android:sync && cd android && gradlew.bat assembleRelease && cd .. && npm run android:sign",
+    "android:sign": "node scripts/sign-apk.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.0",

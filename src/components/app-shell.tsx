@@ -165,12 +165,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <main className="mx-auto w-full max-w-4xl flex-1 px-4 py-6 pb-24 sm:pb-6">{children}</main>
 
-      <footer className="mx-auto w-full max-w-4xl px-4 pb-24 pt-2 text-xs text-muted-foreground sm:pb-8">
-        Projekty měří postup v procentech, strom sbírá winy. Číselný win dává microwin za nový denní
-        rekord zapsaný k dnešku - zpětný zápis rekord posune, microwin ne. Zaškrtávací a jednorázový
-        win se nekvantifikují: microwin padne za každý den, který je odškrtnutý.
-      </footer>
-
       <BottomNav pathname={pathname} />
 
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />

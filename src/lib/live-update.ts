@@ -58,8 +58,16 @@ function write(key: string, value: string | null): void {
  * Odkud se berou aktualizace, když si uživatel nenastaví nic vlastního.
  * Je to natvrdo v kódu schválně: appka se má aktualizovat sama a uživatel
  * o tom nemusí vědět.
+ *
+ * Přes API, ne přes `raw.githubusercontent.com`: raw drží soubor pět minut
+ * v keši a query parametry z klíče keše zahazuje, takže se čerstvost nedá
+ * vynutit. API vrací aktuální stav hned. Když API selže (výpadek, limit
+ * dotazů), zkusí se raw jako záložní cesta - pomalejší, ale funguje.
  */
 export const DEFAULT_UPDATE_URL =
+  "https://api.github.com/repos/MonsterMarian/MicroWins/contents/ota/latest.json?ref=main";
+
+const FALLBACK_UPDATE_URL =
   "https://raw.githubusercontent.com/MonsterMarian/MicroWins/main/ota/latest.json";
 
 export function getUpdateUrl(): string {
@@ -133,45 +141,83 @@ export function markBootSucceeded(): void {
  *
  * Vrací nasazenou verzi, nebo `null`, když není co nasazovat.
  */
-export async function applyPendingUpdate(): Promise<string | null> {
-  if (!isNative()) return null;
+export interface ApplyResult {
+  applied: string | null;
+  /** Vyplněno, když nasazení selhalo - jinak by chyba zmizela beze stopy. */
+  error?: string;
+}
+
+/** Cesta k adresáři balíku, jak ji chce nativní most (bez file://). */
+async function bundleDir(version: string): Promise<string> {
+  const { Filesystem, Directory } = await filesystem();
+  const path = `bundles/${version}`;
+  // Bez index.html by se appka neotevřela vůbec.
+  await Filesystem.stat({ path: `${path}/index.html`, directory: Directory.Data });
+  const uri = await Filesystem.getUri({ path, directory: Directory.Data });
+  return uri.uri.replace(/^file:\/\//, "");
+}
+
+export async function applyPendingUpdate(): Promise<ApplyResult> {
+  if (!isNative()) return { applied: null };
 
   const raw = read(PENDING_KEY);
-  if (!raw) return null;
-
-  let pending: { version: string; path: string };
-  try {
-    pending = JSON.parse(raw) as { version: string; path: string };
-  } catch {
-    write(PENDING_KEY, null);
-    return null;
-  }
+  const pending = raw ? (JSON.parse(raw) as { version: string }).version : null;
+  // Když nic nečeká, stejně zkontrolujeme, jestli sedí nasazená verze:
+  // uložení cesty na nativní straně se nemusí povést a appka by se po
+  // restartu tiše vrátila k verzi z APK.
+  const target = pending ?? read(CURRENT_KEY);
+  if (!target) return { applied: null };
 
   try {
-    const { Filesystem, Directory } = await filesystem();
-    // Bez index.html by se appka po restartu neotevřela vůbec.
-    await Filesystem.stat({ path: `${pending.path}/index.html`, directory: Directory.Data });
-
-    const uri = await Filesystem.getUri({ path: pending.path, directory: Directory.Data });
-    // Bridge chce holou cestu k adresáři, ne file:// URI.
-    const dir = uri.uri.replace(/^file:\/\//, "");
-
-    // Zapsat dřív, než se sáhne na WebView: setServerBasePath appku hned
-    // překreslí a po překreslení se tenhle kód spustí znovu. Bez pořadí
-    // by se aktualizace nasazovala pořád dokola.
-    write(CURRENT_KEY, pending.version);
-    write(PENDING_KEY, null);
-    write(BOOTING_KEY, pending.version);
-
+    const dir = await bundleDir(target);
     const WebView = await webView();
-    await WebView.setServerBasePath({ path: dir });
-    await WebView.persistServerBasePath();
-    return pending.version;
-  } catch {
-    // Balík je poškozený - zahodíme ho a běžíme dál na tom, co funguje.
+
+    const active = await WebView.getServerBasePath();
+    if (active.path === dir) {
+      // Už běžíme z tohohle balíku. Jen dorovnat záznamy a nesahat na WebView,
+      // jinak by se appka překreslovala pořád dokola.
+      write(CURRENT_KEY, target);
+      write(PENDING_KEY, null);
+      write(BOOTING_KEY, null);
+      return { applied: null };
+    }
+
+    // Zapsat dřív než se sáhne na WebView: setServerBasePath appku okamžitě
+    // překreslí a další kód už nemusí doběhnout.
+    write(CURRENT_KEY, target);
     write(PENDING_KEY, null);
-    return null;
+    write(BOOTING_KEY, target);
+
+    await WebView.setServerBasePath({ path: dir });
+    // Bez await: překreslení WebView ruší JS i s rozdělanými voláními, takže
+    // uložení nemusí doběhnout. Nevadí - kontrola na začátku tohohle bloku
+    // cestu při každém startu nasadí znovu.
+    void WebView.persistServerBasePath();
+    return { applied: target };
+  } catch (e) {
+    // Balík je poškozený nebo chybí - zpět na to, co funguje.
+    write(PENDING_KEY, null);
+    write(CURRENT_KEY, null);
+    return { applied: null, error: String(e).slice(0, 160) };
   }
+}
+
+/**
+ * Stáhne manifest. Zvládne obojí: prostý JSON (raw) i odpověď GitHub API,
+ * která obsah nese zabalený v base64.
+ */
+async function fetchManifest(url: string): Promise<UpdateManifest> {
+  const res = await fetch(`${url}${url.includes("?") ? "&" : "?"}t=${Date.now()}`, {
+    cache: "no-store",
+    headers: { "Cache-Control": "no-cache", Accept: "application/vnd.github.raw+json" },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+  const body = (await res.json()) as UpdateManifest & { content?: string; encoding?: string };
+  if (body.encoding === "base64" && body.content) {
+    return JSON.parse(atob(body.content.replace(/\s/g, ""))) as UpdateManifest;
+  }
+  return body;
 }
 
 export type UpdateCheck =
@@ -187,11 +233,13 @@ export async function checkForUpdate(): Promise<UpdateCheck> {
   if (!url) return { kind: "disabled" };
 
   try {
-    const manifestRes = await fetch(`${url}${url.includes("?") ? "&" : "?"}t=${Date.now()}`, {
-      cache: "no-store",
-    });
-    if (!manifestRes.ok) return { kind: "failed", message: `Manifest: HTTP ${manifestRes.status}` };
-    const manifest = (await manifestRes.json()) as UpdateManifest;
+    let manifest: UpdateManifest;
+    try {
+      manifest = await fetchManifest(url);
+    } catch (e) {
+      if (url !== DEFAULT_UPDATE_URL) throw e;
+      manifest = await fetchManifest(FALLBACK_UPDATE_URL);
+    }
     if (!manifest?.version || !manifest?.bundle) {
       return { kind: "failed", message: "Manifest nemá version nebo bundle." };
     }
@@ -201,7 +249,10 @@ export async function checkForUpdate(): Promise<UpdateCheck> {
       return { kind: "up-to-date", version: current };
     }
 
-    const bundleUrl = new URL(manifest.bundle, url).toString();
+    // Relativní jméno balíku se skládá vůči raw, ne vůči adrese manifestu -
+    // ta může mířit na API, kde balík neleží.
+    const base = url === DEFAULT_UPDATE_URL ? FALLBACK_UPDATE_URL : url;
+    const bundleUrl = new URL(manifest.bundle, base).toString();
     const bundleRes = await fetch(bundleUrl, { cache: "no-store" });
     if (!bundleRes.ok) return { kind: "failed", message: `Balík: HTTP ${bundleRes.status}` };
     const files = (await bundleRes.json()) as BundleFile[];

@@ -95,7 +95,10 @@ function useNativeShell() {
     // rozjetém startu může pryč, jinak by ho příští spuštění vrátilo zpět.
     markBootSucceeded();
     // Nejdřív nasadit balík stažený minule, teprve pak koukat po novém.
-    void applyPendingUpdate().then(() => checkForUpdate());
+    // Když se nasadilo, WebView se překresluje a kontrola nemá smysl.
+    void applyPendingUpdate().then((res) => {
+      if (!res.applied) void checkForUpdate();
+    });
   }, []);
 
   React.useEffect(() => {

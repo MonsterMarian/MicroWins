@@ -18,6 +18,7 @@ import { Input, Textarea } from "@/components/ui/input";
 import { useStore } from "@/components/providers/store-provider";
 import { useToast } from "@/components/providers/toast-provider";
 import {
+  applyPendingUpdate,
   checkForUpdate,
   currentBundleVersion,
   DEFAULT_UPDATE_URL,
@@ -245,6 +246,23 @@ function UpdateSection() {
     setPending(pendingBundleVersion());
   }, []);
 
+  /**
+   * Nasazení na klepnutí. Při startu běží samo, ale když se tam něco pokazí,
+   * uživatel to nemá jak zjistit - takhle chybu aspoň uvidí.
+   */
+  const onApply = async () => {
+    const res = await applyPendingUpdate();
+    if (res.error) {
+      toast({ tone: "warn", title: "Nasazení selhalo", description: res.error });
+      setPending(pendingBundleVersion());
+      setCurrent(currentBundleVersion());
+    } else if (!res.applied) {
+      toast({ tone: "info", title: "Tahle verze už běží" });
+      setPending(null);
+    }
+    // Když se nasadilo, appka se právě překresluje - toast by nikdo neviděl.
+  };
+
   const onCheck = async () => {
     setUpdateUrl(url);
     setChecking(true);
@@ -299,11 +317,16 @@ function UpdateSection() {
         ) : null}
       </details>
 
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Button variant="outline" size="sm" disabled={checking} onClick={onCheck}>
           <RefreshCw className={cn(checking && "animate-spin")} />
           {checking ? "Hledám…" : "Zkontrolovat teď"}
         </Button>
+        {pending ? (
+          <Button size="sm" onClick={onApply}>
+            Nasadit {pending}
+          </Button>
+        ) : null}
         <span className="tabular text-xs text-muted-foreground">
           {pending ? `čeká ${pending}` : current ? `verze ${current}` : "verze z APK"}
         </span>

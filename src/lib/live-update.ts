@@ -147,32 +147,60 @@ export interface ApplyResult {
   error?: string;
 }
 
+/**
+ * Strop na volání nativní vrstvy.
+ *
+ * Plugin, který se nevrátí, umí zaseknout celé nasazení potichu - žádná chyba,
+ * žádná změna, uživatel jen kouká na tlačítko, které "nic nedělá". Strop z toho
+ * udělá chybu se jménem volání, takže je hned vidět, kdo se zasekl.
+ */
+function withTimeout<T>(work: Promise<T>, label: string, ms = 6000): Promise<T> {
+  return Promise.race([
+    work,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} se neozvalo do ${ms / 1000} s`)), ms),
+    ),
+  ]);
+}
+
 /** Cesta k adresáři balíku, jak ji chce nativní most (bez file://). */
 async function bundleDir(version: string): Promise<string> {
-  const { Filesystem, Directory } = await filesystem();
+  const { Filesystem, Directory } = await withTimeout(filesystem(), "načtení Filesystem");
   const path = `bundles/${version}`;
   // Bez index.html by se appka neotevřela vůbec.
-  await Filesystem.stat({ path: `${path}/index.html`, directory: Directory.Data });
-  const uri = await Filesystem.getUri({ path, directory: Directory.Data });
+  await withTimeout(
+    Filesystem.stat({ path: `${path}/index.html`, directory: Directory.Data }),
+    "Filesystem.stat",
+  );
+  const uri = await withTimeout(
+    Filesystem.getUri({ path, directory: Directory.Data }),
+    "Filesystem.getUri",
+  );
   return uri.uri.replace(/^file:\/\//, "");
 }
 
 export async function applyPendingUpdate(): Promise<ApplyResult> {
-  if (!isNative()) return { applied: null };
-
-  const raw = read(PENDING_KEY);
-  const pending = raw ? (JSON.parse(raw) as { version: string }).version : null;
-  // Když nic nečeká, stejně zkontrolujeme, jestli sedí nasazená verze:
-  // uložení cesty na nativní straně se nemusí povést a appka by se po
-  // restartu tiše vrátila k verzi z APK.
-  const target = pending ?? read(CURRENT_KEY);
-  if (!target) return { applied: null };
-
+  // Celé v try: cokoli, co spadne mimo něj, skončí jako tlačítko, které
+  // "nic nedělá" - žádná hláška, žádná změna, žádná stopa.
   try {
-    const dir = await bundleDir(target);
-    const WebView = await webView();
+    if (!isNative()) return { applied: null };
 
-    const active = await WebView.getServerBasePath();
+    const raw = read(PENDING_KEY);
+    const pending = raw ? (JSON.parse(raw) as { version: string }).version : null;
+    // Když nic nečeká, stejně zkontrolujeme, jestli sedí nasazená verze:
+    // uložení cesty na nativní straně se nemusí povést a appka by se po
+    // restartu tiše vrátila k verzi z APK.
+    const target = pending ?? read(CURRENT_KEY);
+    if (!target) return { applied: null };
+
+    const dir = await bundleDir(target);
+    const WebView = await withTimeout(webView(), "načtení WebView");
+
+    const active = await withTimeout(
+      WebView.getServerBasePath(),
+      "WebView.getServerBasePath",
+    ).catch(() => ({ path: "" }));
+
     if (active.path === dir) {
       // Už běžíme z tohohle balíku. Jen dorovnat záznamy a nesahat na WebView,
       // jinak by se appka překreslovala pořád dokola.
@@ -188,17 +216,29 @@ export async function applyPendingUpdate(): Promise<ApplyResult> {
     write(PENDING_KEY, null);
     write(BOOTING_KEY, target);
 
-    await WebView.setServerBasePath({ path: dir });
+    await withTimeout(WebView.setServerBasePath({ path: dir }), "WebView.setServerBasePath");
     // Bez await: překreslení WebView ruší JS i s rozdělanými voláními, takže
     // uložení nemusí doběhnout. Nevadí - kontrola na začátku tohohle bloku
     // cestu při každém startu nasadí znovu.
     void WebView.persistServerBasePath();
+
+    // Pojistka: nativní strana se má překreslit sama. Když to neudělá,
+    // dotlačíme to z JS - soubory už servíruje nový adresář, takže obyčejné
+    // znovunačtení stačí. Když překreslení přijde, tenhle časovač zanikne
+    // i s celým kontextem.
+    setTimeout(() => {
+      try {
+        window.location.reload();
+      } catch {
+        // nic lepšího už neuděláme
+      }
+    }, 1200);
+
     return { applied: target };
   } catch (e) {
-    // Balík je poškozený nebo chybí - zpět na to, co funguje.
-    write(PENDING_KEY, null);
-    write(CURRENT_KEY, null);
-    return { applied: null, error: String(e).slice(0, 160) };
+    // Pending schválně nemažeme: balík je stažený, chyba může být dočasná
+    // a uživatel to má moct zkusit znovu.
+    return { applied: null, error: String(e).slice(0, 200) };
   }
 }
 

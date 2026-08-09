@@ -1,3 +1,5 @@
+import { Directory, Encoding, Filesystem } from "@capacitor/filesystem";
+import { Share } from "@capacitor/share";
 import { todayISO } from "./date";
 import { isNative } from "./native";
 import { parseState } from "./storage";
@@ -146,7 +148,6 @@ export async function exportBackup(state: MicroWinsState): Promise<ExportOutcome
   }
 
   try {
-    const { Filesystem, Directory, Encoding } = await import("@capacitor/filesystem");
     const written = await Filesystem.writeFile({
       path: name,
       data: json,
@@ -155,7 +156,6 @@ export async function exportBackup(state: MicroWinsState): Promise<ExportOutcome
     });
 
     try {
-      const { Share } = await import("@capacitor/share");
       await Share.share({
         title: "Záloha MicroWins",
         text: name,

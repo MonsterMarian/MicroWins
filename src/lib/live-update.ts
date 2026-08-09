@@ -1,3 +1,5 @@
+import { WebView } from "@capacitor/core";
+import { Directory, Encoding, Filesystem } from "@capacitor/filesystem";
 import { isNative } from "./native";
 
 /**
@@ -102,19 +104,20 @@ export function pendingBundleVersion(): string | null {
   }
 }
 
-async function webView() {
-  const { WebView } = await import("@capacitor/core");
-  return WebView;
-}
-
-async function filesystem() {
-  return import("@capacitor/filesystem");
-}
+/*
+ * Pluginy se importují staticky, ne přes `await import()`.
+ *
+ * Dynamický import si tahá samostatný JS kus přes <script>. Když ho místní
+ * server Capacitoru nenajde a vrátí místo něj index.html, skript se "načte"
+ * úspěšně, jenže je to HTML - kus se nezaregistruje a promise se nikdy
+ * nevyřeší ani neodmítne. Nasazení pak viselo bez jediné stopy.
+ *
+ * Ušetřené kilobajty za to nestojí.
+ */
 
 /** Balík z APK, ke kterému se dá vždycky vrátit. */
 export async function revertToBundled(): Promise<void> {
   if (!isNative()) return;
-  const WebView = await webView();
   await WebView.setServerBasePath({ path: "" });
   await WebView.persistServerBasePath();
   write(CURRENT_KEY, null);
@@ -165,7 +168,6 @@ function withTimeout<T>(work: Promise<T>, label: string, ms = 6000): Promise<T> 
 
 /** Cesta k adresáři balíku, jak ji chce nativní most (bez file://). */
 async function bundleDir(version: string): Promise<string> {
-  const { Filesystem, Directory } = await withTimeout(filesystem(), "načtení Filesystem");
   const path = `bundles/${version}`;
   // Bez index.html by se appka neotevřela vůbec.
   await withTimeout(
@@ -194,7 +196,6 @@ export async function applyPendingUpdate(): Promise<ApplyResult> {
     if (!target) return { applied: null };
 
     const dir = await bundleDir(target);
-    const WebView = await withTimeout(webView(), "načtení WebView");
 
     const active = await withTimeout(
       WebView.getServerBasePath(),
@@ -311,7 +312,6 @@ export async function checkForUpdate(): Promise<UpdateCheck> {
     }
 
     const dir = `bundles/${manifest.version}`;
-    const { Filesystem, Directory, Encoding } = await filesystem();
 
     // Zbytek po nepovedeném stahování by se míchal s novým balíkem.
     try {

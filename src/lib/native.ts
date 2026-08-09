@@ -3,9 +3,17 @@
  *
  * Appka běží ve dvou prostředích: v prohlížeči při vývoji a jako Android appka
  * přes Capacitor. Všechno tady je proto podmíněné - v prohlížeči se nic
- * nestane a nic nespadne. Pluginy se načítají dynamicky, aby se do webového
- * buildu netahal nativní kód.
+ * nestane a nic nespadne.
+ *
+ * Pluginy se importují staticky. Dynamický `await import()` si tahá samostatný
+ * JS kus a když ho místní server Capacitoru nenajde, vrátí index.html - skript
+ * se "načte", ale je to HTML, kus se nezaregistruje a promise se nikdy
+ * nevyřeší. Volání pak visí bez jediné stopy.
  */
+import { App } from "@capacitor/app";
+import { Haptics, ImpactStyle, NotificationType } from "@capacitor/haptics";
+import { SplashScreen } from "@capacitor/splash-screen";
+import { StatusBar, Style } from "@capacitor/status-bar";
 
 type CapacitorGlobal = {
   isNativePlatform?: () => boolean;
@@ -25,7 +33,6 @@ export function isNative(): boolean {
 export async function tapFeedback(): Promise<void> {
   if (!isNative()) return;
   try {
-    const { Haptics, ImpactStyle } = await import("@capacitor/haptics");
     await Haptics.impact({ style: ImpactStyle.Light });
   } catch {
     // zařízení bez vibrace - není co řešit
@@ -36,7 +43,6 @@ export async function tapFeedback(): Promise<void> {
 export async function winFeedback(): Promise<void> {
   if (!isNative()) return;
   try {
-    const { Haptics, NotificationType } = await import("@capacitor/haptics");
     await Haptics.notification({ type: NotificationType.Success });
   } catch {
     // zařízení bez vibrace
@@ -47,7 +53,6 @@ export async function winFeedback(): Promise<void> {
 export async function syncStatusBar(dark: boolean): Promise<void> {
   if (!isNative()) return;
   try {
-    const { StatusBar, Style } = await import("@capacitor/status-bar");
     await StatusBar.setStyle({ style: dark ? Style.Dark : Style.Light });
     await StatusBar.setBackgroundColor({ color: dark ? "#09090B" : "#FDFDFD" });
   } catch {
@@ -58,7 +63,6 @@ export async function syncStatusBar(dark: boolean): Promise<void> {
 export async function hideSplash(): Promise<void> {
   if (!isNative()) return;
   try {
-    const { SplashScreen } = await import("@capacitor/splash-screen");
     await SplashScreen.hide();
   } catch {
     // splash se skryje sám podle launchShowDuration
@@ -72,7 +76,6 @@ export async function hideSplash(): Promise<void> {
 export async function registerBackButton(onBack: () => boolean): Promise<() => void> {
   if (!isNative()) return () => {};
   try {
-    const { App } = await import("@capacitor/app");
     const handle = await App.addListener("backButton", () => {
       const handled = onBack();
       if (!handled) void App.exitApp();

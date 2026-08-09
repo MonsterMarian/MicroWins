@@ -12,10 +12,10 @@
     "test:watch": "vitest",
     "ci:validate": "npm run type-check && npm run test",
     "android:assets": "node scripts/android-assets.mjs",
-    "ota:bundle": "npm run build && node scripts/build-bundle.mjs",
-    "android:sync": "npm run build && cap sync android",
-    "android:apk": "npm run android:sync && cd android && gradlew.bat assembleDebug",
-    "android:release": "npm run android:sync && cd android && gradlew.bat assembleRelease"
+    "ota:bundle": "node scripts/release.mjs",
+    "android:sync": "cap sync android",
+    "android:apk": "npm run ota:bundle && npm run android:sync && cd android && gradlew.bat assembleDebug",
+    "android:release": "npm run ota:bundle && npm run android:sync && cd android && gradlew.bat assembleRelease"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.0",

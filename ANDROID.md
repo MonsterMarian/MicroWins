@@ -62,6 +62,9 @@ Co takhle projde: všechno v `src/` — funkce, opravy, texty, vzhled.
 Co neprojde: nativní část (nový plugin, oprávnění, ikona, `targetSdk`). Tam je
 potřeba nové APK, ale to je párkrát za rok.
 
+Adresa je zadrátovaná v `src/lib/live-update.ts` jako `DEFAULT_UPDATE_URL`,
+takže se nikde nic nenastavuje — appka se aktualizuje sama.
+
 ### Vydání nové verze
 
 ```bash
@@ -69,27 +72,32 @@ npm run ota:bundle
 ```
 
 Vyrobí `ota/bundle-<verze>.json` (celá appka v jednom souboru) a
-`ota/latest.json` (manifest s číslem verze). Oba nahraj do GitHub repozitáře —
-appka si při startu stáhne manifest, porovná verzi a když je novější, stáhne
-balík a nasadí ho **při dalším otevření**.
+`ota/latest.json` (manifest). Pak stačí commit a push — appka si při startu
+stáhne manifest, porovná verzi a když je novější, stáhne balík a nasadí ho
+**při dalším otevření**.
 
 Nasazuje se schválně až při dalším startu: přepnutí za běhu by uživateli zmizela
 obrazovka pod rukama.
 
-### Nastavení v telefonu
+**Číslo verze musí sedět mezi webem a manifestem.** `scripts/release.mjs` proto
+staví web sám a předává mu verzi přes `NEXT_PUBLIC_BUNDLE_VERSION` — kdyby se
+stavělo zvlášť, appka by po každé instalaci stahovala balík, který už v sobě má.
+Skript to na konci kontroluje a při nesouladu skončí chybou.
 
-**Nastavení → Aktualizace → Adresa manifestu**, vlož odkaz na *raw* verzi
-souboru:
+### Nové APK
 
+```bash
+npm run android:release
 ```
-https://raw.githubusercontent.com/<uživatel>/<repo>/main/latest.json
-```
 
-Musí to být `raw.githubusercontent.com`, ne `github.com/…/blob/…` — druhá adresa
-vrací HTML stránku, ne JSON.
+Postaví balík i APK z jednoho buildu, takže mají stejnou verzi. Nutné jen při
+zásahu do nativní části.
 
-Tlačítko **Zkontrolovat teď** stáhne aktualizaci hned. **Vrátit se k verzi z APK**
-zahodí stažené balíky, když se něco pokazí — je to záchranná brzda.
+### Když se něco pokazí
+
+**Nastavení → Aktualizace → Vrátit se k verzi z APK** zahodí stažené balíky.
+Rozbalovací **Adresa manifestu** dovolí ukázat appku jinam, než kam míří
+výchozí adresa.
 
 ### Data při aktualizaci
 

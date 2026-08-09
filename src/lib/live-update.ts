@@ -54,17 +54,34 @@ function write(key: string, value: string | null): void {
   }
 }
 
+/**
+ * Odkud se berou aktualizace, když si uživatel nenastaví nic vlastního.
+ * Je to natvrdo v kódu schválně: appka se má aktualizovat sama a uživatel
+ * o tom nemusí vědět.
+ */
+export const DEFAULT_UPDATE_URL =
+  "https://raw.githubusercontent.com/MonsterMarian/MicroWins/main/ota/latest.json";
+
 export function getUpdateUrl(): string {
-  return read(URL_KEY) ?? "";
+  return read(URL_KEY) ?? DEFAULT_UPDATE_URL;
 }
 
 export function setUpdateUrl(url: string): void {
-  write(URL_KEY, url.trim() || null);
+  const trimmed = url.trim();
+  // Výchozí adresu neukládáme - když se v budoucím buildu změní, ať se
+  // uložená hodnota nepere s novou.
+  write(URL_KEY, !trimmed || trimmed === DEFAULT_UPDATE_URL ? null : trimmed);
 }
 
-/** Verze, která právě běží. Prázdno = originál z APK. */
+/**
+ * Verze, která právě běží.
+ *
+ * Když se ještě nic nestáhlo, platí verze zabalená v APK - vypéká ji
+ * `scripts/release.mjs` do buildu. Bez toho by si čerstvě nainstalovaná
+ * appka pokaždé stáhla balík, který už uvnitř má.
+ */
 export function currentBundleVersion(): string | null {
-  return read(CURRENT_KEY);
+  return read(CURRENT_KEY) ?? process.env.NEXT_PUBLIC_BUNDLE_VERSION ?? null;
 }
 
 export function pendingBundleVersion(): string | null {

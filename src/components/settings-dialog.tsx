@@ -20,6 +20,7 @@ import { useToast } from "@/components/providers/toast-provider";
 import {
   checkForUpdate,
   currentBundleVersion,
+  DEFAULT_UPDATE_URL,
   getUpdateUrl,
   pendingBundleVersion,
   revertToBundled,
@@ -271,18 +272,32 @@ function UpdateSection() {
       title="Aktualizace"
       hint="Appka si při startu sama stáhne novou verzi. Nové APK je potřeba jen při zásahu do nativní části."
     >
-      <label className="flex flex-col gap-1.5">
-        <span className="text-xs font-medium text-muted-foreground">Adresa manifestu</span>
+      <details className="text-xs">
+        <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+          Adresa manifestu {url === DEFAULT_UPDATE_URL ? "(výchozí)" : "(vlastní)"}
+        </summary>
         <Input
           value={url}
           onChange={(e) => setUrl(e.target.value)}
           onBlur={() => setUpdateUrl(url)}
-          placeholder="https://raw.githubusercontent.com/…/latest.json"
+          placeholder={DEFAULT_UPDATE_URL}
           autoComplete="off"
           spellCheck={false}
-          className="font-mono text-xs"
+          className="mt-2 font-mono text-xs"
         />
-      </label>
+        {url !== DEFAULT_UPDATE_URL ? (
+          <button
+            type="button"
+            onClick={() => {
+              setUrl(DEFAULT_UPDATE_URL);
+              setUpdateUrl(DEFAULT_UPDATE_URL);
+            }}
+            className="mt-1.5 text-muted-foreground hover:text-foreground"
+          >
+            Vrátit výchozí adresu
+          </button>
+        ) : null}
+      </details>
 
       <div className="flex items-center gap-2">
         <Button variant="outline" size="sm" disabled={checking} onClick={onCheck}>

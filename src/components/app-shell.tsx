@@ -166,7 +166,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-4xl flex-1 px-4 py-6 pb-24 sm:pb-6">{children}</main>
+      {/* pt-6, ne py-6: spodní odsazení řeší mw-pad-nav a py-6 by ho přebilo. */}
+      <main className="mw-pad-nav mx-auto w-full max-w-4xl flex-1 px-4 pt-6">{children}</main>
 
       <BottomNav pathname={pathname} />
 
@@ -187,20 +188,23 @@ function BottomNav({ pathname }: { pathname: string }) {
               key={href}
               href={href}
               aria-current={active ? "page" : undefined}
+              // Název jen pro čtečku obrazovky - ikony stačí, ale odkaz bez
+              // textu by se jinak ohlásil jako prázdný.
+              aria-label={label}
+              title={label}
               className={cn(
-                "flex flex-1 flex-col items-center justify-center gap-0.5 py-2.5 text-[11px] transition-colors",
-                active ? "font-medium text-foreground" : "text-muted-foreground",
+                "flex flex-1 items-center justify-center py-3 transition-colors",
+                active ? "text-foreground" : "text-muted-foreground",
               )}
             >
               <span
                 className={cn(
-                  "flex h-7 w-14 items-center justify-center rounded-full transition-colors",
+                  "flex h-9 w-16 items-center justify-center rounded-full transition-colors",
                   active && "bg-secondary",
                 )}
               >
                 <Icon className="size-5" />
               </span>
-              {label}
             </Link>
           );
         })}

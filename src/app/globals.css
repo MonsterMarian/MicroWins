@@ -173,6 +173,21 @@
   }
 
   /*
+   * Místo pod obsahem, aby ho nepřekryla spodní lišta. Počítá se z její výšky
+   * i z bezpečné zóny gest - na telefonu s gesty je pruh o dost vyšší, takže
+   * pevné číslo poslední řádek uřízne.
+   */
+  .mw-pad-nav {
+    padding-bottom: calc(7.5rem + var(--mw-safe-bottom));
+  }
+
+  @media (min-width: 640px) {
+    .mw-pad-nav {
+      padding-bottom: 1.5rem;
+    }
+  }
+
+  /*
    * Prstem se míří hůř než myší. Malá ikonová tlačítka si proto na dotykových
    * zařízeních roztáhnou zásah na 44 px, aniž by se pohnulo rozvržení.
    */

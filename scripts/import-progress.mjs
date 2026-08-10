@@ -31,6 +31,8 @@ function arg(name, fallback) {
 
 const IN_DIR = arg("in", "C:/Users/mvystavel/Downloads/progress");
 const OUT_FILE = arg("out", path.join(IN_DIR, "microwins-projekty.json"));
+/** Volitelně i modul se seedem, který se zabalí do appky (viz lib/seed-import.ts). */
+const SEED_FILE = args.includes("--seed") ? arg("seed", "src/lib/seed-import-data.ts") : null;
 
 // --- CSV --------------------------------------------------------------------
 
@@ -489,6 +491,31 @@ const backup = {
 
 await mkdir(path.dirname(OUT_FILE), { recursive: true });
 await writeFile(OUT_FILE, JSON.stringify(backup, null, 2));
+
+/**
+ * Modul se seedem: stejná data, ale zabalená rovnou do appky. Používá se
+ * na jednorázové doručení přes živou aktualizaci - uživatel si stáhne balík,
+ * projekty si sednou do localStorage a další verze už seed nemusí obsahovat.
+ */
+if (SEED_FILE) {
+  const id = `progress-${TODAY_DAY}`;
+  const module = `/**
+ * VYGENEROVANÁ DATA - \`node scripts/import-progress.mjs --seed\`.
+ *
+ * Dočasná zásilka projektů z aplikace Progress. Přišla živou aktualizací,
+ * usadila se do localStorage a v další verzi balíku už tenhle soubor
+ * i jeho volání v \`seed-import.ts\` můžou pryč.
+ */
+import type { MicroWinsState } from "./types";
+
+/** Značka v localStorage - seed se použije jen jednou. */
+export const SEED_ID = ${JSON.stringify(id)};
+
+export const SEED_STATE: MicroWinsState = ${JSON.stringify(backup.state, null, 2)};
+`;
+  await writeFile(SEED_FILE, module);
+  console.log(`\nSeed modul: ${SEED_FILE} (id ${id})`);
+}
 
 // --- kontrola ---------------------------------------------------------------
 

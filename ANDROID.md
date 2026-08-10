@@ -184,6 +184,25 @@ Skript si na konci sám přepočítá procenta podle pravidel MicroWins a porovn
 se zdrojem — když se rozejdou, mapování je špatně a skript skončí chybou.
 Komentáře se dopíšou do popisu úkolu (appka je nemá), přílohy se nepřenesou.
 
+#### Doručení dat balíkem (bez souboru)
+
+Data se do telefonu dají dostat i bez kopírování souboru: balík si je přiveze
+s sebou, při prvním spuštění se usadí do `localStorage` a další verze balíku už
+je obsahovat nemusí. `localStorage` patří k adrese `localhost`, kterou výměna
+souborů nemění, takže po odstranění seedu data zůstanou.
+
+1. `node scripts/import-progress.mjs --seed src/lib/seed-import-data.ts`
+2. Přidat `src/lib/seed-import.ts` — jednorázové použití (značka
+   `microwins:seed:<id>` v localStorage), rozsah **jen projekty**, plus
+   pojistka „projekt se stejným názvem a startem už tu je".
+3. Zavolat `applySeed(loaded)` v `store-provider.tsx` při hydrataci.
+4. `npm run ota:bundle`, commit, push. Uživatel nasadí, data se usadí.
+5. **Po potvrzení** smazat oba soubory i volání, vydat čistý balík.
+
+Pátý krok neodkládej — dokud je seed v manifestu, stáhne si ho každý, kdo
+appku s touhle adresou spustí. A pozor: data zůstávají v historii gitu i po
+smazání souboru, takže tímhle neposílej nic, co nemá být veřejné.
+
 **Historie postupu** se skládá zpátky z dat vzniku a poslední změny každého
 úkolu a podúkolu: zaškrtnutí je skok v den odškrtnutí (přesné), u číselných
 úkolů se růst mezi vznikem a poslední změnou odhaduje rovnoměrně. Bez toho by

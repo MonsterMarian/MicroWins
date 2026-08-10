@@ -8,7 +8,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SettingsDialog } from "@/components/settings-dialog";
 import { useStore } from "@/components/providers/store-provider";
-import { useToast } from "@/components/providers/toast-provider";
 import { applyPendingUpdate, checkForUpdate, markBootSucceeded } from "@/lib/live-update";
 import { hideSplash, isNative, registerBackButton, syncStatusBar } from "@/lib/native";
 import { streaks } from "@/lib/stats";
@@ -92,33 +91,12 @@ function useNativeShell() {
   }, [router]);
 }
 
-/**
- * Jednorázová zásilka projektů v balíku se usadí potichu ve store, ale
- * uživatel musí vidět, že dorazila. Dočasné - odejde s `lib/seed-import.ts`.
- */
-function useSeedNotice() {
-  const { seededCount } = useStore();
-  const { toast } = useToast();
-  const shown = React.useRef(false);
-
-  React.useEffect(() => {
-    if (seededCount === 0 || shown.current) return;
-    shown.current = true;
-    toast({
-      tone: "win",
-      title: `Načteno ${seededCount} ${plural(seededCount, "projekt", "projekty", "projektů")}`,
-      description: "Data z Progressu jsou v appce. Strom winů zůstal nedotčený.",
-    });
-  }, [seededCount, toast]);
-}
-
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [settingsOpen, setSettingsOpen] = React.useState(false);
   const [native, setNative] = React.useState(false);
 
   useNativeShell();
-  useSeedNotice();
   React.useEffect(() => setNative(isNative()), []);
 
   return (

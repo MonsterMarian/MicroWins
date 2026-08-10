@@ -6,7 +6,6 @@ import * as projectActions from "@/lib/project-actions";
 import { applySettings, exportBackup, parseBackup, type ExportOutcome } from "@/lib/backup";
 import { todayISO } from "@/lib/date";
 import { mergeState, type ImportMode, type ImportScope } from "@/lib/import";
-import { applySeed } from "@/lib/seed-import";
 import { loadState, saveState } from "@/lib/storage";
 import {
   EMPTY_STATE,
@@ -23,11 +22,6 @@ export interface StoreApi {
   /** Aktuální den uživatele - obnovuje se po půlnoci i po návratu do okna. */
   today: ISODate;
   hydrated: boolean;
-  /**
-   * Kolik projektů dorazilo jednorázovým seedem v balíku (0 = žádný).
-   * Dočasné - odejde spolu se `lib/seed-import.ts`.
-   */
-  seededCount: number;
   addCategory: (parentId: string | null, name: string) => TreeNode;
   addMetric: (parentId: string | null, input: actions.MetricInput) => TreeNode;
   addCheck: (parentId: string | null, name: string) => TreeNode;
@@ -84,7 +78,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = React.useState<MicroWinsState>(EMPTY_STATE);
   const [hydrated, setHydrated] = React.useState(false);
   const [today, setToday] = React.useState<ISODate>(() => todayISO());
-  const [seededCount, setSeededCount] = React.useState(0);
 
   // Nejnovější stav i mimo render - akce potřebují číst synchronně.
   const ref = React.useRef(state);
@@ -95,12 +88,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   React.useEffect(() => {
     const loaded = loadState();
-    // Jednorázová zásilka projektů zabalená v balíku - viz lib/seed-import.ts.
-    // Až doslouží, tenhle řádek i celý soubor můžou pryč.
-    const seeded = applySeed(loaded);
-    ref.current = seeded.state;
-    setState(seeded.state);
-    setSeededCount(seeded.added);
+    ref.current = loaded;
+    setState(loaded);
     setToday(todayISO());
     setHydrated(true);
   }, []);
@@ -127,7 +116,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       state,
       today,
       hydrated,
-      seededCount,
       addCategory: (parentId, name) => {
         const res = actions.addCategory(ref.current, parentId, name);
         commit(res.state);
@@ -211,7 +199,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       },
       exportJson: () => exportBackup(ref.current),
     }),
-    [state, today, hydrated, seededCount, commit],
+    [state, today, hydrated, commit],
   );
 
   return <StoreContext.Provider value={api}>{children}</StoreContext.Provider>;

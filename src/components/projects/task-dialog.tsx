@@ -7,7 +7,7 @@ import { Field, Input, Select } from "@/components/ui/input";
 import { useStore } from "@/components/providers/store-provider";
 import { milestonesOfProject } from "@/lib/projects";
 import type { Task } from "@/lib/types";
-import { parseNumber } from "@/lib/utils";
+import { parseWhole } from "@/lib/utils";
 
 export function TaskDialog({
   open,
@@ -58,15 +58,16 @@ export function TaskDialog({
       setError("Název úkolu nesmí být prázdný.");
       return;
     }
-    const targetNum = parseNumber(target);
+    // Úkoly jedou v celých číslech, viz `whole()` v project-actions.
+    const targetNum = parseWhole(target);
     if (!Number.isFinite(targetNum) || targetNum <= 0) {
-      setError("Cíl musí být číslo větší než 0.");
+      setError("Cíl musí být celé číslo větší než 0.");
       return;
     }
-    const currentNum = Number.isFinite(parseNumber(current)) ? parseNumber(current) : 0;
-    const stepNum = Number.isFinite(parseNumber(step)) && parseNumber(step) > 0 ? parseNumber(step) : 1;
+    const currentNum = Number.isFinite(parseWhole(current)) ? parseWhole(current) : 0;
+    const stepNum = Number.isFinite(parseWhole(step)) && parseWhole(step) > 0 ? parseWhole(step) : 1;
     const weightNum =
-      Number.isFinite(parseNumber(weight)) && parseNumber(weight) > 0 ? parseNumber(weight) : 1;
+      Number.isFinite(parseWhole(weight)) && parseWhole(weight) > 0 ? parseWhole(weight) : 1;
 
     if (task) {
       updateTask(task.id, {
@@ -133,11 +134,11 @@ export function TaskDialog({
         </Field>
 
         <div className="grid grid-cols-3 gap-3">
-          <Field label="Cíl" htmlFor="task-target">
+          <Field label="Cíl" htmlFor="task-target" hint="1 = odškrtnout">
             <Input
               id="task-target"
               value={target}
-              inputMode="decimal"
+              inputMode="numeric"
               onChange={(e) => {
                 setTarget(e.target.value);
                 setError(null);
@@ -148,7 +149,7 @@ export function TaskDialog({
             <Input
               id="task-current"
               value={current}
-              inputMode="decimal"
+              inputMode="numeric"
               onChange={(e) => setCurrent(e.target.value)}
             />
           </Field>
@@ -164,11 +165,11 @@ export function TaskDialog({
         </div>
 
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Krok tlačítek +/-" htmlFor="task-step">
+          <Field label="O kolik skočí + a −" htmlFor="task-step" hint="1 = po jednom">
             <Input
               id="task-step"
               value={step}
-              inputMode="decimal"
+              inputMode="numeric"
               onChange={(e) => setStep(e.target.value)}
             />
           </Field>
@@ -176,7 +177,7 @@ export function TaskDialog({
             <Input
               id="task-weight"
               value={weight}
-              inputMode="decimal"
+              inputMode="numeric"
               onChange={(e) => setWeight(e.target.value)}
             />
           </Field>

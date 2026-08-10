@@ -86,6 +86,24 @@ export function isTaskDone(state: MicroWinsState, task: Task): boolean {
   return taskPercent(state, task) >= 99.995;
 }
 
+/**
+ * Úkol, který se dá jen odškrtnout: cíl 1 a žádné podúkoly. Nemá smysl mu
+ * kreslit pruh ani "1 / 1" - v seznamu z toho byl řádek plný stovek procent,
+ * který nic neříkal. Kreslí se jako zaškrtávátko.
+ */
+export function isBinaryTask(state: MicroWinsState, task: Task): boolean {
+  return task.target <= 1 && subtasksOf(state, task.id).length === 0;
+}
+
+/** Kolik podúkolů je hotových - podklad pro "14 / 21 podúkolů". */
+export function subtaskCounts(
+  state: MicroWinsState,
+  taskId: string,
+): { done: number; total: number } {
+  const children = subtasksOf(state, taskId);
+  return { done: children.filter((c) => isTaskDone(state, c)).length, total: children.length };
+}
+
 // --- historie ---------------------------------------------------------------
 
 export function snapshotsOfProject(state: MicroWinsState, projectId: string): Snapshot[] {

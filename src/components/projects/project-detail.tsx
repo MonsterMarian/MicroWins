@@ -24,7 +24,9 @@ import { Dialog } from "@/components/ui/dialog";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { ProgressBar } from "@/components/ui/progress";
 import { EntityIcon } from "@/components/ui/icon-picker";
+import { SortableItem, SortableList } from "@/components/ui/sortable";
 import { useStore } from "@/components/providers/store-provider";
+import { useAppBack } from "@/components/providers/use-app-back";
 import { MilestonesDialog } from "./milestones-dialog";
 import { ProjectDialog } from "./project-dialog";
 import { TaskDialog } from "./task-dialog";
@@ -49,8 +51,10 @@ const TASK_SORT_LABEL: Record<TaskSort, string> = {
 };
 
 export function ProjectDetail({ projectId }: { projectId: string }) {
-  const { state, today, hydrated, updateProject, deleteProject, setProjectArchived } = useStore();
+  const { state, today, hydrated, updateProject, deleteProject, setProjectArchived, reorderTasks } =
+    useStore();
   const router = useRouter();
+  const back = useAppBack();
   const [editOpen, setEditOpen] = React.useState(false);
   const [taskOpen, setTaskOpen] = React.useState(false);
   const [milestonesOpen, setMilestonesOpen] = React.useState(false);
@@ -72,7 +76,7 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
       <Card>
         <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
           <p className="text-sm font-medium">Projekt neexistuje</p>
-          <Link href="/" className="text-sm text-muted-foreground underline">
+          <Link href="/?tab=projects" className="text-sm text-muted-foreground underline">
             Zpět na seznam
           </Link>
         </CardContent>
@@ -99,7 +103,7 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
   return (
     <div className="flex flex-col gap-4">
       <header className="flex items-center gap-2">
-        <Button variant="ghost" size="icon" aria-label="Zpět" onClick={() => router.push("/")}>
+        <Button variant="ghost" size="icon" aria-label="Zpět" onClick={() => back("/?tab=projects")}>
           <ArrowLeft />
         </Button>
         <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-muted text-lg">
@@ -274,14 +278,28 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
             Zatím žádný úkol. Přidej první měřitelný krok.
           </CardContent>
         ) : (
-          <div className="divide-y border-t">
+          <SortableList
+            ids={sorted.map((t) => t.id)}
+            onReorder={reorderTasks}
+            disabled={sort !== "custom"}
+            className="divide-y border-t"
+          >
             {sorted.map((task) => (
-              <TaskRow key={task.id} task={task} />
+              <SortableItem key={task.id} id={task.id}>
+                <TaskRow task={task} />
+              </SortableItem>
             ))}
-          </div>
+          </SortableList>
         )}
 
-        <div className="flex justify-end border-t p-3">
+        <div className="flex items-center justify-end gap-3 border-t p-3">
+          {tasks.length > 1 ? (
+            <p className="mr-auto text-xs text-muted-foreground">
+              {sort === "custom"
+                ? "Pořadí si přetáhni za úchyt vlevo."
+                : "Přetahovat jde ve vlastním pořadí."}
+            </p>
+          ) : null}
           <Button onClick={() => setTaskOpen(true)}>
             <Plus /> Nový úkol
           </Button>
@@ -310,7 +328,7 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
               variant="destructive"
               onClick={() => {
                 deleteProject(project.id);
-                router.push("/");
+                router.replace("/?tab=projects");
               }}
             >
               <Trash2 /> Smazat

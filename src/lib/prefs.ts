@@ -19,12 +19,31 @@ export const WINS_VIEWS: { id: WinsView; label: string; hint: string }[] = [
   { id: "table", label: "Úplná tabulka", hint: "všechny sloupce, nejvíc čísel" },
 ];
 
+/**
+ * Zelená, kterou kreslí postup projektů (pruhy, procenta, hotové úkoly).
+ * Jantar u microwinů zůstává - to je druhý, sémanticky jiný akcent.
+ */
+export type Accent = "emerald" | "jade" | "neon" | "lime" | "sage";
+
+export const ACCENTS: { id: Accent; label: string; hint: string }[] = [
+  { id: "emerald", label: "Smaragd", hint: "hluboká, drahá zeleň" },
+  { id: "jade", label: "Nefrit", hint: "chladnější, blíž tyrkysu" },
+  { id: "neon", label: "Neon", hint: "ostrá a hlasitá" },
+  { id: "lime", label: "Limetka", hint: "žlutozelená energie" },
+  { id: "sage", label: "Šalvěj", hint: "tlumená, nekřičí" },
+];
+
+/** Klíč pro skript v `layout.tsx`, který barvu nasadí ještě před prvním paintem. */
+export const ACCENT_KEY = "microwins:accent";
+
 export interface Prefs {
   winsView: WinsView;
+  accent: Accent;
 }
 
 export const DEFAULT_PREFS: Prefs = {
   winsView: "compact",
+  accent: "emerald",
 };
 
 export const PREFS_KEY = "microwins:prefs";
@@ -33,13 +52,33 @@ function isWinsView(value: unknown): value is WinsView {
   return WINS_VIEWS.some((v) => v.id === value);
 }
 
+function isAccent(value: unknown): value is Accent {
+  return ACCENTS.some((a) => a.id === value);
+}
+
 /** Z uložených dat bere jen to, co zná - zbytek nechává na výchozím. */
 export function parsePrefs(raw: unknown): Prefs {
   if (typeof raw !== "object" || raw === null) return DEFAULT_PREFS;
   const record = raw as Record<string, unknown>;
   return {
     winsView: isWinsView(record.winsView) ? record.winsView : DEFAULT_PREFS.winsView,
+    accent: isAccent(record.accent) ? record.accent : DEFAULT_PREFS.accent,
   };
+}
+
+/**
+ * Nasadí barvu na <html>. Vedle atributu se ukládá i zvlášť do localStorage,
+ * aby ji skript v hlavičce našel dřív, než se rozjede React - jinak by první
+ * snímek probliknul výchozí zelenou.
+ */
+export function applyAccent(accent: Accent): void {
+  if (typeof document === "undefined") return;
+  document.documentElement.dataset.accent = accent;
+  try {
+    window.localStorage.setItem(ACCENT_KEY, accent);
+  } catch {
+    // soukromý režim - barva vydrží do zavření appky
+  }
 }
 
 let cache: Prefs | null = null;

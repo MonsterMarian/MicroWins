@@ -31,10 +31,11 @@
   --win-muted: oklch(0.96 0.035 75);
   --win-muted-foreground: oklch(0.46 0.11 55);
 
-  --progress: oklch(0.62 0.15 145);
+  /* Výchozí zelená = Smaragd. Ostatní varianty jsou níž u data-accent. */
+  --progress: oklch(0.62 0.14 162);
   --progress-foreground: oklch(0.99 0 0);
-  --progress-muted: oklch(0.95 0.04 150);
-  --progress-muted-foreground: oklch(0.44 0.11 145);
+  --progress-muted: oklch(0.95 0.035 165);
+  --progress-muted-foreground: oklch(0.44 0.1 162);
   --track: oklch(0.9 0.004 286.32);
 }
 
@@ -64,11 +65,95 @@
   --win-muted: oklch(0.32 0.06 66);
   --win-muted-foreground: oklch(0.88 0.09 75);
 
-  --progress: oklch(0.75 0.16 146);
-  --progress-foreground: oklch(0.17 0.03 145);
-  --progress-muted: oklch(0.3 0.06 148);
-  --progress-muted-foreground: oklch(0.86 0.12 148);
+  --progress: oklch(0.76 0.15 163);
+  --progress-foreground: oklch(0.17 0.03 163);
+  --progress-muted: oklch(0.3 0.06 165);
+  --progress-muted-foreground: oklch(0.86 0.11 165);
   --track: oklch(1 0 0 / 14%);
+}
+
+/*
+ * Pět zelených na výběr (Nastavení → Barva postupu). Atribut `data-accent`
+ * sedí na <html>, stejně jako třída `.dark`, takže se obě volby kombinují.
+ *
+ * Selektory schválně nejsou vázané na <html>: stejný atribut na libovolném
+ * elementu přebarví jen jeho podstrom, což používají ukázky barev v Nastavení.
+ * Tmavá dvojice proto musí být pro každou variantu zvlášť a specifičtější -
+ * jinak by hodnoty pro světlý režim přebily `.dark`.
+ */
+[data-accent="emerald"] {
+  --progress: oklch(0.62 0.14 162);
+  --progress-foreground: oklch(0.99 0 0);
+  --progress-muted: oklch(0.95 0.035 165);
+  --progress-muted-foreground: oklch(0.44 0.1 162);
+}
+
+.dark[data-accent="emerald"],
+.dark [data-accent="emerald"] {
+  --progress: oklch(0.76 0.15 163);
+  --progress-foreground: oklch(0.17 0.03 163);
+  --progress-muted: oklch(0.3 0.06 165);
+  --progress-muted-foreground: oklch(0.86 0.11 165);
+}
+
+[data-accent="jade"] {
+  --progress: oklch(0.6 0.11 175);
+  --progress-foreground: oklch(0.99 0 0);
+  --progress-muted: oklch(0.95 0.03 178);
+  --progress-muted-foreground: oklch(0.43 0.08 175);
+}
+
+.dark[data-accent="jade"],
+.dark [data-accent="jade"] {
+  --progress: oklch(0.78 0.12 175);
+  --progress-foreground: oklch(0.17 0.03 175);
+  --progress-muted: oklch(0.3 0.05 176);
+  --progress-muted-foreground: oklch(0.87 0.09 176);
+}
+
+[data-accent="neon"] {
+  --progress: oklch(0.66 0.19 145);
+  --progress-foreground: oklch(0.99 0 0);
+  --progress-muted: oklch(0.95 0.05 145);
+  --progress-muted-foreground: oklch(0.46 0.13 145);
+}
+
+.dark[data-accent="neon"],
+.dark [data-accent="neon"] {
+  --progress: oklch(0.82 0.2 145);
+  --progress-foreground: oklch(0.17 0.04 145);
+  --progress-muted: oklch(0.31 0.08 145);
+  --progress-muted-foreground: oklch(0.89 0.16 145);
+}
+
+[data-accent="lime"] {
+  --progress: oklch(0.7 0.17 132);
+  --progress-foreground: oklch(0.99 0 0);
+  --progress-muted: oklch(0.95 0.05 132);
+  --progress-muted-foreground: oklch(0.48 0.12 130);
+}
+
+.dark[data-accent="lime"],
+.dark [data-accent="lime"] {
+  --progress: oklch(0.86 0.19 132);
+  --progress-foreground: oklch(0.18 0.04 132);
+  --progress-muted: oklch(0.32 0.07 132);
+  --progress-muted-foreground: oklch(0.9 0.15 132);
+}
+
+[data-accent="sage"] {
+  --progress: oklch(0.54 0.08 152);
+  --progress-foreground: oklch(0.99 0 0);
+  --progress-muted: oklch(0.94 0.02 152);
+  --progress-muted-foreground: oklch(0.42 0.06 152);
+}
+
+.dark[data-accent="sage"],
+.dark [data-accent="sage"] {
+  --progress: oklch(0.7 0.09 152);
+  --progress-foreground: oklch(0.16 0.02 152);
+  --progress-muted: oklch(0.29 0.04 152);
+  --progress-muted-foreground: oklch(0.84 0.07 152);
 }
 
 @theme inline {
@@ -238,6 +323,16 @@
 
   .slider-input::-moz-range-track {
     background: transparent;
+  }
+
+  /*
+   * Úchyt pro přetahování řádků. Bez `touch-action: none` by prohlížeč pohyb
+   * prstem sebral na scrolování stránky a tažení by se nikdy nerozjelo.
+   */
+  .drag-handle {
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
   }
 }
 

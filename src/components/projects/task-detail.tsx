@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
+  Check,
   ChevronDown,
   ExternalLink,
   Flag,
@@ -23,23 +24,38 @@ import { Dialog } from "@/components/ui/dialog";
 import { Field, Input, Select, Textarea } from "@/components/ui/input";
 import { ProgressBar, Slider } from "@/components/ui/progress";
 import { EntityIcon } from "@/components/ui/icon-picker";
+import { SortableItem, SortableList } from "@/components/ui/sortable";
 import { useStore } from "@/components/providers/store-provider";
+import { useAppBack } from "@/components/providers/use-app-back";
 import { TaskDialog } from "./task-dialog";
+import { TaskRow } from "./task-row";
 import { formatDate } from "@/lib/date";
 import {
   displayPercent,
+  isBinaryTask,
   isTaskDone,
   milestonesOfProject,
   projectById,
+  subtaskCounts,
   subtasksOf,
   taskById,
   taskPercent,
 } from "@/lib/projects";
-import { cn, formatNumber, parseNumber, plural } from "@/lib/utils";
+import { cn, formatNumber, parseWhole, plural } from "@/lib/utils";
 
 export function TaskDetail({ taskId }: { taskId: string }) {
-  const { state, hydrated, updateTask, setTaskCurrent, adjustTask, deleteTask } = useStore();
+  const {
+    state,
+    hydrated,
+    updateTask,
+    setTaskCurrent,
+    adjustTask,
+    toggleTaskDone,
+    deleteTask,
+    reorderTasks,
+  } = useStore();
   const router = useRouter();
+  const back = useAppBack();
   const [settingsOpen, setSettingsOpen] = React.useState(true);
   const [editOpen, setEditOpen] = React.useState(false);
   const [subtaskOpen, setSubtaskOpen] = React.useState(false);
@@ -77,12 +93,20 @@ export function TaskDetail({ taskId }: { taskId: string }) {
   const percent = taskPercent(state, task);
   const done = isTaskDone(state, task);
   const milestones = project ? milestonesOfProject(state, project.id) : [];
+  /** Postup se počítá z podúkolů - vlastní hodnota úkolu se pak neuplatní. */
   const controlled = children.length > 0;
+  const counts = subtaskCounts(state, task.id);
+  const binary = isBinaryTask(state, task);
 
   return (
     <div className="flex flex-col gap-4">
       <header className="flex items-center gap-2">
-        <Button variant="ghost" size="icon" aria-label="Zpět" onClick={() => router.back()}>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="Zpět"
+          onClick={() => back(`/projects?id=${task.projectId}`)}
+        >
           <ArrowLeft />
         </Button>
         <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-muted text-lg">
@@ -105,67 +129,110 @@ export function TaskDetail({ taskId }: { taskId: string }) {
 
       <Card>
         <CardContent className="flex flex-col gap-4 p-5">
-          <div className="flex flex-col items-center gap-1">
-            <p
+          {binary ? (
+            /* Cíl 1 bez podúkolů: není co posouvat, buď je hotovo, nebo není. */
+            <button
+              type="button"
+              onClick={() => toggleTaskDone(task.id)}
+              aria-pressed={done}
               className={cn(
-                "tabular text-4xl font-semibold leading-none tracking-tight",
-                done ? "text-progress" : "text-progress-muted-foreground",
+                "flex items-center justify-center gap-3 rounded-xl border-2 px-4 py-6 text-base font-medium transition-colors",
+                done
+                  ? "border-progress bg-progress-muted/40 text-progress"
+                  : "border-dashed text-muted-foreground hover:border-progress/50 hover:text-foreground",
               )}
             >
-              {displayPercent(percent)} %
-            </p>
-            <p className="tabular text-sm text-muted-foreground">
-              {formatNumber(task.current)} / {formatNumber(task.target)}
-              {task.unit ? ` ${task.unit}` : ""}
-            </p>
-          </div>
-
-          <Slider
-            value={task.current}
-            max={task.target}
-            step={task.target > 100 ? 1 : 0.1}
-            disabled={controlled}
-            aria-label="Postup úkolu"
-            onChange={(v) => setTaskCurrent(task.id, v)}
-          />
-
-          {controlled ? (
-            <p className="text-center text-xs text-muted-foreground">
-              Postup se počítá z podúkolů, proto je posuvník zamčený.
-            </p>
+              <span
+                className={cn(
+                  "grid size-7 place-items-center rounded-md border",
+                  done ? "border-progress bg-progress text-progress-foreground" : "border-border",
+                )}
+              >
+                {done ? <Check className="size-5" /> : null}
+              </span>
+              {done ? "Hotovo" : "Označit jako hotové"}
+            </button>
           ) : (
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label={`Ubrat ${task.step}`}
-                  onClick={() => adjustTask(task.id, -task.step)}
+            <>
+              <div className="flex flex-col items-center gap-1">
+                <p
+                  className={cn(
+                    "tabular text-4xl font-semibold leading-none tracking-tight",
+                    done ? "text-progress" : "text-progress-muted-foreground",
+                  )}
                 >
-                  <Minus />
-                </Button>
-                <span className="tabular w-12 text-center text-xs text-muted-foreground">
-                  {formatNumber(task.step)}
-                </span>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label={`Přidat ${task.step}`}
-                  onClick={() => adjustTask(task.id, task.step)}
-                >
-                  <Plus />
-                </Button>
+                  {displayPercent(percent)} %
+                </p>
+                <p className="tabular text-sm text-muted-foreground">
+                  {controlled ? (
+                    <>
+                      {counts.done} / {counts.total}{" "}
+                      {plural(counts.total, "podúkol", "podúkoly", "podúkolů")} hotovo
+                    </>
+                  ) : (
+                    <>
+                      {formatNumber(task.current)} / {formatNumber(task.target)}
+                      {task.unit ? ` ${task.unit}` : ""}
+                    </>
+                  )}
+                </p>
               </div>
 
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label="Nastavení kroku a hodnoty"
-                onClick={() => setStepOpen(true)}
-              >
-                <SlidersHorizontal />
-              </Button>
-            </div>
+              {controlled ? (
+                /* Posuvník by tu ukazoval vlastní hodnotu úkolu, kterou nikdo
+                   nepoužívá - u 66 % z podúkolů byl prázdný. Místo něj pruh
+                   se skutečným postupem. */
+                <>
+                  <ProgressBar value={percent} size="lg" />
+                  <p className="text-center text-xs text-muted-foreground">
+                    Postup se počítá z podúkolů, ručně se posouvat nedá.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <Slider
+                    value={task.current}
+                    max={task.target}
+                    step={1}
+                    aria-label="Postup úkolu"
+                    onChange={(v) => setTaskCurrent(task.id, v)}
+                  />
+
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label={`Ubrat ${task.step}`}
+                        onClick={() => adjustTask(task.id, -task.step)}
+                      >
+                        <Minus />
+                      </Button>
+                      <span className="tabular w-12 text-center text-xs text-muted-foreground">
+                        {formatNumber(task.step)}
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label={`Přidat ${task.step}`}
+                        onClick={() => adjustTask(task.id, task.step)}
+                      >
+                        <Plus />
+                      </Button>
+                    </div>
+
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Zadat hodnotu ručně"
+                      onClick={() => setStepOpen(true)}
+                    >
+                      <SlidersHorizontal />
+                    </Button>
+                  </div>
+                </>
+              )}
+            </>
           )}
         </CardContent>
       </Card>
@@ -239,9 +306,9 @@ export function TaskDetail({ taskId }: { taskId: string }) {
             <Row icon={Scale} label="Váha">
               <Input
                 value={String(task.weight)}
-                inputMode="decimal"
+                inputMode="numeric"
                 onChange={(e) => {
-                  const v = parseNumber(e.target.value);
+                  const v = parseWhole(e.target.value);
                   if (Number.isFinite(v) && v > 0) updateTask(task.id, { weight: v });
                 }}
                 className="h-8 w-20 text-xs"
@@ -266,7 +333,7 @@ export function TaskDetail({ taskId }: { taskId: string }) {
             <h2 className="text-sm font-semibold tracking-tight">Podúkoly</h2>
             {children.length > 0 ? (
               <Badge variant="outline" className="tabular">
-                {children.filter((c) => isTaskDone(state, c)).length} z {children.length}
+                {counts.done} z {counts.total}
               </Badge>
             ) : null}
           </div>
@@ -277,31 +344,22 @@ export function TaskDetail({ taskId }: { taskId: string }) {
 
         {children.length === 0 ? (
           <p className="px-5 pb-5 text-sm text-muted-foreground">
-            Bez podúkolů. Postup se pak řídí posuvníkem výš.
+            {binary
+              ? "Bez podúkolů. Úkol se zatím jen odškrtává - první podúkol z něj udělá skládaný postup."
+              : "Bez podúkolů. Postup se pak řídí posuvníkem výš."}
           </p>
         ) : (
-          <ul className="divide-y border-t">
-            {children.map((child) => {
-              const childPercent = taskPercent(state, child);
-              return (
-                <li key={child.id} className="flex items-center gap-3 px-5 py-2.5">
-                  <Link href={`/tasks?id=${child.id}`} className="min-w-0 flex-1">
-                    <div className="truncate text-sm">{child.name}</div>
-                    <div className="tabular text-xs text-muted-foreground">
-                      {formatNumber(child.current)} / {formatNumber(child.target)}
-                      {child.unit ? ` ${child.unit}` : ""}
-                    </div>
-                  </Link>
-                  <div className="w-24 shrink-0">
-                    <ProgressBar value={childPercent} />
-                  </div>
-                  <span className="tabular w-11 shrink-0 text-right text-sm font-medium">
-                    {displayPercent(childPercent)} %
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
+          <SortableList
+            ids={children.map((c) => c.id)}
+            onReorder={reorderTasks}
+            className="divide-y border-t"
+          >
+            {children.map((child) => (
+              <SortableItem key={child.id} id={child.id}>
+                <TaskRow task={child} />
+              </SortableItem>
+            ))}
+          </SortableList>
         )}
       </Card>
 
@@ -325,32 +383,32 @@ export function TaskDetail({ taskId }: { taskId: string }) {
       <Dialog
         open={stepOpen}
         onOpenChange={setStepOpen}
-        title="Hodnota a krok"
-        description="Přesné zadání bez posuvníku."
+        title="Zadat hodnotu"
+        description="Přesné číslo bez posuvníku. Úkoly počítají v celých číslech."
         footer={
           <Button onClick={() => setStepOpen(false)}>Hotovo</Button>
         }
       >
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Hotovo" htmlFor="task-manual">
+          <Field label="Hotovo" htmlFor="task-manual" hint={`z ${formatNumber(task.target)}`}>
             <Input
               id="task-manual"
               value={manual}
-              inputMode="decimal"
+              inputMode="numeric"
               onChange={(e) => setManual(e.target.value)}
               onBlur={() => {
-                const v = parseNumber(manual);
+                const v = parseWhole(manual);
                 if (Number.isFinite(v)) setTaskCurrent(task.id, v);
               }}
             />
           </Field>
-          <Field label="Krok tlačítek" htmlFor="task-step-inline">
+          <Field label="O kolik skočí + a −" htmlFor="task-step-inline" hint="1 = po jednom">
             <Input
               id="task-step-inline"
               value={String(task.step)}
-              inputMode="decimal"
+              inputMode="numeric"
               onChange={(e) => {
-                const v = parseNumber(e.target.value);
+                const v = parseWhole(e.target.value);
                 if (Number.isFinite(v) && v > 0) updateTask(task.id, { step: v });
               }}
             />

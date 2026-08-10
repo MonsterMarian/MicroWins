@@ -43,6 +43,8 @@ export interface StoreApi {
   deleteProject: (id: string) => void;
   setProjectArchived: (id: string, archived: boolean) => void;
   moveProject: (id: string, direction: -1 | 1) => void;
+  /** Nové pořadí po přetažení - `ids` jsou viditelné řádky shora dolů. */
+  reorderProjects: (ids: string[]) => void;
 
   createTask: (projectId: string, input: projectActions.TaskInput) => Task;
   updateTask: (id: string, patch: Partial<Omit<Task, "id" | "projectId" | "createdAt">>) => void;
@@ -51,6 +53,8 @@ export interface StoreApi {
   toggleTaskDone: (id: string) => void;
   deleteTask: (id: string) => void;
   moveTask: (id: string, direction: -1 | 1) => void;
+  /** Nové pořadí sourozenců po přetažení. */
+  reorderTasks: (ids: string[]) => void;
 
   createMilestone: (projectId: string, name: string, date: ISODate | null) => Milestone;
   deleteMilestone: (id: string) => void;
@@ -162,6 +166,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setProjectArchived: (id, archived) =>
         commit(projectActions.setProjectArchived(ref.current, id, archived)),
       moveProject: (id, direction) => commit(projectActions.moveProject(ref.current, id, direction)),
+      reorderProjects: (ids) => commit(projectActions.reorderProjects(ref.current, ids)),
 
       createTask: (projectId, input) => {
         const res = projectActions.createTask(ref.current, projectId, input, todayISO());
@@ -177,6 +182,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       toggleTaskDone: (id) => commit(projectActions.toggleTaskDone(ref.current, id, todayISO())),
       deleteTask: (id) => commit(projectActions.deleteTask(ref.current, id, todayISO())),
       moveTask: (id, direction) => commit(projectActions.moveTask(ref.current, id, direction)),
+      reorderTasks: (ids) => commit(projectActions.reorderTasks(ref.current, ids)),
 
       createMilestone: (projectId, name, date) => {
         const res = projectActions.createMilestone(ref.current, projectId, name, date);

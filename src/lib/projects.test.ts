@@ -6,6 +6,8 @@ import {
   deleteProject,
   deleteTask,
   moveTask,
+  reorderProjects,
+  reorderTasks,
   setTaskCurrent,
   toggleTaskDone,
   updateTask,
@@ -13,12 +15,16 @@ import {
 import {
   dailyChanges,
   filterProjects,
+  isBinaryTask,
   isTaskDone,
   portfolioStats,
   progressSeries,
   projectPercent,
   projectStats,
   sortProjects,
+  subtaskCounts,
+  subtasksOf,
+  taskById,
   taskPercent,
   tasksOfProject,
 } from "./projects";
@@ -240,6 +246,103 @@ describe("seznam projektů", () => {
 
     expect(tasksOfProject(after, projectId)[0].current).toBe(50);
     expect(projectPercent(after, projectId)).toBe(100);
+  });
+});
+
+describe("celá čísla v úkolech", () => {
+  it("zakládání zaokrouhlí cíl, hodnotu, krok i váhu", () => {
+    const { state, projectId } = withProject();
+    const r = createTask(
+      state,
+      projectId,
+      { name: "a", target: 20.6, current: 13.6, step: 2.4, weight: 1.5 },
+      TODAY,
+    );
+
+    expect(r.task.target).toBe(21);
+    expect(r.task.current).toBe(14);
+    expect(r.task.step).toBe(2);
+    expect(r.task.weight).toBe(2);
+  });
+
+  it("posuvník ani ruční zápis desetinnou hodnotu neuloží", () => {
+    const { state, projectId } = withProject();
+    const r = createTask(state, projectId, { name: "a", target: 20 }, TODAY);
+    const after = setTaskCurrent(r.state, r.task.id, 13.6, TODAY);
+
+    expect(tasksOfProject(after, projectId)[0].current).toBe(14);
+  });
+
+  it("cíl pod jedničku nebo nesmysl spadne na 1", () => {
+    const { state, projectId } = withProject();
+    const r = createTask(state, projectId, { name: "a", target: 0.2 }, TODAY);
+
+    expect(r.task.target).toBe(1);
+    expect(isBinaryTask(r.state, r.task)).toBe(true);
+  });
+
+  it("úkol s podúkoly zaškrtávátko není - řídí ho podúkoly", () => {
+    const { state, projectId } = withProject();
+    const parent = createTask(state, projectId, { name: "p", target: 1 }, TODAY);
+    const s = createTask(
+      parent.state,
+      projectId,
+      { name: "c", target: 1, parentId: parent.task.id },
+      TODAY,
+    ).state;
+
+    expect(isBinaryTask(s, taskById(s, parent.task.id)!)).toBe(false);
+    expect(subtaskCounts(s, parent.task.id)).toEqual({ done: 0, total: 1 });
+  });
+});
+
+describe("ruční pořadí přetažením", () => {
+  function threeProjects() {
+    let s = EMPTY_STATE;
+    for (const name of ["a", "b", "c"]) {
+      s = createProject(s, { name, startDate: "2026-07-19" }, TODAY).state;
+    }
+    return s;
+  }
+
+  const names = (s: MicroWinsState) => sortProjects(s, s.projects, "custom").map((p) => p.name);
+
+  it("projekt přetažený na konec se tam uloží", () => {
+    const s = threeProjects();
+    const ids = sortProjects(s, s.projects, "custom").map((p) => p.id);
+    const after = reorderProjects(s, [ids[1], ids[2], ids[0]]);
+
+    expect(names(after)).toEqual(["b", "c", "a"]);
+    expect(after.projects.map((p) => p.order).sort()).toEqual([0, 1, 2]);
+  });
+
+  it("skryté projekty zůstanou na svých místech", () => {
+    const s = threeProjects();
+    const ids = sortProjects(s, s.projects, "custom").map((p) => p.id);
+    // Vidět jsou jen "a" a "c" (filtr schoval "b"), prohodí se mezi sebou.
+    const after = reorderProjects(s, [ids[2], ids[0]]);
+
+    expect(names(after)).toEqual(["c", "b", "a"]);
+  });
+
+  it("úkoly se přetahují jen mezi sourozenci", () => {
+    const { state, projectId } = withProject();
+    let s = createTask(state, projectId, { name: "první", target: 1 }, TODAY).state;
+    s = createTask(s, projectId, { name: "druhý", target: 1 }, TODAY).state;
+    const parent = tasksOfProject(s, projectId)[0];
+    s = createTask(s, projectId, { name: "pod", target: 1, parentId: parent.id }, TODAY).state;
+
+    const top = tasksOfProject(s, projectId).map((t) => t.id);
+    const after = reorderTasks(s, [top[1], top[0]]);
+
+    expect(tasksOfProject(after, projectId).map((t) => t.name)).toEqual(["druhý", "první"]);
+    // Podúkol zůstal pod svým rodičem a nezamíchal se do horní úrovně.
+    expect(subtasksOf(after, parent.id).map((t) => t.name)).toEqual(["pod"]);
+  });
+
+  it("neznámá id pořadí nerozhází", () => {
+    const s = threeProjects();
+    expect(names(reorderProjects(s, ["nic", "taky nic"]))).toEqual(["a", "b", "c"]);
   });
 });
 

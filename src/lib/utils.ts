@@ -33,6 +33,15 @@ export function parseNumber(input: string): number {
   return Number(cleaned);
 }
 
+/**
+ * Totéž pro hodnoty úkolů, které jedou v celých číslech. Napsané "2,5"
+ * se nezahodí, jen se zaokrouhlí - zahozený vstup vypadá jako rozbité pole.
+ */
+export function parseWhole(input: string): number {
+  const value = parseNumber(input);
+  return Number.isFinite(value) ? Math.round(value) : NaN;
+}
+
 /** "5 microwinů" - české skloňování. */
 export function plural(n: number, one: string, few: string, many: string): string {
   if (n === 1) return one;

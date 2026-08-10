@@ -1,9 +1,34 @@
-import { EMPTY_STATE, STATE_VERSION, type MicroWinsState } from "./types";
+import { EMPTY_STATE, STATE_VERSION, type MicroWinsState, type Task } from "./types";
 
 export const STORAGE_KEY = "microwins:v1";
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
+}
+
+function whole(value: unknown, min: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? Math.max(min, Math.round(value)) : min;
+}
+
+/**
+ * Hodnoty úkolů jedou v celých číslech. Starší data ale desetinná obsahovat
+ * můžou - posuvník kdysi jezdil po desetinách a v seznamu z toho bylo
+ * "13,6 / 20". Srovná se to při načtení, uloží se srovnané.
+ */
+function normalizeTask(task: Task): Task {
+  const target = whole(task.target, 1);
+  const current = Math.min(whole(task.current, 0), target);
+  const step = whole(task.step, 1);
+  const weight = whole(task.weight, 1);
+  if (
+    target === task.target &&
+    current === task.current &&
+    step === task.step &&
+    weight === task.weight
+  ) {
+    return task;
+  }
+  return { ...task, target, current, step, weight };
 }
 
 /** Tolerantní validace - poškozený nebo cizí JSON raději zahodíme, než abychom spadli. */
@@ -22,7 +47,7 @@ export function parseState(raw: string): MicroWinsState | null {
       entries: data.entries as MicroWinsState["entries"],
       microwins: arr("microwins"),
       projects: arr("projects"),
-      tasks: arr("tasks"),
+      tasks: arr("tasks").map(normalizeTask),
       milestones: arr("milestones"),
       snapshots: arr("snapshots"),
     };

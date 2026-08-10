@@ -62,20 +62,20 @@ describe("záloha", () => {
   it("přenese i nastavení zobrazení", () => {
     const raw = serializeBackup(fullState());
     const withPrefs = JSON.parse(raw);
-    withPrefs.settings = { theme: "light", prefs: { winsView: "focus" } };
+    withPrefs.settings = { theme: "light", prefs: { winsView: "focus", accent: "lime" } };
 
     const restored = parseBackup(JSON.stringify(withPrefs))!;
     expect(restored.settings.theme).toBe("light");
-    expect(restored.settings.prefs).toEqual({ winsView: "focus" });
+    expect(restored.settings.prefs).toEqual({ winsView: "focus", accent: "lime" });
   });
 
   it("nesmyslné nastavení v záloze spadne na výchozí", () => {
     const withJunk = JSON.parse(serializeBackup(fullState()));
-    withJunk.settings = { theme: "duhove", prefs: { winsView: "neco" } };
+    withJunk.settings = { theme: "duhove", prefs: { winsView: "neco", accent: "duhova" } };
 
     const restored = parseBackup(JSON.stringify(withJunk))!;
     expect(restored.settings.theme).toBeUndefined();
-    expect(restored.settings.prefs).toEqual({ winsView: "compact" });
+    expect(restored.settings.prefs).toEqual({ winsView: "compact", accent: "emerald" });
   });
 
   it("záloha nese formát a verzi, aby šla poznat", () => {

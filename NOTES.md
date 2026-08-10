@@ -23,7 +23,7 @@ Aplikace **MicroWins** ve dvou částech:
 | Projekty | `/` | záložky Přehled / Projekty / Úkoly / Dnes, filtry, řazení, hledání |
 | Detail projektu | `/projects/[id]` | %, delta dne, start–deadline, zbývá dní, tempo %/den, popis, úkoly, milníky, archiv |
 | Statistiky projektu | `/projects/[id]/stats` | prstence (Postup / Dny / Hotové úkoly), plošný graf, deník změn |
-| Detail úkolu | `/tasks/[id]` | %, `630 / 2 000`, posuvník, −/+ s krokem, nastavení, podúkoly |
+| Detail úkolu | `/tasks/[id]` | %, `630 / 2 000`, posuvník, −/+ s krokem, nastavení, podúkoly (cíl 1 = jen zaškrtnout) |
 | Strom | `/tree` | dnešek + procházení složek s winy a jejich záznamy |
 | Analýza | `/stats` | série, pruh měsíce, kalendář roku, přehled winů, tempo projektů |
 
@@ -46,6 +46,10 @@ Věci, které ze zadání jednoznačně nevyplývaly a musely se dořešit:
 | **Denní otisky postupu (`snapshots`)** | Úkoly znají jen aktuální hodnotu. Bez otisku by nešel nakreslit graf ani deník změn. Jeden otisk na projekt a den. |
 | **localStorage místo SQLite** | Zadání bylo o pravidlech a UI. Doménová logika je oddělená od úložiště, takže výměna za DB je práce na jednom místě — viz níže. |
 | **Dva akcenty místo jednoho** | Jantar = microwin/rekord, zelená = postup projektu. Sémanticky odlišné věci; jinak platí neutrální paleta. |
+| **Zelená na pět způsobů** | Vybrat odstín od stolu nešlo, tak jich je pět (Smaragd / Nefrit / Neon / Limetka / Šalvěj) a přepínají se v Nastavení. Sedí na `data-accent` na `<html>`, takže se to obejde bez přebarvování komponent. Jantar u microwinů se nemění. |
+| **Úkoly počítají v celých číslech** | „13,6 / 20" nikdo nečte a posuvník po desetinách takové hodnoty vyráběl sám. Cíl, hodnota, krok i váha se zaokrouhlují při zápisu a stará data se srovnají při načtení. |
+| **Cíl 1 = zaškrtávátko** | Pruh a „1 / 1 · 100 %" u úkolu, který se dá jen odškrtnout, zabíraly řádek a nic neříkaly. Úkol s cílem 1 a bez podúkolů se proto kreslí jako checkbox — v seznamu i v detailu. |
+| **Rozkliknutá záložka žije v adrese** | Návrat z detailu projektu končil vždycky na Přehledu, protože historie o záložce nic nevěděla. Teď je v `?tab=` a `router.back()` ji vrátí. |
 | **Vlastní SVG grafy** | Žádná závislost navíc, plná kontrola nad světlým i tmavým režimem. |
 | **Do složek se vchází, nerozbalují se** | Rozbalený strom byl s pár desítkami winů nečitelný. Vidět je vždy obsah jedné složky, cesta ven je v liště nad ní. Rozbalují se jen samotné winy - ty už další úroveň nemají. |
 | **Několik pohledů na winy místo jedné tabulky** | Pětisloupcová tabulka odpovídala na všechny otázky naráz a na žádnou pořádně. Pohledy (Stručně / Postup / Dnešek / Žebříček / Úplná tabulka) se přepínají v Nastavení, výchozí je nejstručnější. |
@@ -60,7 +64,8 @@ Věci, které ze zadání jednoznačně nevyplývaly a musely se dořešit:
 - **Data jsou vázaná na prohlížeč a zařízení.** Jiný počítač = jiná data. Záloha je ruční přes export JSON.
 - **Bez přihlášení a bez synchronizace.**
 - **Bez undo.** Smazání uzlu/projektu je nevratné (dialog aspoň ukáže, co všechno zmizí).
-- **Pořadí projektů a úkolů se přehazuje jen programově** (`moveProject`, `moveTask`) — v UI zatím není drag & drop.
+- **Přetahovat jde jen ve vlastním pořadí** — v řazení podle názvu nebo postupu úchyty zmizí, protože puštěný řádek by okamžitě odskočil zpátky.
+- **Ploché „Úkoly" napříč projekty se přetahovat nedají** — míchají rodiče i podúkoly do jednoho seznamu, takže pořadí v nich nemá kam se uložit.
 - **Přílohy u úkolů nejsou** (referenční aplikace je má).
 - **Historie postupu se nedá zpětně opravit** — otisk vzniká v den změny.
 - Grafy nemají textovou alternativu (tabulku hodnot) pro čtečky, jen `aria-label`.

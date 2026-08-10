@@ -73,6 +73,57 @@ export function setProjectArchived(
   return updateProject(state, id, { archivedAt: archived ? new Date().toISOString() : null });
 }
 
+/**
+ * Přeskládá pořadí podle seznamu id.
+ *
+ * Seznam nese jen tu část, kterou uživatel vidí - filtr, hledání nebo jiný
+ * rodič zbytek schovají. Skryté položky proto zůstávají na svých místech
+ * a přetažené se rozdají do pozic, které předtím zabíral viditelný výběr.
+ */
+function applyOrder<T extends { id: string; order: number }>(ordered: T[], ids: string[]): T[] {
+  const wanted = ids
+    .map((id) => ordered.find((item) => item.id === id))
+    .filter((item): item is T => item !== undefined);
+  if (wanted.length === 0) return ordered;
+
+  const slots = ordered.reduce<number[]>((acc, item, index) => {
+    if (wanted.some((w) => w.id === item.id)) acc.push(index);
+    return acc;
+  }, []);
+  const next = [...ordered];
+  slots.forEach((slot, i) => {
+    next[slot] = wanted[i];
+  });
+  return next.map((item, index) => (item.order === index ? item : { ...item, order: index }));
+}
+
+/** Nové pořadí projektů po přetažení - `ids` jsou viditelné řádky shora dolů. */
+export function reorderProjects(state: MicroWinsState, ids: string[]): MicroWinsState {
+  const ordered = [...state.projects].sort(
+    (a, b) => a.order - b.order || a.createdAt.localeCompare(b.createdAt),
+  );
+  const byId = new Map(applyOrder(ordered, ids).map((p) => [p.id, p]));
+  return { ...state, projects: state.projects.map((p) => byId.get(p.id) ?? p) };
+}
+
+/**
+ * Nové pořadí úkolů po přetažení. Skupina se odvodí z prvního známého id -
+ * přetahovat jde vždy jen mezi sourozenci, takže rodič je pro celý seznam
+ * stejný a nedá se jím úkol přesunout jinam.
+ */
+export function reorderTasks(state: MicroWinsState, ids: string[]): MicroWinsState {
+  const first = ids.map((id) => taskById(state, id)).find((t): t is Task => t !== undefined);
+  if (!first) return state;
+
+  const siblings =
+    first.parentId === null
+      ? tasksOfProject(state, first.projectId)
+      : subtasksOf(state, first.parentId);
+  const inGroup = ids.filter((id) => siblings.some((s) => s.id === id));
+  const byId = new Map(applyOrder(siblings, inGroup).map((t) => [t.id, t]));
+  return { ...state, tasks: state.tasks.map((t) => byId.get(t.id) ?? t) };
+}
+
 /** Přesun projektu v ručním pořadí (drag/šipky). */
 export function moveProject(state: MicroWinsState, id: string, direction: -1 | 1): MicroWinsState {
   const ordered = [...state.projects].sort((a, b) => a.order - b.order);
@@ -102,6 +153,18 @@ export function snapshotProject(
 
 // --- úkoly ------------------------------------------------------------------
 
+/**
+ * Úkoly počítají v celých číslech: půlka kliku ani 0,3 přečtené stránky
+ * nedávají smysl a v seznamu z toho vznikaly nečitelné hodnoty typu
+ * "13,6 / 20". Desetinné číslo se proto zaokrouhlí hned při zápisu.
+ *
+ * `min` je spodní mez (u cíle, kroku i váhy 1, u hotové hodnoty 0).
+ */
+function whole(value: number | undefined, min: number, fallback = min): number {
+  if (value === undefined || !Number.isFinite(value)) return fallback;
+  return Math.max(min, Math.round(value));
+}
+
 export interface TaskInput {
   name: string;
   target?: number;
@@ -125,8 +188,8 @@ export function createTask(
   const siblings = state.tasks.filter(
     (t) => t.projectId === projectId && t.parentId === (input.parentId ?? null),
   );
-  const target = input.target && input.target > 0 ? input.target : 1;
-  const current = Math.min(Math.max(input.current ?? 0, 0), target);
+  const target = whole(input.target, 1);
+  const current = Math.min(Math.max(whole(input.current, 0, 0), 0), target);
   const task: Task = {
     id: createId("tsk"),
     projectId,
@@ -136,8 +199,8 @@ export function createTask(
     target,
     current,
     unit: input.unit?.trim() || undefined,
-    step: input.step && input.step > 0 ? input.step : 1,
-    weight: input.weight && input.weight > 0 ? input.weight : 1,
+    step: whole(input.step, 1),
+    weight: whole(input.weight, 1),
     dueDate: input.dueDate ?? null,
     milestoneId: input.milestoneId ?? null,
     description: input.description ?? "",
@@ -159,10 +222,10 @@ export function updateTask(
   if (!task) return state;
 
   const merged: Task = { ...task, ...patch };
-  merged.target = merged.target > 0 ? merged.target : 1;
-  merged.current = Math.min(Math.max(merged.current, 0), merged.target);
-  merged.step = merged.step > 0 ? merged.step : 1;
-  merged.weight = merged.weight > 0 ? merged.weight : 1;
+  merged.target = whole(merged.target, 1);
+  merged.current = Math.min(Math.max(whole(merged.current, 0, 0), 0), merged.target);
+  merged.step = whole(merged.step, 1);
+  merged.weight = whole(merged.weight, 1);
 
   const next: MicroWinsState = {
     ...state,

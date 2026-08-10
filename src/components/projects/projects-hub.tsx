@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
   ArrowRight,
@@ -19,6 +20,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input, Select } from "@/components/ui/input";
 import { ProgressBar } from "@/components/ui/progress";
 import { EntityIcon } from "@/components/ui/icon-picker";
+import { SortableItem, SortableList } from "@/components/ui/sortable";
 import { useStore } from "@/components/providers/store-provider";
 import { ProjectDialog } from "./project-dialog";
 import { ProjectRow } from "./project-row";
@@ -52,10 +54,24 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "today", label: "Dnes" },
 ];
 
+function isTab(value: string | null): value is Tab {
+  return TABS.some((t) => t.id === value);
+}
+
 export function ProjectsHub() {
   const { state } = useStore();
-  const [tab, setTab] = React.useState<Tab>("overview");
+  const router = useRouter();
+  const params = useSearchParams();
   const [dialogOpen, setDialogOpen] = React.useState(false);
+
+  /*
+   * Záložka žije v adrese, ne ve stavu komponenty. Jinak by se návrat z detailu
+   * projektu vždycky vrátil na Přehled - historie prohlížeče o rozkliknuté
+   * záložce nic neví. `replace` proto, aby přepínání záložek nezahltilo
+   * historii a tlačítko Zpět vedlo rovnou z rozdělané práce ven.
+   */
+  const tab: Tab = isTab(params.get("tab")) ? (params.get("tab") as Tab) : "overview";
+  const setTab = (next: Tab) => router.replace(`/?tab=${next}`, { scroll: false });
 
   const empty = state.projects.length === 0;
 
@@ -280,7 +296,7 @@ function OverviewTab({ onNewProject }: { onNewProject: () => void }) {
 // --- projekty ---------------------------------------------------------------
 
 function ProjectsTab({ onNewProject }: { onNewProject: () => void }) {
-  const { state, today } = useStore();
+  const { state, today, reorderProjects } = useStore();
   const [filter, setFilter] = React.useState<ProjectFilter>("all");
   const [sort, setSort] = React.useState<ProjectSort>("custom");
   const [query, setQuery] = React.useState("");
@@ -291,6 +307,10 @@ function ProjectsTab({ onNewProject }: { onNewProject: () => void }) {
     );
     return sortProjects(state, filtered, sort);
   }, [state, filter, sort, query, today]);
+
+  /* Přetahovat jde jen ve vlastním pořadí - v ostatních řazeních by se
+     puštěný řádek okamžitě vrátil tam, kam ho posílá abeceda nebo procenta. */
+  const draggable = sort === "custom";
 
   return (
     <div className="flex flex-col gap-3">
@@ -339,13 +359,28 @@ function ProjectsTab({ onNewProject }: { onNewProject: () => void }) {
             </Button>
           </div>
         ) : (
-          <div className="divide-y">
+          <SortableList
+            ids={rows.map((p) => p.id)}
+            onReorder={reorderProjects}
+            disabled={!draggable}
+            className="divide-y"
+          >
             {rows.map((project) => (
-              <ProjectRow key={project.id} project={project} />
+              <SortableItem key={project.id} id={project.id}>
+                <ProjectRow project={project} />
+              </SortableItem>
             ))}
-          </div>
+          </SortableList>
         )}
       </Card>
+
+      {rows.length > 1 ? (
+        <p className="px-1 text-xs text-muted-foreground">
+          {draggable
+            ? "Pořadí si přetáhni za úchyt vlevo. Uloží se samo."
+            : "Přetahovat jde ve vlastním pořadí - přepni řazení vlevo nahoře."}
+        </p>
+      ) : null}
     </div>
   );
 }

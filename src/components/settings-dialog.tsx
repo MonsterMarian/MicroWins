@@ -17,7 +17,16 @@ import { Input, Textarea } from "@/components/ui/input";
 import { useStore } from "@/components/providers/store-provider";
 import { useToast } from "@/components/providers/toast-provider";
 import { setPrefs, usePrefs } from "@/components/providers/use-prefs";
+import { parseBackup } from "@/lib/backup";
+import {
+  countState,
+  hasScope,
+  mergeState,
+  type ImportMode,
+  type ImportScope,
+} from "@/lib/import";
 import { WINS_VIEWS } from "@/lib/prefs";
+import type { MicroWinsState } from "@/lib/types";
 import {
   applyPendingUpdate,
   checkForUpdate,
@@ -48,15 +57,17 @@ export function SettingsDialog({
   const [busy, setBusy] = React.useState(false);
   const [pasteOpen, setPasteOpen] = React.useState(false);
   const [pasted, setPasted] = React.useState("");
+  /** Záloha čekající na potvrzení - viz `offerImport`. */
+  const [pending, setPending] = React.useState<PendingImport | null>(null);
 
   const [native, setNative] = React.useState(false);
 
   React.useEffect(() => setNative(isNative()), []);
   React.useEffect(() => {
     if (!open) {
-
       setPasteOpen(false);
       setPasted("");
+      setPending(null);
     }
   }, [open]);
 
@@ -83,24 +94,29 @@ export function SettingsDialog({
     });
   };
 
-  const applyText = (text: string, source: string) => {
-    if (importJson(text)) {
-      toast({ tone: "info", title: "Data načtena", description: source });
-      onOpenChange(false);
-    } else {
+  /**
+   * Záloha se nenačte rovnou - napřed se ukáže, co v ní je a co se se
+   * současnými daty stane. Import umí smazat práci několika měsíců, tohle je
+   * poslední místo, kde to jde zastavit.
+   */
+  const offerImport = (text: string, source: string) => {
+    const parsed = parseBackup(text);
+    if (!parsed) {
       toast({
         tone: "warn",
         title: "Soubor nejde načíst",
         description: "Nevypadá jako záloha MicroWins.",
       });
+      return;
     }
+    setPending({ text, source, incoming: parsed.state });
   };
 
   const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
-    applyText(await file.text(), file.name);
+    offerImport(await file.text(), file.name);
   };
 
   return (
@@ -174,7 +190,7 @@ export function SettingsDialog({
                 <Button
                   size="sm"
                   disabled={!pasted.trim()}
-                  onClick={() => applyText(pasted, "vložený text")}
+                  onClick={() => offerImport(pasted, "vložený text")}
                 >
                   Načíst
                 </Button>
@@ -196,7 +212,228 @@ export function SettingsDialog({
 
         {native ? <UpdateSection /> : null}
       </div>
+
+      {pending ? (
+        <ImportDialog
+          pending={pending}
+          onClose={() => setPending(null)}
+          onConfirm={(scope, mode, summary) => {
+            if (importJson(pending.text, { scope, mode })) {
+              toast({ tone: "info", title: "Data načtena", description: summary });
+              setPending(null);
+              onOpenChange(false);
+            } else {
+              toast({ tone: "warn", title: "Načtení selhalo" });
+            }
+          }}
+        />
+      ) : null}
     </Dialog>
+  );
+}
+
+interface PendingImport {
+  text: string;
+  /** Odkud data přišla - jméno souboru nebo "vložený text". */
+  source: string;
+  incoming: MicroWinsState;
+}
+
+const SCOPES: { id: ImportScope; label: string; hint: string }[] = [
+  { id: "all", label: "Vše", hint: "strom i projekty" },
+  { id: "projects", label: "Jen projekty", hint: "strom winů zůstane beze změny" },
+  { id: "tree", label: "Jen strom", hint: "projekty zůstanou beze změny" },
+];
+
+const MODES: { id: ImportMode; label: string; hint: string }[] = [
+  { id: "add", label: "Přidat", hint: "nic se nesmaže, data se připojí" },
+  { id: "replace", label: "Nahradit", hint: "vybraná část se přepíše zálohou" },
+];
+
+/**
+ * Náhled importu: co je v souboru, co se s tím stane a co zůstane.
+ * Počty "po importu" se počítají skutečným sloučením, ne odhadem - co je
+ * v náhledu, to se opravdu uloží.
+ */
+function ImportDialog({
+  pending,
+  onClose,
+  onConfirm,
+}: {
+  pending: PendingImport;
+  onClose: () => void;
+  onConfirm: (scope: ImportScope, mode: ImportMode, summary: string) => void;
+}) {
+  const { state } = useStore();
+  const incoming = React.useMemo(() => countState(pending.incoming), [pending.incoming]);
+
+  // Když záloha nese jen jednu polovinu, není co vybírat.
+  const [scope, setScope] = React.useState<ImportScope>(() => {
+    if (!hasScope(incoming, "tree")) return "projects";
+    if (!hasScope(incoming, "projects")) return "tree";
+    return "all";
+  });
+  const [mode, setMode] = React.useState<ImportMode>("add");
+
+  const before = React.useMemo(() => countState(state), [state]);
+  const after = React.useMemo(
+    () => countState(mergeState(state, pending.incoming, scope, mode)),
+    [state, pending.incoming, scope, mode],
+  );
+
+  const touchesTree = scope !== "projects";
+  const touchesProjects = scope !== "tree";
+  const summary = `${pending.source} · ${SCOPES.find((s) => s.id === scope)?.label.toLowerCase()}`;
+
+  return (
+    <Dialog
+      open
+      onOpenChange={(next) => !next && onClose()}
+      title="Načíst zálohu"
+      description={pending.source}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Zrušit
+          </Button>
+          <Button
+            variant={mode === "replace" ? "destructive" : "default"}
+            disabled={!hasScope(incoming, scope)}
+            onClick={() => onConfirm(scope, mode, summary)}
+          >
+            {mode === "replace" ? "Nahradit" : "Přidat"}
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-4">
+        <div className="rounded-lg border bg-muted/30 p-3">
+          <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            V souboru
+          </p>
+          <p className="text-sm">
+            {incoming.projects} {plural(incoming.projects, "projekt", "projekty", "projektů")},{" "}
+            {incoming.tasks} {plural(incoming.tasks, "úkol", "úkoly", "úkolů")} ·{" "}
+            {incoming.folders} {plural(incoming.folders, "složka", "složky", "složek")},{" "}
+            {incoming.wins} {plural(incoming.wins, "win", "winy", "winů")}
+          </p>
+        </div>
+
+        <Choice
+          label="Co načíst"
+          options={SCOPES}
+          value={scope}
+          onChange={setScope}
+          disabledIds={SCOPES.filter((s) => !hasScope(incoming, s.id)).map((s) => s.id)}
+        />
+        <Choice label="Jak" options={MODES} value={mode} onChange={setMode} />
+
+        <div className="flex flex-col gap-1.5 rounded-lg border p-3">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Po načtení
+          </p>
+          <Change
+            label="Projekty"
+            from={before.projects}
+            to={after.projects}
+            touched={touchesProjects}
+          />
+          <Change label="Úkoly" from={before.tasks} to={after.tasks} touched={touchesProjects} />
+          <Change label="Složky" from={before.folders} to={after.folders} touched={touchesTree} />
+          <Change label="Winy" from={before.wins} to={after.wins} touched={touchesTree} />
+          <Change
+            label="Microwiny"
+            from={before.microwins}
+            to={after.microwins}
+            touched={touchesTree}
+          />
+        </div>
+
+        {mode === "replace" ? (
+          <p className="text-xs text-destructive">
+            Nahrazení je nevratné. {scope === "projects" ? "Stávající projekty a úkoly zmizí." : null}
+            {scope === "tree" ? "Stávající strom, záznamy i microwiny zmizí." : null}
+            {scope === "all" ? "Všechna současná data zmizí." : null}
+          </p>
+        ) : null}
+      </div>
+    </Dialog>
+  );
+}
+
+function Choice<T extends string>({
+  label,
+  options,
+  value,
+  onChange,
+  disabledIds = [],
+}: {
+  label: string;
+  options: { id: T; label: string; hint: string }[];
+  value: T;
+  onChange: (value: T) => void;
+  disabledIds?: T[];
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <p className="text-xs font-medium text-muted-foreground">{label}</p>
+      {options.map((o) => {
+        const disabled = disabledIds.includes(o.id);
+        const active = o.id === value;
+        return (
+          <button
+            key={o.id}
+            type="button"
+            disabled={disabled}
+            onClick={() => onChange(o.id)}
+            aria-pressed={active}
+            className={cn(
+              "flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm transition-colors",
+              active
+                ? "border-foreground/40 bg-accent font-medium"
+                : "text-muted-foreground hover:bg-accent/50",
+              disabled && "cursor-not-allowed opacity-40 hover:bg-transparent",
+            )}
+          >
+            <span className="shrink-0">{o.label}</span>
+            <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+              {disabled ? "v souboru není" : o.hint}
+            </span>
+            {active ? <Check className="size-3.5 shrink-0 opacity-60" /> : null}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Řádek "Projekty 2 → 18"; nedotčená část se drží zpátky. */
+function Change({
+  label,
+  from,
+  to,
+  touched,
+}: {
+  label: string;
+  from: number;
+  to: number;
+  touched: boolean;
+}) {
+  return (
+    <div className="flex items-baseline gap-2 text-sm">
+      <span className={cn("flex-1", !touched && "text-muted-foreground")}>{label}</span>
+      {touched && to !== from ? (
+        <span className="tabular shrink-0">
+          <span className="text-muted-foreground">{from}</span>
+          <span className="mx-1 text-muted-foreground">→</span>
+          <span className={cn("font-medium", to < from && "text-destructive")}>{to}</span>
+        </span>
+      ) : (
+        <span className="tabular shrink-0 text-muted-foreground">
+          {from} {touched ? "" : "· beze změny"}
+        </span>
+      )}
+    </div>
   );
 }
 

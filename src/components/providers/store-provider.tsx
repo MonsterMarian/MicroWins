@@ -5,6 +5,7 @@ import * as actions from "@/lib/actions";
 import * as projectActions from "@/lib/project-actions";
 import { applySettings, exportBackup, parseBackup, type ExportOutcome } from "@/lib/backup";
 import { todayISO } from "@/lib/date";
+import { mergeState, type ImportMode, type ImportScope } from "@/lib/import";
 import { loadState, saveState } from "@/lib/storage";
 import {
   EMPTY_STATE,
@@ -55,8 +56,12 @@ export interface StoreApi {
   deleteMilestone: (id: string) => void;
 
   reset: () => void;
-  /** Načte zálohu (nový formát i starší holý export). */
-  importJson: (text: string) => boolean;
+  /**
+   * Načte zálohu (nový formát i starší holý export). Bez options se chová jako
+   * dřív - nahradí celý stav. S `scope` vezme jen jednu polovinu dat, takže se
+   * dají natáhnout projekty odjinud, aniž by se sáhlo na strom winů.
+   */
+  importJson: (text: string, options?: { scope?: ImportScope; mode?: ImportMode }) => boolean;
   /** Vyexportuje celou zálohu - sdílením v appce, stažením v prohlížeči. */
   exportJson: () => Promise<ExportOutcome>;
 }
@@ -181,11 +186,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       deleteMilestone: (id) => commit(projectActions.deleteMilestone(ref.current, id)),
 
       reset: () => commit(EMPTY_STATE),
-      importJson: (text) => {
+      importJson: (text, options) => {
         const parsed = parseBackup(text);
         if (!parsed) return false;
-        commit(parsed.state);
-        applySettings(parsed.settings);
+        const scope = options?.scope ?? "all";
+        const mode = options?.mode ?? "replace";
+        commit(mergeState(ref.current, parsed.state, scope, mode));
+        // Nastavení vzhledu patří k celé záloze; při načítání jedné poloviny
+        // by přepsalo volby, o kterých uživatel nic neříkal.
+        if (scope === "all" && mode === "replace") applySettings(parsed.settings);
         return true;
       },
       exportJson: () => exportBackup(ref.current),

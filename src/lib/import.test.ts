@@ -1,0 +1,204 @@
+import { describe, expect, it } from "vitest";
+import { addCategory, addCheck, addEntry, addMetric } from "./actions";
+import { countState, hasScope, mergeState } from "./import";
+import { createProject, createTask } from "./project-actions";
+import { EMPTY_STATE, type MicroWinsState } from "./types";
+
+const TODAY = "2026-08-10";
+
+/** Stav se stromem i projekty - obě poloviny appky naráz. */
+function stateWith({ tree, project }: { tree: string; project: string }): MicroWinsState {
+  const cat = addCategory(EMPTY_STATE, null, tree);
+  const metric = addMetric(cat.state, cat.node.id, { name: `X ${tree} za den` });
+  const withEntry = addEntry(metric.state, { metricId: metric.node.id, value: 3 }, TODAY).state;
+  const check = addCheck(withEntry, cat.node.id, `${tree} - protažení`);
+
+  const prj = createProject(check.state, { name: project }, TODAY);
+  const task = createTask(prj.state, prj.project.id, { name: `${project} - úkol`, target: 100, current: 40 }, TODAY);
+  const sub = createTask(
+    task.state,
+    prj.project.id,
+    { name: "podúkol", target: 1, parentId: task.task.id },
+    TODAY,
+  );
+  return sub.state;
+}
+
+describe("počty ve stavu", () => {
+  it("rozdělí strom a projekty", () => {
+    const counts = countState(stateWith({ tree: "Business", project: "10K kliků" }));
+
+    expect(counts.folders).toBe(1);
+    expect(counts.wins).toBe(2); // metrika + check
+    expect(counts.entries).toBe(1);
+    expect(counts.microwins).toBe(1);
+    expect(counts.projects).toBe(1);
+    expect(counts.tasks).toBe(2); // úkol + podúkol
+  });
+
+  it("pozná, jestli záloha vůbec obsahuje požadovanou půlku", () => {
+    const full = countState(stateWith({ tree: "Business", project: "10K kliků" }));
+    const empty = countState(EMPTY_STATE);
+
+    expect(hasScope(full, "projects")).toBe(true);
+    expect(hasScope(full, "tree")).toBe(true);
+    expect(hasScope(empty, "projects")).toBe(false);
+    expect(hasScope(empty, "all")).toBe(false);
+  });
+});
+
+describe("import jen projektů", () => {
+  const current = stateWith({ tree: "Můj strom", project: "Můj projekt" });
+  const incoming = stateWith({ tree: "Cizí strom", project: "Cizí projekt" });
+
+  it("přidáním se strom vůbec nesáhne", () => {
+    const merged = mergeState(current, incoming, "projects", "add");
+
+    expect(merged.nodes).toBe(current.nodes);
+    expect(merged.entries).toBe(current.entries);
+    expect(merged.microwins).toBe(current.microwins);
+    expect(merged.projects.map((p) => p.name)).toEqual(["Můj projekt", "Cizí projekt"]);
+    expect(merged.tasks).toHaveLength(4);
+  });
+
+  it("nahrazením zmizí jen staré projekty, strom zůstává", () => {
+    const merged = mergeState(current, incoming, "projects", "replace");
+
+    expect(merged.nodes).toBe(current.nodes);
+    expect(merged.projects.map((p) => p.name)).toEqual(["Cizí projekt"]);
+    expect(merged.tasks).toHaveLength(2);
+    // úkoly ukazují na přežívající projekt
+    expect(new Set(merged.tasks.map((t) => t.projectId))).toEqual(
+      new Set([merged.projects[0].id]),
+    );
+  });
+
+  it("přidání přerazí id, takže se nic nepotká se stávajícími daty", () => {
+    const merged = mergeState(current, current, "projects", "add");
+    const ids = merged.projects.map((p) => p.id);
+    const taskIds = merged.tasks.map((t) => t.id);
+
+    expect(new Set(ids).size).toBe(2);
+    expect(new Set(taskIds).size).toBe(4);
+    // každý úkol visí na existujícím projektu
+    for (const t of merged.tasks) expect(ids).toContain(t.projectId);
+  });
+
+  it("vazba podúkol -> rodič přežije přerazení id", () => {
+    const merged = mergeState(EMPTY_STATE, incoming, "projects", "add");
+    const parents = merged.tasks.filter((t) => t.parentId === null);
+    const children = merged.tasks.filter((t) => t.parentId !== null);
+
+    expect(parents).toHaveLength(1);
+    expect(children).toHaveLength(1);
+    expect(children[0].parentId).toBe(parents[0].id);
+  });
+
+  it("pořadí přidaných projektů navazuje, nepřekrývá se", () => {
+    const merged = mergeState(current, incoming, "projects", "add");
+    expect(merged.projects.map((p) => p.order)).toEqual([0, 1]);
+  });
+});
+
+describe("import jen stromu", () => {
+  const current = stateWith({ tree: "Můj strom", project: "Můj projekt" });
+  const incoming = stateWith({ tree: "Cizí strom", project: "Cizí projekt" });
+
+  it("projekty zůstanou nedotčené", () => {
+    const merged = mergeState(current, incoming, "tree", "add");
+
+    expect(merged.projects).toBe(current.projects);
+    expect(merged.tasks).toBe(current.tasks);
+    expect(merged.snapshots).toBe(current.snapshots);
+    expect(merged.nodes).toHaveLength(6);
+  });
+
+  it("záznamy a microwiny jdou s uzly", () => {
+    const merged = mergeState(EMPTY_STATE, incoming, "tree", "add");
+    const metricIds = new Set(merged.nodes.map((n) => n.id));
+
+    expect(merged.entries).toHaveLength(1);
+    expect(metricIds.has(merged.entries[0].metricId)).toBe(true);
+    expect(metricIds.has(merged.microwins[0].metricId)).toBe(true);
+  });
+
+  it("hierarchie složek přežije přerazení id", () => {
+    const merged = mergeState(current, incoming, "tree", "add");
+    const roots = merged.nodes.filter((n) => n.parentId === null);
+    const ids = new Set(merged.nodes.map((n) => n.id));
+
+    expect(roots.map((r) => r.name).sort()).toEqual(["Cizí strom", "Můj strom"]);
+    for (const n of merged.nodes) {
+      if (n.parentId) expect(ids.has(n.parentId)).toBe(true);
+    }
+  });
+});
+
+describe("import všeho", () => {
+  it("nahrazení sedne na starou obnovu ze zálohy", () => {
+    const current = stateWith({ tree: "Můj strom", project: "Můj projekt" });
+    const incoming = stateWith({ tree: "Cizí strom", project: "Cizí projekt" });
+    const merged = mergeState(current, incoming, "all", "replace");
+
+    expect(merged.nodes).toEqual(incoming.nodes);
+    expect(merged.projects).toEqual(
+      incoming.projects.map((p, i) => ({ ...p, order: i })),
+    );
+    expect(merged.entries).toEqual(incoming.entries);
+  });
+
+  it("přidání spojí obě poloviny", () => {
+    const current = stateWith({ tree: "Můj strom", project: "Můj projekt" });
+    const incoming = stateWith({ tree: "Cizí strom", project: "Cizí projekt" });
+    const merged = mergeState(current, incoming, "all", "add");
+
+    expect(merged.nodes).toHaveLength(6);
+    expect(merged.projects).toHaveLength(2);
+    expect(merged.microwins).toHaveLength(2);
+  });
+});
+
+describe("poškozená záloha", () => {
+  it("úkol bez svého projektu se zahodí, nezůstane viset", () => {
+    const incoming = stateWith({ tree: "x", project: "y" });
+    const orphaned: MicroWinsState = {
+      ...incoming,
+      tasks: incoming.tasks.map((t) => ({ ...t, projectId: "neexistuje" })),
+    };
+    const merged = mergeState(EMPTY_STATE, orphaned, "projects", "add");
+
+    expect(merged.projects).toHaveLength(1);
+    expect(merged.tasks).toEqual([]);
+  });
+
+  it("uzel s chybějícím rodičem se přesune na kořen", () => {
+    const incoming = stateWith({ tree: "x", project: "y" });
+    const broken: MicroWinsState = {
+      ...incoming,
+      nodes: incoming.nodes.map((n) =>
+        n.kind === "metric" ? { ...n, parentId: "neexistuje" } : n,
+      ),
+    };
+    const merged = mergeState(EMPTY_STATE, broken, "tree", "add");
+    const metric = merged.nodes.find((n) => n.kind === "metric")!;
+
+    expect(metric.parentId).toBeNull();
+    expect(merged.entries).toHaveLength(1);
+  });
+
+  it("dva otisky téhož dne a projektu se slijí do jednoho", () => {
+    const incoming = stateWith({ tree: "x", project: "y" });
+    const id = incoming.projects[0].id;
+    const doubled: MicroWinsState = {
+      ...incoming,
+      snapshots: [
+        { projectId: id, date: TODAY, percent: 10 },
+        { projectId: id, date: TODAY, percent: 40 },
+      ],
+    };
+    const merged = mergeState(EMPTY_STATE, doubled, "projects", "replace");
+
+    expect(merged.snapshots).toHaveLength(1);
+    expect(merged.snapshots[0].percent).toBe(40);
+  });
+});

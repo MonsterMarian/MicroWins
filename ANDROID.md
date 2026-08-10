@@ -161,9 +161,28 @@ stahovací odkaz jako v prohlížeči ve WebView nefunguje, proto
 Obnova: **Obnovit ze souboru**, nebo vložit obsah zálohy jako text (záchranná
 cesta, když výběr souboru zlobí).
 
+Načtení se nikdy nespustí rovnou — nejdřív se ukáže náhled: co v souboru je,
+co načíst (**vše / jen projekty / jen strom**), jestli **přidat** k současným
+datům nebo je **nahradit**, a kolik čeho po načtení bude. Díky tomu se dají
+natáhnout projekty odjinud, aniž by se sáhlo na strom winů. Volby, které
+soubor neobsahuje, jsou zašedlé. Logika je v `src/lib/import.ts`.
+
 Záloha nese celý `MicroWinsState` (strom, záznamy, microwiny, projekty, úkoly,
 milníky, denní otisky) plus nastavení vzhledu. Formát viz `src/lib/backup.ts`;
 načte i starší holý export bez obálky.
+
+### Data z jiné aplikace
+
+`scripts/import-progress.mjs` převede CSV export z aplikace Progress na zálohu
+MicroWins, kterou pak vezme **Obnovit ze souboru** s rozsahem „jen projekty":
+
+```bash
+node scripts/import-progress.mjs --in <složka s CSV> [--out <soubor.json>]
+```
+
+Skript si na konci sám přepočítá procenta podle pravidel MicroWins a porovná je
+se zdrojem — když se rozejdou, mapování je špatně a skript skončí chybou.
+Komentáře se dopíšou do popisu úkolu (appka je nemá), přílohy se nepřenesou.
 
 ## Pozor při vývoji
 

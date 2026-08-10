@@ -2,6 +2,7 @@ import { Directory, Encoding, Filesystem } from "@capacitor/filesystem";
 import { Share } from "@capacitor/share";
 import { todayISO } from "./date";
 import { isNative } from "./native";
+import { getPrefs, parsePrefs, replacePrefs, type Prefs } from "./prefs";
 import { parseState } from "./storage";
 import { STATE_VERSION, type MicroWinsState } from "./types";
 
@@ -21,6 +22,8 @@ export const BACKUP_VERSION = 1;
 
 export interface BackupSettings {
   theme?: "dark" | "light";
+  /** Nastavení zobrazení (viz `prefs.ts`). */
+  prefs?: Prefs;
 }
 
 export interface Backup {
@@ -37,16 +40,22 @@ export const THEME_KEY = "microwins:theme";
 
 export function readSettings(): BackupSettings {
   if (typeof window === "undefined") return {};
+  const out: BackupSettings = { prefs: getPrefs() };
   try {
     const theme = window.localStorage.getItem(THEME_KEY);
-    return theme === "dark" || theme === "light" ? { theme } : {};
+    if (theme === "dark" || theme === "light") out.theme = theme;
   } catch {
-    return {};
+    // soukromý režim - téma se do zálohy nedostane, data ale sedí
   }
+  return out;
 }
 
 export function applySettings(settings: BackupSettings): void {
-  if (typeof window === "undefined" || !settings.theme) return;
+  if (typeof window === "undefined") return;
+
+  if (settings.prefs) replacePrefs(settings.prefs);
+  if (!settings.theme) return;
+
   try {
     window.localStorage.setItem(THEME_KEY, settings.theme);
   } catch {
@@ -75,6 +84,16 @@ export interface ParsedBackup {
   settings: BackupSettings;
 }
 
+/** Ze zálohy bere jen známé volby - cizí nebo poškozené se zahodí. */
+function parseSettings(raw: unknown): BackupSettings {
+  if (typeof raw !== "object" || raw === null) return {};
+  const record = raw as Record<string, unknown>;
+  const out: BackupSettings = {};
+  if (record.theme === "dark" || record.theme === "light") out.theme = record.theme;
+  if (record.prefs !== undefined) out.prefs = parsePrefs(record.prefs);
+  return out;
+}
+
 /** Přijme nový formát zálohy i holý starý export. */
 export function parseBackup(text: string): ParsedBackup | null {
   let data: unknown;
@@ -92,17 +111,7 @@ export function parseBackup(text: string): ParsedBackup | null {
   if (inner && typeof inner === "object") {
     const state = parseState(JSON.stringify(inner));
     if (!state) return null;
-    const settings = record.settings;
-    return {
-      state,
-      settings:
-        settings && typeof settings === "object"
-          ? ((settings as BackupSettings).theme === "dark" ||
-            (settings as BackupSettings).theme === "light"
-              ? { theme: (settings as BackupSettings).theme }
-              : {})
-          : {},
-    };
+    return { state, settings: parseSettings(record.settings) };
   }
 
   // Starší export: rovnou MicroWinsState

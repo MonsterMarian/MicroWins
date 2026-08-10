@@ -24,10 +24,10 @@ Aplikace **MicroWins** ve dvou částech:
 | Detail projektu | `/projects/[id]` | %, delta dne, start–deadline, zbývá dní, tempo %/den, popis, úkoly, milníky, archiv |
 | Statistiky projektu | `/projects/[id]/stats` | prstence (Postup / Dny / Hotové úkoly), plošný graf, deník změn |
 | Detail úkolu | `/tasks/[id]` | %, `630 / 2 000`, posuvník, −/+ s krokem, nastavení, podúkoly |
-| Strom | `/tree` | dnešek + strom kategorií a metrik se záznamy |
-| Analýza | `/stats` | série, tabulka dnů, kalendář, rekordy podle metrik, tempo projektů |
+| Strom | `/tree` | dnešek + procházení složek s winy a jejich záznamy |
+| Analýza | `/stats` | série, pruh měsíce, kalendář roku, přehled winů, tempo projektů |
 
-Stack: Next.js 15 (App Router, vše klientské) · React 19 · TypeScript strict · Tailwind 4 · Vitest. Data v `localStorage`, export/import JSON. Grafy jsou vlastní SVG bez knihoven. 44 testů nad doménovou logikou.
+Stack: Next.js 15 (App Router, vše klientské) · React 19 · TypeScript strict · Tailwind 4 · Vitest. Data v `localStorage`, export/import JSON. Grafy jsou vlastní SVG bez knihoven. 97 testů nad doménovou logikou.
 
 ---
 
@@ -47,6 +47,10 @@ Věci, které ze zadání jednoznačně nevyplývaly a musely se dořešit:
 | **localStorage místo SQLite** | Zadání bylo o pravidlech a UI. Doménová logika je oddělená od úložiště, takže výměna za DB je práce na jednom místě — viz níže. |
 | **Dva akcenty místo jednoho** | Jantar = microwin/rekord, zelená = postup projektu. Sémanticky odlišné věci; jinak platí neutrální paleta. |
 | **Vlastní SVG grafy** | Žádná závislost navíc, plná kontrola nad světlým i tmavým režimem. |
+| **Do složek se vchází, nerozbalují se** | Rozbalený strom byl s pár desítkami winů nečitelný. Vidět je vždy obsah jedné složky, cesta ven je v liště nad ní. Rozbalují se jen samotné winy - ty už další úroveň nemají. |
+| **Několik pohledů na winy místo jedné tabulky** | Pětisloupcová tabulka odpovídala na všechny otázky naráz a na žádnou pořádně. Pohledy (Stručně / Postup / Dnešek / Žebříček / Úplná tabulka) se přepínají v Nastavení, výchozí je nejstručnější. |
+| **Kalendář po celých rocích** | "Posledních 53 týdnů" začínalo uprostřed loňska a nešlo se podle toho zorientovat. Rok je pevná jednotka, mřížka se sama posune na dnešek. |
+| **Ikona jako string s předponou** | Emoji se ukládá rovnou, kreslená ikona jako `lucide:Dumbbell`. Stará data zůstala platná a nic se nemigrovalo. Komponenty se importují jmenovitě, aby v balíku neskončilo všech 1500 ikon knihovny. |
 
 ---
 
@@ -165,9 +169,12 @@ src/lib/
   actions.ts          přechody stavu stromu (+ syncTodayMicrowin)
   projects.ts         výpočty postupu, řady pro graf, filtry
   project-actions.ts  CRUD projektů a úkolů (+ snapshotProject)
-  stats.ts            série, tabulka dnů, kalendář
+  stats.ts            série, kalendář roku, přehled winů
   storage.ts          localStorage + export/import  ← jediné místo k výměně za DB
-  seed.ts             ukázková data
+  backup.ts           záloha celé appky (stav + nastavení), sdílení souboru
+  prefs.ts            nastavení zobrazení mimo hlavní stav
+  icons.ts            katalog ikon pro projekty (emoji + lucide)
+  live-update.ts      živé aktualizace balíku z GitHubu
 ```
 
 Pravidlo, které se vyplatí držet: **v `lib/` žádný React, v komponentách žádná byznys logika.** Díky tomu jde celé chování microwinů i projektů otestovat bez renderu (`actions.test.ts`, `projects.test.ts`).

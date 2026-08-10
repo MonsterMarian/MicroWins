@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, TrendingDown, TrendingUp } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { EntityIcon } from "@/components/ui/icon-picker";
 import { ProgressAreaChart } from "@/components/charts/area-chart";
 import { Ring } from "@/components/charts/ring";
 import { useStore } from "@/components/providers/store-provider";
@@ -68,7 +69,7 @@ export function ProjectAnalytics({ projectId }: { projectId: string }) {
           <ArrowLeft />
         </Button>
         <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-muted text-lg">
-          {project.icon}
+          <EntityIcon icon={project.icon} size="lg" />
         </span>
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-lg font-semibold tracking-tight">{project.name}</h1>

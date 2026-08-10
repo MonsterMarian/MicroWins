@@ -7,11 +7,22 @@ import {
   addOnce,
   deleteEntry,
   deleteNode,
+  moveNode,
+  moveTargets,
   toggleCheck,
   updateOnce,
 } from "./actions";
-import { childrenOf, formatMetricLabel, recordOf, summarizeFlag, summarizeMetric } from "./domain";
-import { streaks, dayRows, totals } from "./stats";
+import {
+  breadcrumb,
+  childrenOf,
+  formatMetricLabel,
+  recordOf,
+  subtreeIds,
+  summarizeFlag,
+  summarizeMetric,
+} from "./domain";
+import { activeYears, dayRows, streaks, totals, winOverview, yearHeatmap } from "./stats";
+import { monthDays } from "./date";
 import { EMPTY_STATE, type MicroWinsState } from "./types";
 
 const TODAY = "2026-08-06";
@@ -434,5 +445,181 @@ describe("statistiky", () => {
     expect(summary.toRecord).toBe(6);
     expect(summary.path).toBe("Business / cold calls");
     expect(summary.hasMicrowinToday).toBe(false);
+  });
+});
+
+describe("přesun složky", () => {
+  /** Business > cold calls > metrika, vedle toho Fitness */
+  function twoRoots() {
+    const a = addCategory(EMPTY_STATE, null, "Business");
+    const b = addCategory(a.state, a.node.id, "cold calls");
+    const c = addMetric(b.state, b.node.id, { name: "X cold calls za den" });
+    const d = addCategory(c.state, null, "Fitness");
+    return {
+      state: d.state,
+      business: a.node.id,
+      coldCalls: b.node.id,
+      metric: c.node.id,
+      fitness: d.node.id,
+    };
+  }
+
+  it("přesune složku i s obsahem pod jinou složku", () => {
+    const t = twoRoots();
+    const s = moveNode(t.state, t.coldCalls, t.fitness);
+
+    expect(childrenOf(s.nodes, t.fitness).map((n) => n.id)).toEqual([t.coldCalls]);
+    expect(childrenOf(s.nodes, t.business)).toEqual([]);
+    // podstrom jede s ní, jen se překreslí cesta
+    expect(subtreeIds(s.nodes, t.coldCalls)).toContain(t.metric);
+    expect(breadcrumb(s.nodes, t.metric)).toBe("Fitness / cold calls");
+  });
+
+  it("umí složku vytáhnout na kořen", () => {
+    const t = twoRoots();
+    const s = moveNode(t.state, t.coldCalls, null);
+
+    expect(childrenOf(s.nodes, null).map((n) => n.name)).toContain("cold calls");
+    expect(breadcrumb(s.nodes, t.metric)).toBe("cold calls");
+  });
+
+  it("do vlastního potomka ani do sebe to nepustí", () => {
+    const t = twoRoots();
+
+    expect(moveNode(t.state, t.business, t.coldCalls)).toBe(t.state);
+    expect(moveNode(t.state, t.business, t.business)).toBe(t.state);
+  });
+
+  it("cílem nemůže být win, jen složka", () => {
+    const t = twoRoots();
+    expect(moveNode(t.state, t.fitness, t.metric)).toBe(t.state);
+  });
+
+  it("nabídka cílů vynechá uzel i jeho potomky", () => {
+    const t = twoRoots();
+    const targets = moveTargets(t.state, t.business).map((n) => n.id);
+
+    expect(targets).toEqual([t.fitness]);
+  });
+
+  it("přesun nemění záznamy ani microwiny", () => {
+    const t = twoRoots();
+    const withEntry = addEntry(t.state, { metricId: t.metric, value: 3 }, TODAY).state;
+    const s = moveNode(withEntry, t.coldCalls, t.fitness);
+
+    expect(s.entries).toEqual(withEntry.entries);
+    expect(s.microwins).toEqual(withEntry.microwins);
+  });
+});
+
+describe("kalendář roku", () => {
+  it("pokrývá celý rok a krajní dny označí jako cizí", () => {
+    const grid = yearHeatmap(EMPTY_STATE, 2026, TODAY);
+    const cells = grid.flat();
+
+    expect(grid.every((column) => column.length === 7)).toBe(true);
+    expect(cells.filter((c) => !c.outside)[0].date).toBe("2026-01-01");
+    expect(cells.filter((c) => !c.outside).at(-1)!.date).toBe("2026-12-31");
+    expect(cells.filter((c) => !c.outside)).toHaveLength(365);
+    // 1. 1. 2026 je čtvrtek, týden začíná pondělkem 29. 12. 2025
+    expect(cells[0].date).toBe("2025-12-29");
+    expect(cells[0].outside).toBe(true);
+  });
+
+  it("dny po dnešku jsou budoucí", () => {
+    const grid = yearHeatmap(EMPTY_STATE, 2026, TODAY);
+    const cells = grid.flat().filter((c) => !c.outside);
+
+    expect(cells.find((c) => c.date === TODAY)!.future).toBe(false);
+    expect(cells.find((c) => c.date === "2026-12-31")!.future).toBe(true);
+  });
+
+  it("počítá microwiny do správných dnů", () => {
+    const { state, metricId } = baseTree();
+    const s = addEntry(state, { metricId, value: 3 }, TODAY).state;
+    const cells = yearHeatmap(s, 2026, TODAY).flat();
+
+    expect(cells.find((c) => c.date === TODAY)!.count).toBe(1);
+  });
+
+  it("nabídne roky s microwiny a k tomu letošek", () => {
+    const { state, metricId } = baseTree();
+    // microwin vzniká vždy k "dnešku", takže minulý rok se dá udělat jen
+    // zápisem v době, kdy ten den dneškem byl
+    const past = addEntry(state, { metricId, value: 5, date: "2024-03-03" }, "2024-03-03").state;
+    expect(past.microwins).toHaveLength(1);
+
+    expect(activeYears(past, TODAY)).toEqual([2024, 2026]);
+    // letošek je v nabídce i bez jediného microwinu
+    expect(activeYears(EMPTY_STATE, TODAY)).toEqual([2026]);
+  });
+});
+
+describe("přehled winů", () => {
+  it("popíše všechny tři druhy a jejich dnešek", () => {
+    const cat = addCategory(EMPTY_STATE, null, "Business");
+    const metric = addMetric(cat.state, cat.node.id, { name: "X cold calls za den", unit: "ks" });
+    const check = addCheck(metric.state, cat.node.id, "Ranní protažení");
+    const once = addOnce(check.state, cat.node.id, { name: "První nabídka" }, TODAY);
+
+    let s = addEntry(once.state, { metricId: metric.node.id, value: 10, date: "2026-01-01" }, TODAY)
+      .state;
+    s = addEntry(s, { metricId: metric.node.id, value: 4 }, TODAY).state;
+    s = toggleCheck(s, check.node.id, TODAY, TODAY).state;
+
+    const rows = winOverview(s, TODAY);
+    expect(rows).toHaveLength(3);
+
+    const m = rows.find((r) => r.kind === "metric")!;
+    expect(m.kind === "metric" && m.record).toBe(10);
+    expect(m.kind === "metric" && m.todayTotal).toBe(4);
+    expect(m.kind === "metric" && m.toRecord).toBe(6);
+    expect(m.kind === "metric" && Math.round(m.progress)).toBe(40);
+    expect(m.activeToday).toBe(true);
+    expect(m.winToday).toBe(false); // 4 na rekord 10 nestačí
+    expect(m.path).toBe("Business");
+
+    const c = rows.find((r) => r.kind === "check")!;
+    expect(c.kind === "check" && c.doneToday).toBe(true);
+    expect(c.kind === "check" && c.recentDays.at(-1)).toBe(true);
+    expect(c.kind === "check" && c.recentDays).toHaveLength(7);
+    expect(c.winToday).toBe(true);
+
+    const o = rows.find((r) => r.kind === "once")!;
+    expect(o.kind === "once" && o.date).toBe(TODAY);
+    expect(o.winToday).toBe(true);
+  });
+
+  it("win bez zápisu má nulový rekord a nic dnes", () => {
+    const cat = addCategory(EMPTY_STATE, null, "Fitness");
+    const metric = addMetric(cat.state, cat.node.id, { name: "X kliků" });
+    const row = winOverview(metric.state, TODAY)[0];
+
+    expect(row.kind === "metric" && row.record).toBe(0);
+    expect(row.kind === "metric" && row.progress).toBe(0);
+    expect(row.activeToday).toBe(false);
+    expect(row.microwinCount).toBe(0);
+  });
+
+  it("složky do přehledu nepatří, jen winy", () => {
+    const cat = addCategory(EMPTY_STATE, null, "Business");
+    const sub = addCategory(cat.state, cat.node.id, "cold calls");
+
+    expect(winOverview(sub.state, TODAY)).toEqual([]);
+  });
+});
+
+describe("pruh měsíce", () => {
+  it("vrátí všechny dny měsíce", () => {
+    expect(monthDays("2026-08-10")).toHaveLength(31);
+    expect(monthDays("2026-02-14")).toHaveLength(28);
+    expect(monthDays("2024-02-14")).toHaveLength(29); // přestupný rok
+  });
+
+  it("začíná prvním a končí posledním dnem", () => {
+    const days = monthDays(TODAY);
+    expect(days[0]).toBe("2026-08-01");
+    expect(days.at(-1)).toBe("2026-08-31");
+    expect(days).toContain(TODAY);
   });
 });

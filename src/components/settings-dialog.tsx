@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import {
+  Check,
   ChevronRight,
   ClipboardPaste,
   Download,
@@ -15,6 +16,8 @@ import { Dialog } from "@/components/ui/dialog";
 import { Input, Textarea } from "@/components/ui/input";
 import { useStore } from "@/components/providers/store-provider";
 import { useToast } from "@/components/providers/toast-provider";
+import { setPrefs, usePrefs } from "@/components/providers/use-prefs";
+import { WINS_VIEWS } from "@/lib/prefs";
 import {
   applyPendingUpdate,
   checkForUpdate,
@@ -110,6 +113,10 @@ export function SettingsDialog({
       <div className="flex flex-col gap-5">
         <Section title="Vzhled">
           <ThemeChoice />
+        </Section>
+
+        <Section title="Analýza" hint="Týká se sekce Winy na záložce Microwiny.">
+          <WinsViewChoice />
         </Section>
 
         <Section
@@ -337,6 +344,39 @@ function Stat({ value, label }: { value: number; label: string }) {
     <div>
       <dd className="tabular text-base font-semibold">{value}</dd>
       <dt className="text-[11px] leading-tight text-muted-foreground">{label}</dt>
+    </div>
+  );
+}
+
+/** Který pohled na winy se ukáže v Analýze. */
+function WinsViewChoice() {
+  const { winsView } = usePrefs();
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      {WINS_VIEWS.map((view) => {
+        const active = view.id === winsView;
+        return (
+          <button
+            key={view.id}
+            type="button"
+            onClick={() => setPrefs({ winsView: view.id })}
+            aria-pressed={active}
+            className={cn(
+              "flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm transition-colors",
+              active
+                ? "border-foreground/40 bg-accent font-medium"
+                : "text-muted-foreground hover:bg-accent/50",
+            )}
+          >
+            <span className="shrink-0">{view.label}</span>
+            <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+              {view.hint}
+            </span>
+            {active ? <Check className="size-3.5 shrink-0 opacity-60" /> : null}
+          </button>
+        );
+      })}
     </div>
   );
 }

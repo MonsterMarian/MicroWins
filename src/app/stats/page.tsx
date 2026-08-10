@@ -2,12 +2,11 @@
 
 import * as React from "react";
 import { useStore } from "@/components/providers/store-provider";
-import { LastDaysStrip } from "@/components/stats/day-table";
-import { FlagsTable } from "@/components/stats/flags-table";
+import { MonthStrip } from "@/components/stats/day-table";
 import { Heatmap } from "@/components/stats/heatmap";
 import { PortfolioAnalytics } from "@/components/stats/portfolio-analytics";
-import { RecordsTable } from "@/components/stats/records-table";
 import { StatCards } from "@/components/stats/stat-cards";
+import { WinsOverview } from "@/components/stats/wins-overview";
 import { cn } from "@/lib/utils";
 
 type Section = "wins" | "projects";
@@ -37,7 +36,7 @@ export default function StatsPage() {
       <div className="flex gap-1 border-b">
         {(
           [
-            { id: "wins", label: "Microwiny a série" },
+            { id: "wins", label: "Microwiny" },
             { id: "projects", label: "Projekty" },
           ] as const
         ).map((t) => (
@@ -60,15 +59,10 @@ export default function StatsPage() {
       {section === "wins" ? (
         <>
           <StatCards />
-
-          <section className="flex flex-col gap-2">
-            <h2 className="text-xs font-medium text-muted-foreground">Posledních 14 dní</h2>
-            <LastDaysStrip />
-          </section>
+          <MonthStrip />
 
           {state.microwins.length > 0 ? <Heatmap /> : null}
-          <RecordsTable />
-          <FlagsTable />
+          <WinsOverview />
         </>
       ) : (
         <PortfolioAnalytics />

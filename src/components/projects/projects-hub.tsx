@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Select } from "@/components/ui/input";
 import { ProgressBar } from "@/components/ui/progress";
+import { EntityIcon } from "@/components/ui/icon-picker";
 import { useStore } from "@/components/providers/store-provider";
 import { ProjectDialog } from "./project-dialog";
 import { ProjectRow } from "./project-row";
@@ -202,7 +203,7 @@ function OverviewTab({ onNewProject }: { onNewProject: () => void }) {
                   href={`/projects?id=${m.project.id}`}
                   className="flex items-center gap-3 rounded-md px-1 py-1.5 hover:bg-accent/60"
                 >
-                  <span className="text-lg">{m.project.icon}</span>
+                  <EntityIcon icon={m.project.icon} size="lg" />
                   <span className="min-w-0 flex-1 truncate text-sm">{m.project.name}</span>
                   <span className="tabular text-xs text-muted-foreground">
                     {displayPercent(m.percent)} %
@@ -233,7 +234,7 @@ function OverviewTab({ onNewProject }: { onNewProject: () => void }) {
               closest.map((c) => (
                 <Link key={c.project.id} href={`/projects?id=${c.project.id}`} className="flex flex-col gap-1">
                   <div className="flex items-center gap-2">
-                    <span>{c.project.icon}</span>
+                    <EntityIcon icon={c.project.icon} size="sm" />
                     <span className="min-w-0 flex-1 truncate text-sm">{c.project.name}</span>
                     <span className="tabular text-sm font-medium">{displayPercent(c.percent)} %</span>
                   </div>
@@ -416,7 +417,7 @@ function TasksTab() {
               href={`/projects?id=${g.project.id}`}
               className="flex items-center gap-2 border-b px-4 py-2.5 text-sm font-medium hover:bg-accent/50"
             >
-              <span>{g.project.icon}</span>
+              <EntityIcon icon={g.project.icon} size="sm" />
               {g.project.name}
               <span className="tabular ml-auto text-xs text-muted-foreground">
                 {displayPercent(projectPercent(state, g.project.id))} %
@@ -510,7 +511,7 @@ function TodayTab() {
                 href={`/projects?id=${m.project.id}`}
                 className="flex items-center gap-3 rounded-md px-1 py-1.5 hover:bg-accent/60"
               >
-                <span className="text-lg">{m.project.icon}</span>
+                <EntityIcon icon={m.project.icon} size="lg" />
                 <span className="min-w-0 flex-1 truncate text-sm">{m.project.name}</span>
                 <Badge variant="outline" className="tabular border-progress/40 text-progress">
                   +{formatTenth(m.delta)} b.

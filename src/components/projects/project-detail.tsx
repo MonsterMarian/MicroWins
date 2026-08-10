@@ -23,6 +23,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { ProgressBar } from "@/components/ui/progress";
+import { EntityIcon } from "@/components/ui/icon-picker";
 import { useStore } from "@/components/providers/store-provider";
 import { MilestonesDialog } from "./milestones-dialog";
 import { ProjectDialog } from "./project-dialog";
@@ -102,7 +103,7 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
           <ArrowLeft />
         </Button>
         <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-muted text-lg">
-          {project.icon}
+          <EntityIcon icon={project.icon} size="lg" />
         </span>
         <h1 className="min-w-0 flex-1 truncate text-lg font-semibold tracking-tight">
           {project.name}

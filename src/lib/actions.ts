@@ -158,6 +158,40 @@ export function updateNode(
   return next;
 }
 
+/**
+ * Přesune uzel (s celým podstromem) pod jinou složku; `null` = na kořen.
+ *
+ * Podstrom se nikam nekopíruje - stačí přepsat rodiče, děti visí na `parentId`.
+ * Do vlastního potomka to logicky nejde, tím by se strom zacyklil a uzel
+ * i s obsahem by zmizel z dosahu.
+ */
+export function moveNode(
+  state: MicroWinsState,
+  id: string,
+  targetId: string | null,
+): MicroWinsState {
+  const node = nodeById(state.nodes, id);
+  if (!node || node.parentId === targetId) return state;
+
+  if (targetId !== null) {
+    const target = nodeById(state.nodes, targetId);
+    // Cílem může být jen složka - winy jsou listy stromu.
+    if (!target || target.kind !== "category") return state;
+    if (subtreeIds(state.nodes, id).includes(targetId)) return state;
+  }
+
+  return {
+    ...state,
+    nodes: state.nodes.map((n) => (n.id === id ? { ...n, parentId: targetId } : n)),
+  };
+}
+
+/** Složky, do kterých se uzel smí přesunout (bez sebe a svých potomků). */
+export function moveTargets(state: MicroWinsState, id: string): TreeNode[] {
+  const blocked = new Set(subtreeIds(state.nodes, id));
+  return state.nodes.filter((n) => n.kind === "category" && !blocked.has(n.id));
+}
+
 /** Smaže uzel včetně celého podstromu, jeho záznamů i microwinů. */
 export function deleteNode(state: MicroWinsState, id: string): MicroWinsState {
   const ids = new Set(subtreeIds(state.nodes, id));

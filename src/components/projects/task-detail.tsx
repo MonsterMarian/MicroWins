@@ -22,6 +22,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
 import { Field, Input, Select, Textarea } from "@/components/ui/input";
 import { ProgressBar, Slider } from "@/components/ui/progress";
+import { EntityIcon } from "@/components/ui/icon-picker";
 import { useStore } from "@/components/providers/store-provider";
 import { TaskDialog } from "./task-dialog";
 import { formatDate } from "@/lib/date";
@@ -85,7 +86,7 @@ export function TaskDetail({ taskId }: { taskId: string }) {
           <ArrowLeft />
         </Button>
         <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-muted text-lg">
-          {task.icon}
+          <EntityIcon icon={task.icon} size="lg" />
         </span>
         <h1 className="min-w-0 flex-1 truncate text-lg font-semibold tracking-tight">{task.name}</h1>
         <Button variant="ghost" size="icon" aria-label="Upravit" onClick={() => setEditOpen(true)}>
@@ -188,7 +189,7 @@ export function TaskDetail({ taskId }: { taskId: string }) {
                   href={`/projects?id=${project.id}`}
                   className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs hover:bg-accent"
                 >
-                  <span>{project.icon}</span>
+                  <EntityIcon icon={project.icon} size="sm" />
                   {project.name}
                   <ExternalLink className="size-3" />
                 </Link>

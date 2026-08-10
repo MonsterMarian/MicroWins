@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { DailyBarChart } from "@/components/charts/bar-chart";
 import { ProgressBar } from "@/components/ui/progress";
+import { EntityIcon } from "@/components/ui/icon-picker";
 import { useStore } from "@/components/providers/store-provider";
 import { formatDate } from "@/lib/date";
 import { displayPercent, portfolioActivity, portfolioStats, projectStats } from "@/lib/projects";
@@ -62,7 +63,7 @@ export function PortfolioAnalytics() {
               className="flex flex-col gap-1 rounded-md px-1 py-1 hover:bg-accent/50"
             >
               <div className="flex items-center gap-2">
-                <span>{s.project.icon}</span>
+                <EntityIcon icon={s.project.icon} size="sm" />
                 <span className="min-w-0 flex-1 truncate text-sm">{s.project.name}</span>
                 {s.deltaToday > 0.05 ? (
                   <span className="tabular text-xs text-progress">

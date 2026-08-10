@@ -4,6 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import { ProgressBar } from "@/components/ui/progress";
+import { EntityIcon } from "@/components/ui/icon-picker";
 import { useStore } from "@/components/providers/store-provider";
 import { formatDate } from "@/lib/date";
 import { displayPercent, projectStats } from "@/lib/projects";
@@ -23,7 +24,7 @@ export function ProjectRow({ project }: { project: Project }) {
       className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-accent/60"
     >
       <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-muted text-lg">
-        {project.icon}
+        <EntityIcon icon={project.icon} size="lg" />
       </span>
 
       <div className="min-w-0 flex-1">

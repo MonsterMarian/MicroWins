@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { BarChart3, Flame, FolderKanban, ListTree, Moon, Settings, Sun } from "lucide-react";
+import { BarChart3, Flame, FolderKanban, ListTree, Settings } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SettingsDialog } from "@/components/settings-dialog";
@@ -31,34 +31,6 @@ function isActive(pathname: string, href: string): boolean {
     return path === "/" || path.startsWith("/projects") || path.startsWith("/tasks");
   }
   return path === href || path.startsWith(`${href}/`);
-}
-
-function ThemeToggle() {
-  const [dark, setDark] = React.useState(false);
-
-  React.useEffect(() => {
-    const isDark = document.documentElement.classList.contains("dark");
-    setDark(isDark);
-    void syncStatusBar(isDark);
-  }, []);
-
-  const toggle = () => {
-    const next = !dark;
-    setDark(next);
-    document.documentElement.classList.toggle("dark", next);
-    void syncStatusBar(next);
-    try {
-      localStorage.setItem("microwins:theme", next ? "dark" : "light");
-    } catch {
-      // soukromý režim - téma se prostě nezapamatuje
-    }
-  };
-
-  return (
-    <Button variant="ghost" size="icon" onClick={toggle} aria-label="Přepnout téma">
-      {dark ? <Sun /> : <Moon />}
-    </Button>
-  );
 }
 
 function StreakBadge() {
@@ -91,6 +63,10 @@ function useNativeShell() {
 
   React.useEffect(() => {
     void hideSplash();
+    // Stavová lišta musí sednout na téma z localStorage (nastavuje ho skript
+    // v layoutu ještě před prvním paintem). Přepínač v hlavičce už není,
+    // takže se o to při startu nikdo jiný nepostará.
+    void syncStatusBar(document.documentElement.classList.contains("dark"));
     // Doběhli jsme až sem, takže tenhle balík umí naběhnout - značka o
     // rozjetém startu může pryč, jinak by ho příští spuštění vrátilo zpět.
     markBootSucceeded();
@@ -152,7 +128,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
           <div className="ml-auto flex items-center gap-1">
             <StreakBadge />
-            <ThemeToggle />
             <Button
               variant="ghost"
               size="icon"

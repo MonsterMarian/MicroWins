@@ -16,6 +16,9 @@ export interface DialogProps {
   className?: string;
 }
 
+/** Otevřené dialogy v pořadí, jak přišly - kvůli Escape u vnořených oken. */
+const dialogStack: object[] = [];
+
 /**
  * Odlehčený dialog bez externích závislostí - stejné API jako shadcn/ui,
  * takže se dá později nahradit komponentou z 21st.dev bez zásahu do volání.
@@ -36,8 +39,14 @@ export function Dialog({
 
   React.useEffect(() => {
     if (!open) return;
+    // Dialogy se dají vnořit (výběr ikony nad formulářem projektu). Escape smí
+    // zavřít jen ten nejvýš, jinak by zmizely oba naráz.
+    const token = {};
+    dialogStack.push(token);
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onOpenChange(false);
+      if (e.key === "Escape" && dialogStack[dialogStack.length - 1] === token) {
+        onOpenChange(false);
+      }
     };
     document.addEventListener("keydown", onKey);
     const previousOverflow = document.body.style.overflow;
@@ -50,6 +59,8 @@ export function Dialog({
     focusTarget?.focus();
     return () => {
       document.removeEventListener("keydown", onKey);
+      const at = dialogStack.indexOf(token);
+      if (at !== -1) dialogStack.splice(at, 1);
       document.body.style.overflow = previousOverflow;
     };
   }, [open, onOpenChange]);

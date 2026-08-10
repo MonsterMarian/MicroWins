@@ -1,46 +1,100 @@
 "use client";
 
 import * as React from "react";
-import { Trophy } from "lucide-react";
+import { ChevronLeft, ChevronRight, Trophy } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { useStore } from "@/components/providers/store-provider";
-import { dayName, formatDate, formatDateRelative, monthShort } from "@/lib/date";
-import { dayRows, heatmap, winDetail } from "@/lib/stats";
+import { dayName, formatDate, formatDateRelative, monthShort, yearOf } from "@/lib/date";
+import { activeYears, dayRows, winDetail, yearHeatmap } from "@/lib/stats";
 import type { ISODate } from "@/lib/types";
 import { cn, plural } from "@/lib/utils";
 
-const LEVELS = [
-  "bg-muted",
-  "bg-win/30",
-  "bg-win/55",
-  "bg-win/80",
-  "bg-win",
-] as const;
+const LEVELS = ["bg-muted", "bg-win/30", "bg-win/55", "bg-win/80", "bg-win"] as const;
 
 function level(count: number): string {
   if (count <= 0) return LEVELS[0];
   return LEVELS[Math.min(count, LEVELS.length - 1)];
 }
 
-export function Heatmap({ weeks = 53 }: { weeks?: number }) {
+/**
+ * Kalendář microwinů po jednotlivých letech.
+ *
+ * Rok se na displej nevejde, tak se mřížka při otevření sama posune na dnešek
+ * (u minulých roků na začátek) - do Analýzy se chodí kvůli "jak jsem na tom
+ * teď", ne kvůli lednu.
+ */
+export function Heatmap() {
   const { state, today } = useStore();
-  const grid = React.useMemo(() => heatmap(state, today, weeks), [state, today, weeks]);
-  const rows = React.useMemo(() => dayRows(state), [state]);
+  const [year, setYear] = React.useState(() => yearOf(today));
   const [selected, setSelected] = React.useState<ISODate | null>(null);
+  const scroller = React.useRef<HTMLDivElement>(null);
+  const todayCell = React.useRef<HTMLButtonElement>(null);
 
-  const detail = selected ? rows.find((r) => r.date === selected) ?? null : null;
+  const years = React.useMemo(() => activeYears(state, today), [state, today]);
+  const grid = React.useMemo(() => yearHeatmap(state, year, today), [state, year, today]);
+  const rows = React.useMemo(() => dayRows(state), [state]);
+
+  const first = years[0];
+  const last = years[years.length - 1];
+  const inYear = React.useMemo(
+    () => rows.filter((r) => yearOf(r.date) === year).reduce((sum, r) => sum + r.count, 0),
+    [rows, year],
+  );
+
+  React.useEffect(() => {
+    const box = scroller.current;
+    if (!box) return;
+    const cell = todayCell.current;
+    box.scrollTo({
+      left: cell ? cell.offsetLeft - (box.clientWidth - cell.offsetWidth) / 2 : 0,
+      behavior: "instant",
+    });
+  }, [year, grid]);
+
+  // Detail patří k vybranému dni; po přepnutí roku by ukazoval jinam.
+  React.useEffect(() => setSelected(null), [year]);
+
+  const detail = selected ? (rows.find((r) => r.date === selected) ?? null) : null;
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Kalendář microwinů</CardTitle>
-        <CardDescription>
-          Posledních {weeks} týdnů. Sytější políčko = víc microwinů. Klikni na den pro detail.
-        </CardDescription>
+        <div className="flex items-center gap-2">
+          <div className="min-w-0 flex-1">
+            <CardTitle>Kalendář microwinů</CardTitle>
+            <CardDescription>
+              Leden až prosinec. Sytější políčko = víc microwinů. Klikni na den pro detail.
+            </CardDescription>
+          </div>
+
+          <div className="flex shrink-0 items-center gap-0.5">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Předchozí rok"
+              disabled={year <= first}
+              onClick={() => setYear((y) => y - 1)}
+            >
+              <ChevronLeft />
+            </Button>
+            <span className="tabular w-11 text-center text-sm font-medium">{year}</span>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Následující rok"
+              disabled={year >= last}
+              onClick={() => setYear((y) => y + 1)}
+            >
+              <ChevronRight />
+            </Button>
+          </div>
+        </div>
       </CardHeader>
+
       <CardContent>
-        <div className="scroll-quiet flex w-full gap-[3px] overflow-x-auto pb-1">
+        <div ref={scroller} className="scroll-quiet flex w-full gap-[3px] overflow-x-auto pb-1">
           <div className="mr-1 flex flex-col gap-[3px] pt-[18px] text-[10px] leading-none text-muted-foreground">
             {["po", "", "st", "", "pá", "", "ne"].map((d, i) => (
               <span key={i} className="flex h-3 items-center">
@@ -50,21 +104,25 @@ export function Heatmap({ weeks = 53 }: { weeks?: number }) {
           </div>
 
           {grid.map((column, wi) => {
-            const first = column[0];
+            // Popisek měsíce patří k prvnímu týdnu, který do něj spadá.
+            const anchor = column.find((c) => !c.outside) ?? column[0];
+            const previous = wi > 0 ? grid[wi - 1].find((c) => !c.outside) : undefined;
             const showMonth =
-              wi === 0 || monthShort(first.date) !== monthShort(grid[wi - 1][0].date);
+              !anchor.outside && (!previous || monthShort(anchor.date) !== monthShort(previous.date));
+
             return (
-              <div key={first.date} className="flex flex-col gap-[3px]">
+              <div key={column[0].date} className="flex flex-col gap-[3px]">
                 {/* w-3: popisek měsíce nesmí rozšířit sloupec, přetéká přes sousední týdny */}
                 <span className="h-[14px] w-3 whitespace-nowrap text-[10px] leading-none text-muted-foreground">
-                  {showMonth ? monthShort(first.date) : ""}
+                  {showMonth ? monthShort(anchor.date) : ""}
                 </span>
                 {column.map((cell) =>
-                  cell.future ? (
+                  cell.outside || cell.future ? (
                     <span key={cell.date} className="size-3 rounded-[3px] bg-transparent" />
                   ) : (
                     <button
                       key={cell.date}
+                      ref={cell.date === today ? todayCell : undefined}
                       type="button"
                       aria-pressed={cell.date === selected}
                       onClick={() => setSelected((s) => (s === cell.date ? null : cell.date))}
@@ -72,7 +130,8 @@ export function Heatmap({ weeks = 53 }: { weeks?: number }) {
                       className={cn(
                         "size-3 rounded-[3px] transition-shadow hover:ring-1 hover:ring-foreground/40",
                         level(cell.count),
-                        cell.date === today && "ring-1 ring-foreground/40 ring-offset-1 ring-offset-card",
+                        cell.date === today &&
+                          "ring-1 ring-foreground/40 ring-offset-1 ring-offset-card",
                         cell.date === selected &&
                           "ring-2 ring-foreground ring-offset-1 ring-offset-card",
                       )}
@@ -90,6 +149,9 @@ export function Heatmap({ weeks = 53 }: { weeks?: number }) {
             <span key={l} className={cn("size-3 rounded-[3px]", l)} />
           ))}
           více
+          <span className="tabular ml-auto">
+            {year}: {inYear} {plural(inYear, "microwin", "microwiny", "microwinů")}
+          </span>
         </div>
 
         {selected ? <DayDetail date={selected} row={detail} today={today} /> : null}
@@ -126,9 +188,7 @@ function DayDetail({
           {row.items.map((item) => (
             <li key={item.microwin.id} className="flex flex-wrap items-baseline gap-x-2">
               <span className="text-sm font-medium">{item.text}</span>
-              <span className="text-xs text-muted-foreground">
-                {winDetail(item)}
-              </span>
+              <span className="text-xs text-muted-foreground">{winDetail(item)}</span>
               {item.path ? (
                 <span className="text-xs text-muted-foreground/80">· {item.path}</span>
               ) : null}

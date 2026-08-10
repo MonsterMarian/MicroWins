@@ -1,5 +1,16 @@
 import { addDays, diffDays, todayISO, weekdayMondayFirst } from "./date";
-import { breadcrumb, formatMetricLabel, nodeById, pathOf, subtreeIds } from "./domain";
+import {
+  breadcrumb,
+  formatMetricLabel,
+  markedDates,
+  nodeById,
+  onceEntry,
+  pathOf,
+  subtreeIds,
+  summarizeFlag,
+  summarizeMetric,
+  winNodesOf,
+} from "./domain";
 import type { ISODate, MicroWinsState, Microwin, NodeKind, TreeNode } from "./types";
 import { formatNumber } from "./utils";
 
@@ -152,31 +163,155 @@ export interface HeatCell {
   date: ISODate;
   count: number;
   future: boolean;
+  /** Den spadá do sousedního roku - drží mřížku, ale nekreslí se. */
+  outside: boolean;
 }
 
-/** Mřížka posledních `weeks` týdnů (sloupec = týden od pondělí). */
-export function heatmap(
+/**
+ * Kalendář jednoho roku: leden až prosinec, sloupec = týden od pondělí.
+ *
+ * Rok je pevná jednotka, ne klouzavé okno - "posledních 53 týdnů" začínalo
+ * uprostřed loňska a nešlo se podle toho zorientovat. Krajní týdny přetékají
+ * do sousedních roků, ty dny se jen nekreslí.
+ */
+export function yearHeatmap(
   state: MicroWinsState,
+  year: number,
   today: ISODate = todayISO(),
-  weeks = 18,
 ): HeatCell[][] {
   const counts = new Map<ISODate, number>();
   for (const r of dayRows(state)) counts.set(r.date, r.count);
 
-  // začni pondělkem týdne, do kterého spadá today - (weeks-1) týdnů
-  const startOfThisWeek = addDays(today, -weekdayMondayFirst(today));
-  const start = addDays(startOfThisWeek, -(weeks - 1) * 7);
+  const first = `${year}-01-01`;
+  const last = `${year}-12-31`;
+  const start = addDays(first, -weekdayMondayFirst(first));
+  const weeks = Math.ceil((diffDays(start, last) + 1) / 7);
 
   const grid: HeatCell[][] = [];
   for (let w = 0; w < weeks; w++) {
     const column: HeatCell[] = [];
     for (let d = 0; d < 7; d++) {
       const date = addDays(start, w * 7 + d);
-      column.push({ date, count: counts.get(date) ?? 0, future: date > today });
+      column.push({
+        date,
+        count: counts.get(date) ?? 0,
+        future: date > today,
+        outside: date < first || date > last,
+      });
     }
     grid.push(column);
   }
   return grid;
+}
+
+/** Roky, ve kterých něco padlo, plus letošek - nabídka přepínače kalendáře. */
+export function activeYears(state: MicroWinsState, today: ISODate = todayISO()): number[] {
+  const years = new Set(state.microwins.map((m) => Number(m.date.slice(0, 4))));
+  years.add(Number(today.slice(0, 4)));
+  return [...years].sort((a, b) => a - b);
+}
+
+// --- přehled winů -----------------------------------------------------------
+
+interface WinBase {
+  node: TreeNode;
+  /** "Business / cold calls" */
+  path: string;
+  microwinCount: number;
+  /** Dnes se u winu něco stalo (zápis, zaškrtnutí). */
+  activeToday: boolean;
+  /** Dnes padl microwin. */
+  winToday: boolean;
+  lastDate: ISODate | null;
+}
+
+/**
+ * Jeden win pro přehled v Analýze. Rozlišené podle druhu, protože číselný win
+ * má rekord, zaškrtávací sérii a jednorázový jen datum - společná tabulka
+ * s prázdnými sloupci se nedala číst.
+ */
+export type WinOverview =
+  | (WinBase & {
+      kind: "metric";
+      record: number;
+      recordDate: ISODate | null;
+      todayTotal: number;
+      /** Kolik dnes chybí do rekordu (0 = rekord padl). */
+      toRecord: number;
+      /** Dnešek vůči rekordu, 0-100 %. */
+      progress: number;
+      entryCount: number;
+      unit?: string;
+    })
+  | (WinBase & {
+      kind: "check";
+      dayCount: number;
+      streak: number;
+      doneToday: boolean;
+      /** Posledních 7 dnů (nejstarší první) - zaškrtnuto / ne. */
+      recentDays: boolean[];
+    })
+  | (WinBase & { kind: "once"; date: ISODate | null });
+
+export function winOverview(state: MicroWinsState, today: ISODate = todayISO()): WinOverview[] {
+  const out: WinOverview[] = [];
+
+  for (const node of winNodesOf(state.nodes)) {
+    const microwins = state.microwins.filter((m) => m.metricId === node.id);
+    const base: WinBase = {
+      node,
+      path: breadcrumb(state.nodes, node.id),
+      microwinCount: microwins.length,
+      activeToday: false,
+      winToday: microwins.some((m) => m.date === today),
+      lastDate: null,
+    };
+
+    if (node.kind === "metric") {
+      const s = summarizeMetric(state, node, today);
+      out.push({
+        ...base,
+        kind: "metric",
+        activeToday: s.todayTotal > 0,
+        lastDate: s.lastEntryDate,
+        record: s.record.value,
+        recordDate: s.record.date,
+        todayTotal: s.todayTotal,
+        toRecord: s.toRecord,
+        progress: s.record.value > 0 ? Math.min(100, (s.todayTotal / s.record.value) * 100) : 0,
+        entryCount: s.entryCount,
+        unit: node.unit,
+      });
+      continue;
+    }
+
+    if (node.kind === "check") {
+      const s = summarizeFlag(state, node, today);
+      const marked = markedDates(state.entries, node.id);
+      out.push({
+        ...base,
+        kind: "check",
+        activeToday: s.doneToday,
+        lastDate: s.lastDate,
+        dayCount: s.dayCount,
+        streak: s.streak,
+        doneToday: s.doneToday,
+        recentDays: Array.from({ length: 7 }, (_, i) => marked.has(addDays(today, i - 6))),
+      });
+      continue;
+    }
+
+    const entry = onceEntry(state.entries, node.id);
+    out.push({
+      ...base,
+      kind: "once",
+      activeToday: entry?.date === today,
+      lastDate: entry?.date ?? null,
+      date: entry?.date ?? null,
+    });
+  }
+
+  return out;
 }
 
 export interface CategoryStat {

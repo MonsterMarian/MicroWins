@@ -92,3 +92,37 @@ const MONTHS = [
 export function monthShort(iso: ISODate): string {
   return MONTHS[fromISODate(iso).getMonth()];
 }
+
+const MONTH_NAMES = [
+  "leden",
+  "únor",
+  "březen",
+  "duben",
+  "květen",
+  "červen",
+  "červenec",
+  "srpen",
+  "září",
+  "říjen",
+  "listopad",
+  "prosinec",
+];
+
+/** "srpen 2026" */
+export function monthLabel(iso: ISODate): string {
+  const d = fromISODate(iso);
+  return `${MONTH_NAMES[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+export function yearOf(iso: ISODate): number {
+  return Number(iso.slice(0, 4));
+}
+
+/** Všechny dny měsíce, do kterého datum spadá (1. až poslední). */
+export function monthDays(iso: ISODate): ISODate[] {
+  const d = fromISODate(iso);
+  const year = d.getFullYear();
+  const month = d.getMonth();
+  const last = new Date(year, month + 1, 0).getDate();
+  return Array.from({ length: last }, (_, i) => toISODate(new Date(year, month, i + 1, 12)));
+}

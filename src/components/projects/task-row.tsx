@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Check, Minus, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ProgressBar } from "@/components/ui/progress";
+import { EntityIcon } from "@/components/ui/icon-picker";
 import { useStore } from "@/components/providers/store-provider";
 import { formatDate } from "@/lib/date";
 import { displayPercent, isTaskDone, subtasksOf, taskPercent } from "@/lib/projects";
@@ -37,7 +38,7 @@ export function TaskRow({
           done ? "border-progress bg-progress text-progress-foreground" : "bg-muted",
         )}
       >
-        {done ? <Check className="size-4" /> : <span>{task.icon}</span>}
+        {done ? <Check className="size-4" /> : <EntityIcon icon={task.icon} size="sm" />}
       </button>
 
       <Link href={`/tasks?id=${task.id}`} className="min-w-0 flex-1">

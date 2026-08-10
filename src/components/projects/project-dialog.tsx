@@ -3,12 +3,14 @@
 import * as React from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
+import { IconField } from "@/components/ui/icon-picker";
 import { Field, Input } from "@/components/ui/input";
 import { useStore } from "@/components/providers/store-provider";
+import { DEFAULT_PROJECT_ICON } from "@/lib/icons";
 import type { Project } from "@/lib/types";
-import { cn } from "@/lib/utils";
 
-const ICONS = ["📁", "🖱️", "📵", "📖", "💪", "🧠", "💰", "🎯", "⚡", "🏃", "🎨", "🧘"];
+/** Rychlá volba vedle tlačítka - zbytek katalogu je v okně s výběrem. */
+const QUICK_ICONS = [DEFAULT_PROJECT_ICON, "💪", "📖", "💰", "🎯", "🧠", "🏃"];
 
 export function ProjectDialog({
   open,
@@ -24,7 +26,7 @@ export function ProjectDialog({
 }) {
   const { today, createProject, updateProject } = useStore();
   const [name, setName] = React.useState("");
-  const [icon, setIcon] = React.useState("📁");
+  const [icon, setIcon] = React.useState(DEFAULT_PROJECT_ICON);
   const [startDate, setStartDate] = React.useState(today);
   const [deadline, setDeadline] = React.useState("");
   const [description, setDescription] = React.useState("");
@@ -33,7 +35,7 @@ export function ProjectDialog({
   React.useEffect(() => {
     if (!open) return;
     setName(project?.name ?? "");
-    setIcon(project?.icon ?? "📁");
+    setIcon(project?.icon ?? DEFAULT_PROJECT_ICON);
     setStartDate(project?.startDate ?? today);
     setDeadline(project?.deadline ?? "");
     setDescription(project?.description ?? "");
@@ -107,23 +109,7 @@ export function ProjectDialog({
         </Field>
 
         <Field label="Ikona">
-          <div className="flex flex-wrap gap-1.5">
-            {ICONS.map((emoji) => (
-              <button
-                key={emoji}
-                type="button"
-                onClick={() => setIcon(emoji)}
-                className={cn(
-                  "grid size-9 place-items-center rounded-md border text-lg transition-colors",
-                  icon === emoji ? "border-progress bg-progress-muted" : "hover:bg-accent",
-                )}
-                aria-label={`Ikona ${emoji}`}
-                aria-pressed={icon === emoji}
-              >
-                {emoji}
-              </button>
-            ))}
-          </div>
+          <IconField value={icon} onChange={setIcon} quick={QUICK_ICONS} />
         </Field>
 
         <div className="grid grid-cols-2 gap-3">

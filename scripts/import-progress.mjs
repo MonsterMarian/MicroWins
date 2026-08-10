@@ -329,34 +329,141 @@ for (const [parentId, rows] of byParentTask) {
 // --- otisky postupu ---------------------------------------------------------
 
 /**
- * Zdroj historii postupu neexportuje, takže se vyrobí dva body: nula na startu
- * a skutečný postup ke dni poslední změny. Graf tak nakreslí čáru odtud potud
- * místo aby zůstal prázdný. Nic se tím nepředstírá - mezi tím appka doplní
- * poslední známou hodnotu, jako u ručně vedeného projektu.
+ * Historie postupu.
  *
- * Ten druhý otisk musí padnout nejpozději na včerejšek. Appka počítá "dnešní
- * přírůstek" jako rozdíl proti včerejšku, takže s otiskem k dnešku by celý
- * přenesený postup vypadal jako práce odvedená v den importu.
+ * Zdroj graf ani deník změn neexportuje, ale u každého úkolu a podúkolu zná
+ * den vzniku a den poslední změny. Z toho se historie dá poskládat zpátky:
+ *
+ *  - zaškrtávací podúkol: skok v den, kdy byl odškrtnutý (`update_date`).
+ *    Tohle je přesné, binární věc se neděje postupně.
+ *  - číselný úkol: hodnotu známe jen ke dni poslední změny. Mezi vznikem
+ *    a tímhle dnem se odhaduje rovnoměrně - kdo dělal 1485 kliků, nedělal je
+ *    všechny v jeden den. Je to odhad, ale bližší pravdě než skok na konci.
+ *
+ * Bez toho by graf devadesátiprocentní většiny projektů byl jedna přímka
+ * z nuly do dneška.
  */
 const now = new Date();
-const TODAY_DAY = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-const yesterday = new Date(now);
-yesterday.setDate(yesterday.getDate() - 1);
-const YESTERDAY_DAY = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, "0")}-${String(yesterday.getDate()).padStart(2, "0")}`;
+function localDay(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+const TODAY_DAY = localDay(now);
+const YESTERDAY_DAY = localDay(new Date(now.getTime() - 86_400_000));
+
+function dayDiff(a, b) {
+  return Math.round((Date.parse(`${b}T12:00:00Z`) - Date.parse(`${a}T12:00:00Z`)) / 86_400_000);
+}
+
+function addDays(day, count) {
+  return localDay(new Date(Date.parse(`${day}T12:00:00Z`) + count * 86_400_000));
+}
+
+/** Doplní ke každému úkolu dny vzniku a poslední změny (pro model historie). */
+const timeline = new Map();
+for (const row of [...taskRows, ...subtaskRows]) {
+  timeline.set(row.id, {
+    created: toDay(row.create_date),
+    updated: toDay(row.update_date) || toDay(row.create_date),
+  });
+}
+
+const childrenByTask = new Map();
+for (const t of tasks) {
+  const key = t.parentId ?? "";
+  if (!childrenByTask.has(key)) childrenByTask.set(key, []);
+  childrenByTask.get(key).push(t);
+}
+
+function valueAt(task, day) {
+  const when = timeline.get(task.id);
+  if (!when || !when.created) return task.current;
+  if (day < when.created) return 0;
+  if (day >= when.updated) return task.current;
+
+  // Zaškrtnutí je skok, ne růst - do dne odškrtnutí je to nula.
+  if (task.target === 1) return 0;
+
+  const span = dayDiff(when.created, when.updated);
+  if (span <= 0) return task.current;
+  return (task.current * dayDiff(when.created, day)) / span;
+}
+
+function taskPercentAt(task, day) {
+  const children = childrenByTask.get(task.id) ?? [];
+  if (children.length > 0) {
+    const weight = children.reduce((s, c) => s + (c.weight || 1), 0);
+    if (weight === 0) return 0;
+    return Math.min(
+      100,
+      children.reduce((s, c) => s + taskPercentAt(c, day) * (c.weight || 1), 0) / weight,
+    );
+  }
+  const value = valueAt(task, day);
+  if (task.target <= 0) return value > 0 ? 100 : 0;
+  return Math.min(100, Math.max(0, (value / task.target) * 100));
+}
+
+function projectPercentAt(projectId, day) {
+  const top = (childrenByTask.get("") ?? []).filter((t) => t.projectId === projectId);
+  if (top.length === 0) return 0;
+  const weight = top.reduce((s, t) => s + (t.weight || 1), 0);
+  if (weight === 0) return 0;
+  return top.reduce((s, t) => s + taskPercentAt(t, day) * (t.weight || 1), 0) / weight;
+}
 
 const snapshots = [];
+let snapshotCount = 0;
+
 for (const row of projectRows) {
   const project = projects.find((p) => p.id === row.id);
+  const projectTasks = tasks.filter((t) => t.projectId === project.id);
   const percent = Math.round(projectPercent(project.id, tasks) * 10) / 10;
-  const changed = toDay(row.update_date);
-  const mark = changed && changed < TODAY_DAY ? changed : YESTERDAY_DAY;
 
-  if (mark > project.startDate) {
-    snapshots.push({ projectId: project.id, date: project.startDate, percent: 0 });
-    snapshots.push({ projectId: project.id, date: mark, percent });
-  } else {
-    // Projekt založený dnes nebo včera - jeden bod stačí.
+  // Poslední otisk musí padnout nejpozději na včerejšek. Appka počítá "dnešní
+  // přírůstek" jako rozdíl proti včerejšku, takže s otiskem k dnešku by celý
+  // přenesený postup vypadal jako práce odvedená v den importu.
+  const events = projectTasks
+    .flatMap((t) => {
+      const when = timeline.get(t.id);
+      return when ? [when.created, when.updated] : [];
+    })
+    .filter(Boolean);
+  const lastEvent = events.length ? events.reduce((a, b) => (a > b ? a : b)) : project.startDate;
+  const end = lastEvent < TODAY_DAY ? lastEvent : YESTERDAY_DAY;
+
+  if (end <= project.startDate) {
     snapshots.push({ projectId: project.id, date: project.startDate, percent });
+    snapshotCount++;
+    continue;
+  }
+
+  // Dny, kdy se prokazatelně něco stalo, plus týdenní vzorky, aby postupný
+  // růst číselných úkolů nebyl jedna dlouhá vodorovná čára.
+  const days = new Set([project.startDate, end]);
+  for (const day of events) {
+    if (day > project.startDate && day < end) days.add(day);
+  }
+  const span = dayDiff(project.startDate, end);
+  const step = Math.max(7, Math.ceil(span / 180));
+  for (let i = step; i < span; i += step) days.add(addDays(project.startDate, i));
+
+  let previous = null;
+  for (const day of [...days].sort()) {
+    const value = Math.round(projectPercentAt(project.id, day) * 10) / 10;
+    // Stejná hodnota jako minule se zahodí - appka mezi otisky drží poslední
+    // známou, takže by to jen nafouklo soubor.
+    if (value === previous) continue;
+    previous = value;
+    snapshots.push({ projectId: project.id, date: day, percent: day === end ? percent : value });
+    snapshotCount++;
+  }
+
+  // Poslední bod musí sedět na skutečném stavu, ať se graf potká s číslem
+  // nahoře na detailu projektu.
+  const last = snapshots[snapshots.length - 1];
+  if (last.projectId !== project.id || last.date !== end) {
+    snapshots.push({ projectId: project.id, date: end, percent });
+    snapshotCount++;
   }
 }
 
@@ -387,6 +494,16 @@ await writeFile(OUT_FILE, JSON.stringify(backup, null, 2));
 
 console.log(`\nProjekty: ${projects.length}, úkoly: ${tasks.filter((t) => !t.parentId).length}, podúkoly: ${tasks.filter((t) => t.parentId).length}`);
 console.log(`Poznámky z komentářů a příloh: ${[...notesByTask.values()].reduce((s, n) => s + n.length, 0)}`);
+console.log(`Otisky historie: ${snapshotCount}`);
+
+console.log("\nHistorie (od startu, počet otisků):");
+for (const project of [...projects].sort((a, b) => a.startDate.localeCompare(b.startDate))) {
+  const mine = snapshots.filter((s) => s.projectId === project.id);
+  const days = dayDiff(project.startDate, TODAY_DAY);
+  console.log(
+    `  ${project.icon} ${project.name.padEnd(30)} ${String(days).padStart(4)} dní  ${String(mine.length).padStart(3)} otisků  ${mine[0].percent} % → ${mine[mine.length - 1].percent} %`,
+  );
+}
 
 console.log("\nKontrola procent (zdroj → MicroWins):");
 let mismatch = 0;

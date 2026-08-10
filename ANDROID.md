@@ -184,6 +184,13 @@ Skript si na konci sám přepočítá procenta podle pravidel MicroWins a porovn
 se zdrojem — když se rozejdou, mapování je špatně a skript skončí chybou.
 Komentáře se dopíšou do popisu úkolu (appka je nemá), přílohy se nepřenesou.
 
+**Historie postupu** se skládá zpátky z dat vzniku a poslední změny každého
+úkolu a podúkolu: zaškrtnutí je skok v den odškrtnutí (přesné), u číselných
+úkolů se růst mezi vznikem a poslední změnou odhaduje rovnoměrně. Bez toho by
+graf i deník změn byly u každého projektu jedna přímka. Poslední otisk padne
+nejpozději na včerejšek — s otiskem k dnešku by appka celý přenesený postup
+ohlásila jako přírůstek dne importu.
+
 ## Pozor při vývoji
 
 - Routy nesmí být dynamické (`/projects/[id]`). Statický export neumí

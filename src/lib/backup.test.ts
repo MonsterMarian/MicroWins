@@ -62,20 +62,31 @@ describe("záloha", () => {
   it("přenese i nastavení zobrazení", () => {
     const raw = serializeBackup(fullState());
     const withPrefs = JSON.parse(raw);
-    withPrefs.settings = { theme: "light", prefs: { winsView: "focus", accent: "lime" } };
+    withPrefs.settings = { theme: "light", prefs: { accent: "mint" } };
 
     const restored = parseBackup(JSON.stringify(withPrefs))!;
     expect(restored.settings.theme).toBe("light");
-    expect(restored.settings.prefs).toEqual({ winsView: "focus", accent: "lime" });
+    expect(restored.settings.prefs).toEqual({ accent: "mint" });
   });
 
   it("nesmyslné nastavení v záloze spadne na výchozí", () => {
     const withJunk = JSON.parse(serializeBackup(fullState()));
-    withJunk.settings = { theme: "duhove", prefs: { winsView: "neco", accent: "duhova" } };
+    withJunk.settings = { theme: "duhove", prefs: { accent: "duhova" } };
 
     const restored = parseBackup(JSON.stringify(withJunk))!;
     expect(restored.settings.theme).toBeUndefined();
-    expect(restored.settings.prefs).toEqual({ winsView: "compact", accent: "emerald" });
+    expect(restored.settings.prefs).toEqual({ accent: "terminal" });
+  });
+
+  /* Starší zálohy nesou zrušené volby - zelené, které už nejsou, a pohled na
+     winy, který zmizel celý. Nesmí kvůli tomu spadnout ani se protlačit dál. */
+  it("záloha ze starší verze se přečte, zrušené volby se zahodí", () => {
+    const old = JSON.parse(serializeBackup(fullState()));
+    old.settings = { theme: "dark", prefs: { winsView: "focus", accent: "sage" } };
+
+    const restored = parseBackup(JSON.stringify(old))!;
+    expect(restored.settings.theme).toBe("dark");
+    expect(restored.settings.prefs).toEqual({ accent: "terminal" });
   });
 
   it("záloha nese formát a verzi, aby šla poznat", () => {

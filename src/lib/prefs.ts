@@ -8,60 +8,51 @@
  * dalšího providera.
  */
 
-/** Jak vypadá sekce s winy v Analýze. */
-export type WinsView = "compact" | "progress" | "focus" | "ranking" | "table";
-
-export const WINS_VIEWS: { id: WinsView; label: string; hint: string }[] = [
-  { id: "compact", label: "Stručně", hint: "jeden řádek na win, rekord a dnešek" },
-  { id: "progress", label: "Postup k rekordu", hint: "jak blízko jsi dnes rekordu" },
-  { id: "focus", label: "Dnešek", hint: "co dnes padlo a co je na dosah" },
-  { id: "ranking", label: "Žebříček", hint: "winy podle počtu microwinů" },
-  { id: "table", label: "Úplná tabulka", hint: "všechny sloupce, nejvíc čísel" },
-];
-
 /**
  * Zelená, kterou kreslí postup projektů (pruhy, procenta, hotové úkoly).
  * Jantar u microwinů zůstává - to je druhý, sémanticky jiný akcent.
+ *
+ * Odstíny drží pásmo 130-176°. Dolní hranici určuje naše oranžová (68°):
+ * blíž než 60° se obě barvy na obrazovce začnou plést. Sytost je u každé
+ * odstupňovaná od hranice sRGB pro daný odstín - proto je Terminál (145°,
+ * kde má gamut zelené špičku) nejostřejší a Mech nejtlumenější.
  */
-export type Accent = "emerald" | "jade" | "neon" | "lime" | "sage";
+export type Accent = "acid" | "terminal" | "emerald" | "mint" | "moss";
 
 export const ACCENTS: { id: Accent; label: string; hint: string }[] = [
-  { id: "emerald", label: "Smaragd", hint: "hluboká, drahá zeleň" },
-  { id: "jade", label: "Nefrit", hint: "chladnější, blíž tyrkysu" },
-  { id: "neon", label: "Neon", hint: "ostrá a hlasitá" },
-  { id: "lime", label: "Limetka", hint: "žlutozelená energie" },
-  { id: "sage", label: "Šalvěj", hint: "tlumená, nekřičí" },
+  { id: "terminal", label: "Terminál", hint: "fosforová zeleň starých monitorů" },
+  { id: "acid", label: "Kyselina", hint: "žlutozelená, nejblíž oranžové" },
+  { id: "emerald", label: "Smaragd", hint: "čistá zeleň, nic nepřehluší" },
+  { id: "mint", label: "Mentol", hint: "chladná, blíž tyrkysu" },
+  { id: "moss", label: "Mech", hint: "tlumená, jediná nekřičí" },
 ];
 
 /** Klíč pro skript v `layout.tsx`, který barvu nasadí ještě před prvním paintem. */
 export const ACCENT_KEY = "microwins:accent";
 
 export interface Prefs {
-  winsView: WinsView;
   accent: Accent;
 }
 
 export const DEFAULT_PREFS: Prefs = {
-  winsView: "compact",
-  accent: "emerald",
+  accent: "terminal",
 };
 
 export const PREFS_KEY = "microwins:prefs";
-
-function isWinsView(value: unknown): value is WinsView {
-  return WINS_VIEWS.some((v) => v.id === value);
-}
 
 function isAccent(value: unknown): value is Accent {
   return ACCENTS.some((a) => a.id === value);
 }
 
-/** Z uložených dat bere jen to, co zná - zbytek nechává na výchozím. */
+/**
+ * Z uložených dat bere jen to, co zná - zbytek nechává na výchozím. Díky tomu
+ * projdou i starší zálohy: zrušené volby (nefrit, limetka, šalvěj, pohledy na
+ * winy) se tiše zahodí a nastavení spadne na výchozí zelenou.
+ */
 export function parsePrefs(raw: unknown): Prefs {
   if (typeof raw !== "object" || raw === null) return DEFAULT_PREFS;
   const record = raw as Record<string, unknown>;
   return {
-    winsView: isWinsView(record.winsView) ? record.winsView : DEFAULT_PREFS.winsView,
     accent: isAccent(record.accent) ? record.accent : DEFAULT_PREFS.accent,
   };
 }

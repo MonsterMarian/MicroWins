@@ -377,7 +377,7 @@ function ProjectsTab({ onNewProject }: { onNewProject: () => void }) {
       {rows.length > 1 ? (
         <p className="px-1 text-xs text-muted-foreground">
           {draggable
-            ? "Pořadí si přetáhni za úchyt vlevo. Uloží se samo."
+            ? "Podrž prst na projektu a přetáhni ho. Pořadí se uloží samo."
             : "Přetahovat jde ve vlastním pořadí - přepni řazení vlevo nahoře."}
         </p>
       ) : null}

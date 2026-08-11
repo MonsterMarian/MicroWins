@@ -327,7 +327,7 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
         {tasks.length > 1 ? (
           <p className="border-t p-3 text-xs text-muted-foreground">
             {sort === "custom"
-              ? "Pořadí si přetáhni za úchyt vlevo."
+              ? "Podrž prst na úkolu a přetáhni ho."
               : "Přetahovat jde ve vlastním pořadí."}
           </p>
         ) : null}

@@ -31,11 +31,14 @@
   --win-muted: oklch(0.96 0.035 75);
   --win-muted-foreground: oklch(0.46 0.11 55);
 
-  /* Výchozí zelená = Smaragd. Ostatní varianty jsou níž u data-accent. */
-  --progress: oklch(0.62 0.14 162);
+  /* Výchozí zelená = Terminál. Ostatní varianty jsou níž u data-accent.
+     Musí sedět na DEFAULT_PREFS v `prefs.ts`: skript v hlavičce nasadí
+     uloženou barvu ještě před prvním paintem, a když je uložená zrušená
+     varianta, spadne se sem. */
+  --progress: oklch(0.54 0.165 145);
   --progress-foreground: oklch(0.99 0 0);
-  --progress-muted: oklch(0.95 0.035 165);
-  --progress-muted-foreground: oklch(0.44 0.1 162);
+  --progress-muted: oklch(0.95 0.026 145);
+  --progress-muted-foreground: oklch(0.44 0.115 145);
   --track: oklch(0.9 0.004 286.32);
 }
 
@@ -65,10 +68,10 @@
   --win-muted: oklch(0.32 0.06 66);
   --win-muted-foreground: oklch(0.88 0.09 75);
 
-  --progress: oklch(0.76 0.15 163);
-  --progress-foreground: oklch(0.17 0.03 163);
-  --progress-muted: oklch(0.3 0.06 165);
-  --progress-muted-foreground: oklch(0.86 0.11 165);
+  --progress: oklch(0.85 0.26 145);
+  --progress-foreground: oklch(0.17 0.04 145);
+  --progress-muted: oklch(0.3 0.042 145);
+  --progress-muted-foreground: oklch(0.88 0.178 145);
   --track: oklch(1 0 0 / 14%);
 }
 
@@ -80,80 +83,87 @@
  * elementu přebarví jen jeho podstrom, což používají ukázky barev v Nastavení.
  * Tmavá dvojice proto musí být pro každou variantu zvlášť a specifičtější -
  * jinak by hodnoty pro světlý režim přebily `.dark`.
+ *
+ * Odstíny jsou vybrané proti našemu pozadí (#09090b) a oranžové winů (68°):
+ * drží se v pásmu 130-176°, tedy nejmíň 60° od oranžové, aby se ty dvě barvy
+ * nepletly. Sytost každé z nich je podíl toho, co pro daný odstín vůbec
+ * unese sRGB - proto je Terminál na 145° nejostřejší (tam má gamut zelené
+ * špičku) a Mech nejtišší. Světlý režim je o poznání tmavší, aby na tlačítku
+ * unesl bílý text (kontrast aspoň 4,5:1).
  */
-[data-accent="emerald"] {
-  --progress: oklch(0.62 0.14 162);
+[data-accent="terminal"] {
+  --progress: oklch(0.54 0.165 145);
   --progress-foreground: oklch(0.99 0 0);
-  --progress-muted: oklch(0.95 0.035 165);
-  --progress-muted-foreground: oklch(0.44 0.1 162);
+  --progress-muted: oklch(0.95 0.026 145);
+  --progress-muted-foreground: oklch(0.44 0.115 145);
+}
+
+.dark[data-accent="terminal"],
+.dark [data-accent="terminal"] {
+  --progress: oklch(0.85 0.26 145);
+  --progress-foreground: oklch(0.17 0.04 145);
+  --progress-muted: oklch(0.3 0.042 145);
+  --progress-muted-foreground: oklch(0.88 0.178 145);
+}
+
+[data-accent="acid"] {
+  --progress: oklch(0.54 0.131 130);
+  --progress-foreground: oklch(0.99 0 0);
+  --progress-muted: oklch(0.95 0.032 130);
+  --progress-muted-foreground: oklch(0.44 0.091 130);
+}
+
+.dark[data-accent="acid"],
+.dark [data-accent="acid"] {
+  --progress: oklch(0.84 0.203 130);
+  --progress-foreground: oklch(0.17 0.04 130);
+  --progress-muted: oklch(0.3 0.034 130);
+  --progress-muted-foreground: oklch(0.88 0.16 130);
+}
+
+[data-accent="emerald"] {
+  --progress: oklch(0.54 0.114 158);
+  --progress-foreground: oklch(0.99 0 0);
+  --progress-muted: oklch(0.95 0.021 158);
+  --progress-muted-foreground: oklch(0.44 0.08 158);
 }
 
 .dark[data-accent="emerald"],
 .dark [data-accent="emerald"] {
-  --progress: oklch(0.76 0.15 163);
-  --progress-foreground: oklch(0.17 0.03 163);
-  --progress-muted: oklch(0.3 0.06 165);
-  --progress-muted-foreground: oklch(0.86 0.11 165);
+  --progress: oklch(0.84 0.177 158);
+  --progress-foreground: oklch(0.17 0.04 158);
+  --progress-muted: oklch(0.3 0.029 158);
+  --progress-muted-foreground: oklch(0.88 0.139 158);
 }
 
-[data-accent="jade"] {
-  --progress: oklch(0.6 0.11 175);
+[data-accent="mint"] {
+  --progress: oklch(0.54 0.101 176);
   --progress-foreground: oklch(0.99 0 0);
-  --progress-muted: oklch(0.95 0.03 178);
-  --progress-muted-foreground: oklch(0.43 0.08 175);
+  --progress-muted: oklch(0.95 0.022 176);
+  --progress-muted-foreground: oklch(0.44 0.071 176);
 }
 
-.dark[data-accent="jade"],
-.dark [data-accent="jade"] {
-  --progress: oklch(0.78 0.12 175);
-  --progress-foreground: oklch(0.17 0.03 175);
-  --progress-muted: oklch(0.3 0.05 176);
-  --progress-muted-foreground: oklch(0.87 0.09 176);
+.dark[data-accent="mint"],
+.dark [data-accent="mint"] {
+  --progress: oklch(0.84 0.157 176);
+  --progress-foreground: oklch(0.17 0.035 176);
+  --progress-muted: oklch(0.3 0.026 176);
+  --progress-muted-foreground: oklch(0.88 0.124 176);
 }
 
-[data-accent="neon"] {
-  --progress: oklch(0.66 0.19 145);
+[data-accent="moss"] {
+  --progress: oklch(0.54 0.063 150);
   --progress-foreground: oklch(0.99 0 0);
-  --progress-muted: oklch(0.95 0.05 145);
-  --progress-muted-foreground: oklch(0.46 0.13 145);
+  --progress-muted: oklch(0.95 0.011 150);
+  --progress-muted-foreground: oklch(0.44 0.044 150);
 }
 
-.dark[data-accent="neon"],
-.dark [data-accent="neon"] {
-  --progress: oklch(0.82 0.2 145);
-  --progress-foreground: oklch(0.17 0.04 145);
-  --progress-muted: oklch(0.31 0.08 145);
-  --progress-muted-foreground: oklch(0.89 0.16 145);
-}
-
-[data-accent="lime"] {
-  --progress: oklch(0.7 0.17 132);
-  --progress-foreground: oklch(0.99 0 0);
-  --progress-muted: oklch(0.95 0.05 132);
-  --progress-muted-foreground: oklch(0.48 0.12 130);
-}
-
-.dark[data-accent="lime"],
-.dark [data-accent="lime"] {
-  --progress: oklch(0.86 0.19 132);
-  --progress-foreground: oklch(0.18 0.04 132);
-  --progress-muted: oklch(0.32 0.07 132);
-  --progress-muted-foreground: oklch(0.9 0.15 132);
-}
-
-[data-accent="sage"] {
-  --progress: oklch(0.54 0.08 152);
-  --progress-foreground: oklch(0.99 0 0);
-  --progress-muted: oklch(0.94 0.02 152);
-  --progress-muted-foreground: oklch(0.42 0.06 152);
-}
-
-.dark[data-accent="sage"],
-.dark [data-accent="sage"] {
-  --progress: oklch(0.7 0.09 152);
-  --progress-foreground: oklch(0.16 0.02 152);
-  --progress-muted: oklch(0.29 0.04 152);
-  --progress-muted-foreground: oklch(0.84 0.07 152);
+.dark[data-accent="moss"],
+.dark [data-accent="moss"] {
+  --progress: oklch(0.7 0.081 150);
+  --progress-foreground: oklch(0.17 0.04 150);
+  --progress-muted: oklch(0.3 0.016 150);
+  --progress-muted-foreground: oklch(0.88 0.072 150);
 }
 
 @theme inline {
@@ -337,15 +347,6 @@
     background: transparent;
   }
 
-  /*
-   * Úchyt pro přetahování řádků. Bez `touch-action: none` by prohlížeč pohyb
-   * prstem sebral na scrolování stránky a tažení by se nikdy nerozjelo.
-   */
-  .drag-handle {
-    touch-action: none;
-    -webkit-user-select: none;
-    user-select: none;
-  }
 }
 
 @layer utilities {

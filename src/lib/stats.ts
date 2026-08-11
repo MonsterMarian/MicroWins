@@ -75,6 +75,19 @@ export function dayRows(state: MicroWinsState): DayRow[] {
     .sort((a, b) => b.date.localeCompare(a.date));
 }
 
+/**
+ * Posledních `limit` microwinů, nejnovější první.
+ *
+ * Řadí se podle dne, ne podle času zápisu: microwin se dá doplnit i zpětně
+ * k staršímu datu a v seznamu "co naposled padlo" patří tam, kam se vztahuje.
+ * Čas zápisu rozhoduje až uvnitř jednoho dne.
+ */
+export function recentMicrowins(state: MicroWinsState, limit = 10): MicrowinItem[] {
+  return dayRows(state)
+    .flatMap((row) => [...row.items].reverse())
+    .slice(0, limit);
+}
+
 export function microwinDates(state: MicroWinsState): Set<ISODate> {
   return new Set(state.microwins.map((m) => m.date));
 }

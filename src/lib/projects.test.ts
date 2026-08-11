@@ -17,6 +17,7 @@ import {
   filterProjects,
   isBinaryTask,
   isTaskDone,
+  pace,
   portfolioStats,
   progressSeries,
   projectPercent,
@@ -144,6 +145,53 @@ describe("souhrn projektu", () => {
     const stats = projectStats(s, projectId, TODAY)!;
     expect(stats.tasksDone).toBe(1);
     expect(stats.tasksTotal).toBe(2);
+  });
+});
+
+describe("tempo proti kalendáři", () => {
+  /* Projekt běží 19. 7. - 18. 8. (30 dní), dnes je 6. 8. = 18. den.
+     Očekávaný postup je tedy 60 %; pásmo ±5 bodů kolem něj se nebarví. */
+  const paceAt = (current: number, deadlineOffset: number | null = 30) => {
+    const { state, projectId } = withProject(deadlineOffset);
+    const s = createTask(state, projectId, { name: "a", target: 100, current }, TODAY).state;
+    return pace(projectStats(s, projectId, TODAY)!);
+  };
+
+  it("bez deadlinu se tempo neřeší", () => {
+    expect(paceAt(10, null)).toBe("none");
+  });
+
+  it("na plánu i v pásmu kolem něj mlčí", () => {
+    expect(paceAt(60)).toBe("none");
+    expect(paceAt(56)).toBe("none");
+    expect(paceAt(64)).toBe("none");
+  });
+
+  it("pozná náskok i skluz", () => {
+    expect(paceAt(80)).toBe("ahead");
+    expect(paceAt(20)).toBe("behind");
+  });
+
+  it("hotový projekt je hotový, i když se k tomu došlo pozdě", () => {
+    const { state, project } = createProject(
+      EMPTY_STATE,
+      { name: "pozdní", startDate: "2026-07-01", deadline: "2026-08-01" },
+      TODAY,
+    );
+    const s = createTask(state, project.id, { name: "a", target: 10, current: 10 }, TODAY).state;
+
+    expect(pace(projectStats(s, project.id, TODAY)!)).toBe("done");
+  });
+
+  it("po termínu a nedodělaný je pozdě", () => {
+    const { state, project } = createProject(
+      EMPTY_STATE,
+      { name: "pozdní", startDate: "2026-07-01", deadline: "2026-08-01" },
+      TODAY,
+    );
+    const s = createTask(state, project.id, { name: "a", target: 10, current: 1 }, TODAY).state;
+
+    expect(pace(projectStats(s, project.id, TODAY)!)).toBe("late");
   });
 });
 

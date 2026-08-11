@@ -21,8 +21,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
+import { Fab } from "@/components/ui/fab";
 import { Input, Select, Textarea } from "@/components/ui/input";
-import { ProgressBar } from "@/components/ui/progress";
+import { AnimatedPercent, DeltaBubble, ProgressBar } from "@/components/ui/progress";
 import { EntityIcon } from "@/components/ui/icon-picker";
 import { SortableItem, SortableList } from "@/components/ui/sortable";
 import { useStore } from "@/components/providers/store-provider";
@@ -31,13 +32,16 @@ import { MilestonesDialog } from "./milestones-dialog";
 import { ProjectDialog } from "./project-dialog";
 import { TaskDialog } from "./task-dialog";
 import { TaskRow } from "./task-row";
+import { PACE_TONE } from "./project-row";
 import { formatDate } from "@/lib/date";
 import {
   displayPercent,
+  pace,
   projectById,
   projectStats,
   taskPercent,
   tasksOfProject,
+  PACE_LABEL,
 } from "@/lib/projects";
 import { cn, formatTenth, plural } from "@/lib/utils";
 
@@ -99,6 +103,7 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
   });
 
   const done = stats.percent >= 100;
+  const status = pace(stats);
 
   return (
     <div className="flex flex-col gap-4">
@@ -154,9 +159,10 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
 
       <Card>
         <CardContent className="flex flex-col gap-4 p-5">
-          <div className="flex items-end justify-between gap-3">
-            <p className="tabular text-4xl font-semibold leading-none tracking-tight">
-              {displayPercent(stats.percent)}
+          <div className="relative flex items-end justify-between gap-3">
+            <DeltaBubble value={stats.percent} format={formatTenth} className="left-10" />
+            <p className="text-4xl font-semibold leading-none tracking-tight">
+              <AnimatedPercent value={stats.percent} format={displayPercent} suffix="" />
               <span className="ml-0.5 text-xl text-muted-foreground">%</span>
             </p>
             <span
@@ -170,7 +176,33 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
             </span>
           </div>
 
-          <ProgressBar value={stats.percent} size="lg" />
+          <ProgressBar value={stats.percent} size="xl" tone={PACE_TONE[status]} />
+
+          {status !== "none" ? (
+            <div className="-mt-1 flex items-center gap-1.5 text-xs">
+              <span
+                className={cn(
+                  "size-1.5 rounded-full",
+                  status === "late"
+                    ? "bg-destructive"
+                    : status === "behind"
+                      ? "bg-win"
+                      : "bg-progress",
+                )}
+              />
+              <span
+                className={cn(
+                  status === "late"
+                    ? "text-destructive"
+                    : status === "behind"
+                      ? "text-win-muted-foreground"
+                      : "text-progress-muted-foreground",
+                )}
+              >
+                {PACE_LABEL[status]}
+              </span>
+            </div>
+          ) : null}
 
           <div className="flex flex-wrap items-center gap-2 text-sm">
             <CalendarDays className="size-4 text-muted-foreground" />
@@ -292,19 +324,20 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
           </SortableList>
         )}
 
-        <div className="flex items-center justify-end gap-3 border-t p-3">
-          {tasks.length > 1 ? (
-            <p className="mr-auto text-xs text-muted-foreground">
-              {sort === "custom"
-                ? "Pořadí si přetáhni za úchyt vlevo."
-                : "Přetahovat jde ve vlastním pořadí."}
-            </p>
-          ) : null}
-          <Button onClick={() => setTaskOpen(true)}>
-            <Plus /> Nový úkol
-          </Button>
-        </div>
+        {tasks.length > 1 ? (
+          <p className="border-t p-3 text-xs text-muted-foreground">
+            {sort === "custom"
+              ? "Pořadí si přetáhni za úchyt vlevo."
+              : "Přetahovat jde ve vlastním pořadí."}
+          </p>
+        ) : null}
       </Card>
+
+      {/* Přidávání úkolů je hlavní akce téhle obrazovky - patří pod palec,
+          ne až na konec seznamu, kam se u dlouhého projektu musí scrollovat. */}
+      <Fab onClick={() => setTaskOpen(true)} aria-label="Nový úkol">
+        <Plus /> Nový úkol
+      </Fab>
 
       <ProjectDialog open={editOpen} onOpenChange={setEditOpen} project={project} />
       <TaskDialog open={taskOpen} onOpenChange={setTaskOpen} projectId={project.id} />

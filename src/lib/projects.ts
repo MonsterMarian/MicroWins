@@ -240,6 +240,33 @@ export function projectStats(
   };
 }
 
+/**
+ * Jak si projekt stojí proti kalendáři. Bez deadlinu není s čím porovnávat -
+ * tam se nic nebarví, protože "pozadu" nedává smysl, když termín neexistuje.
+ *
+ * Pásmo ±5 bodů kolem očekávaného postupu je schválně: kdo je den před
+ * plánem, nemá vidět jinou barvu než ten, kdo je přesně na plánu.
+ */
+export type Pace = "none" | "done" | "ahead" | "behind" | "late";
+
+export function pace(stats: ProjectStats): Pace {
+  if (stats.percent >= 100) return "done";
+  if (stats.overdue) return "late";
+  if (stats.totalDays === null || stats.totalDays <= 0) return "none";
+  const expected = clampPercent((stats.daysElapsed / stats.totalDays) * 100);
+  if (stats.percent < expected - 5) return "behind";
+  if (stats.percent > expected + 5) return "ahead";
+  return "none";
+}
+
+export const PACE_LABEL: Record<Pace, string> = {
+  none: "podle plánu",
+  done: "hotovo",
+  ahead: "napřed",
+  behind: "ve skluzu",
+  late: "po termínu",
+};
+
 // --- filtry a řazení seznamu ------------------------------------------------
 
 export type ProjectFilter = "all" | "active" | "done" | "deadline" | "overdue" | "archived";

@@ -4,6 +4,7 @@ import * as React from "react";
 import {
   ArrowLeft,
   Check,
+  ChevronDown,
   ChevronRight,
   Folder,
   FolderPlus,
@@ -360,30 +361,40 @@ function WinRow({
 
   return (
     <li>
-      <div className="flex items-center gap-1.5 overflow-hidden rounded-md py-1.5 pl-1 pr-1.5 transition-colors hover:bg-accent/60">
+      <div className="flex items-center gap-1 overflow-hidden rounded-md pr-1.5 transition-colors hover:bg-accent/60">
+        {/* Stejná stavba jako u složky: celá levá část je jedno tlačítko
+            a šipka sedí na jeho konci. Rozdíl je jen v tom, co šipka dělá -
+            u složky se jde dovnitř, tady se řádek rozbalí, což prozradí
+            otočení o 90°. */}
         <button
           type="button"
           onClick={() => onToggle(node.id)}
-          aria-label={open ? "Sbalit" : "Rozbalit"}
           aria-expanded={open}
-          className="grid size-5 shrink-0 place-items-center rounded text-muted-foreground hover:bg-accent"
+          className="flex min-w-0 flex-1 items-center gap-2 rounded-md py-2 pl-2 text-left"
         >
-          <ChevronRight className={cn("size-4 transition-transform", open && "rotate-90")} />
-        </button>
+          <KindIcon node={node} />
 
-        <KindIcon node={node} />
+          {/* Stejně jako u složek: na úzkém displeji patří odznaky pod název,
+              jinak by z názvu winu zbylo pár písmen. */}
+          <span className="flex min-w-0 flex-1 flex-col gap-0.5 sm:flex-row sm:items-center sm:gap-1.5">
+            <span className="min-w-0 truncate text-sm" title={node.name}>
+              {node.name}
+            </span>
 
-        {/* Stejně jako u složek: na úzkém displeji patří odznaky pod název,
-            jinak by z názvu winu zbylo pár písmen. */}
-        <div className="flex min-w-0 flex-1 flex-col gap-0.5 sm:flex-row sm:items-center sm:gap-1.5">
-          <span className="min-w-0 truncate text-sm" title={node.name}>
-            {node.name}
+            {node.kind === "metric" ? <MetricBadges node={node} /> : null}
+            {node.kind === "check" && check ? <CheckBadges summary={check} /> : null}
+            {node.kind === "once" ? <OnceBadge node={node} /> : null}
           </span>
 
-          {node.kind === "metric" ? <MetricBadges node={node} /> : null}
-          {node.kind === "check" && check ? <CheckBadges summary={check} /> : null}
-          {node.kind === "once" ? <OnceBadge node={node} /> : null}
-        </div>
+          {/* Otočená šipka místo přeškálované: `rotate-90` se na ikoně
+              neprojeví (spočtená rotace zůstane 0°), takže rozbalený stav
+              kreslí rovnou druhá ikona. */}
+          {open ? (
+            <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+          )}
+        </button>
 
         <div className="flex shrink-0 items-center gap-0.5">
           <IconAction
@@ -435,10 +446,12 @@ function WinRow({
   );
 }
 
+/* Stejná velikost jako složková ikona - jinak by se sloupec s ikonami mezi
+   oběma typy řádků o dva pixely rozjel a šipky vpravo by nesouhlasily. */
 function KindIcon({ node }: { node: TreeNode }) {
-  if (node.kind === "metric") return <Gauge className="size-3.5 shrink-0 text-muted-foreground" />;
-  if (node.kind === "check") return <Check className="size-3.5 shrink-0 text-muted-foreground" />;
-  if (node.kind === "once") return <Star className="size-3.5 shrink-0 text-muted-foreground" />;
+  if (node.kind === "metric") return <Gauge className="size-4 shrink-0 text-muted-foreground" />;
+  if (node.kind === "check") return <Check className="size-4 shrink-0 text-muted-foreground" />;
+  if (node.kind === "once") return <Star className="size-4 shrink-0 text-muted-foreground" />;
   return <span className="size-1.5 shrink-0 rounded-full bg-muted-foreground/50" />;
 }
 
@@ -447,7 +460,7 @@ function MetricBadges({ node }: { node: TreeNode }) {
   const summary = summarizeMetric(state, node, today);
 
   return (
-    <div className="flex shrink-0 items-center gap-1.5">
+    <span className="flex shrink-0 items-center gap-1.5">
       <Badge variant="outline" className="tabular">
         rekord {summary.record.value > 0 ? formatNumber(summary.record.value) : "—"}
         {summary.record.value > 0 && node.unit ? ` ${node.unit}` : ""}
@@ -458,13 +471,13 @@ function MetricBadges({ node }: { node: TreeNode }) {
           dnes {formatNumber(summary.todayTotal)}
         </Badge>
       ) : null}
-    </div>
+    </span>
   );
 }
 
 function CheckBadges({ summary }: { summary: ReturnType<typeof summarizeFlag> }) {
   return (
-    <div className="flex shrink-0 items-center gap-1.5">
+    <span className="flex shrink-0 items-center gap-1.5">
       <Badge variant="outline" className="tabular hidden sm:inline-flex">
         {summary.dayCount} {plural(summary.dayCount, "den", "dny", "dní")}
       </Badge>
@@ -478,7 +491,7 @@ function CheckBadges({ summary }: { summary: ReturnType<typeof summarizeFlag> })
           <Trophy /> dnes
         </Badge>
       ) : null}
-    </div>
+    </span>
   );
 }
 
@@ -487,11 +500,11 @@ function OnceBadge({ node }: { node: TreeNode }) {
   const entry = onceEntry(state.entries, node.id);
 
   return (
-    <div className="flex shrink-0 items-center">
+    <span className="flex shrink-0 items-center">
       <Badge variant="outline" className="tabular">
         {entry ? formatDate(entry.date) : "bez data"}
       </Badge>
-    </div>
+    </span>
   );
 }
 

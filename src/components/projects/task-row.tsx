@@ -2,9 +2,8 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Check, Minus, Plus } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { ProgressBar } from "@/components/ui/progress";
+import { Check, ChevronRight } from "lucide-react";
+import { AnimatedPercent, ProgressBar } from "@/components/ui/progress";
 import { EntityIcon } from "@/components/ui/icon-picker";
 import { useStore } from "@/components/providers/store-provider";
 import { formatDate } from "@/lib/date";
@@ -18,6 +17,12 @@ import {
 import type { Task } from "@/lib/types";
 import { cn, formatNumber, plural } from "@/lib/utils";
 
+/**
+ * Řádek úkolu v seznamu. Schválně nic nepřepíná: dřív tu vlevo bylo
+ * zaškrtávátko, které jedním ťuknutím vyhnalo úkol na sto procent - a protože
+ * sedělo hned vedle názvu, spouštělo se hlavně omylem. Postup se teď mění
+ * výhradně v detailu úkolu, řádek je jen cesta tam.
+ */
 export function TaskRow({
   task,
   showProject,
@@ -27,42 +32,45 @@ export function TaskRow({
   showProject?: string;
   compact?: boolean;
 }) {
-  const { state, today, adjustTask, toggleTaskDone } = useStore();
+  const { state, today } = useStore();
   const percent = taskPercent(state, task);
   const done = isTaskDone(state, task);
   const children = subtasksOf(state, task.id);
   const overdue = task.dueDate !== null && task.dueDate < today && !done;
   /* Cíl 1 bez podúkolů je jen "hotovo / nehotovo" - pruh ani "1 / 1" k tomu
-     nic nedodají, takže zbyde samotné zaškrtávátko. */
+     nic nedodají, takže zbyde samotný stav u ikony. */
   const binary = isBinaryTask(state, task);
 
   return (
-    <div className="group flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-accent/50">
-      <button
-        type="button"
-        onClick={() => toggleTaskDone(task.id)}
-        aria-label={done ? "Označit jako nedokončené" : "Označit jako hotové"}
-        aria-pressed={binary ? done : undefined}
+    <Link
+      href={`/tasks?id=${task.id}`}
+      className="group flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-accent/50 active:bg-accent"
+    >
+      <span
         className={cn(
-          "grid size-8 shrink-0 place-items-center border text-sm transition-colors",
-          binary ? "rounded-md" : "rounded-lg",
-          done ? "border-progress bg-progress text-progress-foreground" : "bg-muted",
-          binary && !done && "border-border bg-transparent hover:border-progress/60",
+          "relative grid size-10 shrink-0 place-items-center rounded-lg bg-muted text-base transition-colors",
+          done && "bg-progress-muted/60",
         )}
       >
+        <EntityIcon icon={task.icon} size="lg" />
         {done ? (
-          <Check className="size-4" />
-        ) : binary ? null : (
-          <EntityIcon icon={task.icon} size="sm" />
-        )}
-      </button>
+          <span className="absolute -bottom-0.5 -right-0.5 grid size-4 place-items-center rounded-full bg-progress text-progress-foreground ring-2 ring-card">
+            <Check className="size-2.5" />
+          </span>
+        ) : null}
+      </span>
 
-      <Link href={`/tasks?id=${task.id}`} className="min-w-0 flex-1">
-        <div className={cn("truncate text-sm", done && "text-muted-foreground line-through")}>
+      <span className="min-w-0 flex-1">
+        <span
+          className={cn(
+            "block truncate text-sm",
+            done && "text-muted-foreground line-through",
+          )}
+        >
           {task.name}
-        </div>
+        </span>
         {!compact ? (
-          <div className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+          <span className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
             {binary ? null : children.length > 0 ? (
               <span className="tabular">
                 {children.filter((c) => isTaskDone(state, c)).length} / {children.length}{" "}
@@ -80,47 +88,38 @@ export function TaskRow({
               </span>
             ) : null}
             {showProject ? <span>· {showProject}</span> : null}
-          </div>
+          </span>
         ) : null}
-      </Link>
+      </span>
 
-      {children.length === 0 && !binary ? (
-        <div className="hidden shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 sm:flex">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Ubrat krok"
-            onClick={() => adjustTask(task.id, -task.step)}
-          >
-            <Minus />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Přidat krok"
-            onClick={() => adjustTask(task.id, task.step)}
-          >
-            <Plus />
-          </Button>
-        </div>
-      ) : null}
-
-      {binary ? null : (
+      {binary ? (
+        <span
+          className={cn(
+            "shrink-0 text-xs font-medium",
+            done ? "text-progress" : "text-muted-foreground",
+          )}
+        >
+          {done ? "hotovo" : "nehotovo"}
+        </span>
+      ) : (
         <>
-          <div className="w-20 shrink-0 sm:w-28">
+          <span className="block w-16 shrink-0 sm:w-28">
             <ProgressBar value={percent} size="lg" />
-          </div>
+          </span>
 
-          <span
+          <AnimatedPercent
+            value={percent}
+            format={displayPercent}
             className={cn(
-              "tabular w-11 shrink-0 text-right text-sm font-semibold",
+              "w-11 shrink-0 text-right text-sm font-semibold",
               done ? "text-progress" : "text-progress-muted-foreground",
             )}
-          >
-            {displayPercent(percent)} %
-          </span>
+          />
         </>
       )}
-    </div>
+
+      {/* Šipka místo zmizelého zaškrtávátka - řádek tím říká, že vede dál. */}
+      <ChevronRight className="size-4 shrink-0 text-muted-foreground/50 transition-transform group-hover:translate-x-0.5" />
+    </Link>
   );
 }

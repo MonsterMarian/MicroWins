@@ -21,8 +21,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
+import { Fab } from "@/components/ui/fab";
 import { Field, Input, Select, Textarea } from "@/components/ui/input";
-import { ProgressBar, Slider } from "@/components/ui/progress";
+import { AnimatedPercent, DeltaBubble, ProgressBar, Slider } from "@/components/ui/progress";
 import { EntityIcon } from "@/components/ui/icon-picker";
 import { SortableItem, SortableList } from "@/components/ui/sortable";
 import { useStore } from "@/components/providers/store-provider";
@@ -41,7 +42,8 @@ import {
   taskById,
   taskPercent,
 } from "@/lib/projects";
-import { cn, formatNumber, parseWhole, plural } from "@/lib/utils";
+import { tapFeedback, winFeedback } from "@/lib/native";
+import { cn, formatNumber, formatTenth, parseWhole, plural } from "@/lib/utils";
 
 export function TaskDetail({ taskId }: { taskId: string }) {
   const {
@@ -98,6 +100,15 @@ export function TaskDetail({ taskId }: { taskId: string }) {
   const counts = subtaskCounts(state, task.id);
   const binary = isBinaryTask(state, task);
 
+  /* Krok hodnoty i s hmatovou odezvou. Doražení do cíle cvakne jinak než
+     obyčejný krok - je to jediná chvíle, kdy se dá bez dívání poznat, že je
+     úkol hotový. */
+  const bump = (delta: number) => {
+    adjustTask(task.id, delta);
+    const reached = task.current + delta >= task.target;
+    void (reached && delta > 0 ? winFeedback() : tapFeedback());
+  };
+
   return (
     <div className="flex flex-col gap-4">
       <header className="flex items-center gap-2">
@@ -133,7 +144,10 @@ export function TaskDetail({ taskId }: { taskId: string }) {
             /* Cíl 1 bez podúkolů: není co posouvat, buď je hotovo, nebo není. */
             <button
               type="button"
-              onClick={() => toggleTaskDone(task.id)}
+              onClick={() => {
+                toggleTaskDone(task.id);
+                void (done ? tapFeedback() : winFeedback());
+              }}
               aria-pressed={done}
               className={cn(
                 "flex items-center justify-center gap-3 rounded-xl border-2 px-4 py-6 text-base font-medium transition-colors",
@@ -154,15 +168,28 @@ export function TaskDetail({ taskId }: { taskId: string }) {
             </button>
           ) : (
             <>
-              <div className="flex flex-col items-center gap-1">
-                <p
+              <div className="relative flex flex-col items-center gap-1">
+                {/* U úkolu hlásí bublina skutečný přírůstek, ne procenta:
+                    hodina ze tří set je "+1 H", kdežto "+0,3 %" nikomu nic
+                    neřekne. Postup z podúkolů žádnou vlastní hodnotu nemá,
+                    tam zbývají procenta. */}
+                {controlled ? (
+                  <DeltaBubble value={percent} format={formatTenth} className="-top-1" />
+                ) : (
+                  <DeltaBubble
+                    value={task.current}
+                    format={(n) => `${formatNumber(n)}${task.unit ? ` ${task.unit}` : ""}`}
+                    className="-top-1"
+                  />
+                )}
+                <AnimatedPercent
+                  value={percent}
+                  format={displayPercent}
                   className={cn(
-                    "tabular text-4xl font-semibold leading-none tracking-tight",
+                    "text-4xl font-semibold leading-none tracking-tight",
                     done ? "text-progress" : "text-progress-muted-foreground",
                   )}
-                >
-                  {displayPercent(percent)} %
-                </p>
+                />
                 <p className="tabular text-sm text-muted-foreground">
                   {controlled ? (
                     <>
@@ -183,7 +210,7 @@ export function TaskDetail({ taskId }: { taskId: string }) {
                    nepoužívá - u 66 % z podúkolů byl prázdný. Místo něj pruh
                    se skutečným postupem. */
                 <>
-                  <ProgressBar value={percent} size="lg" />
+                  <ProgressBar value={percent} size="xl" />
                   <p className="text-center text-xs text-muted-foreground">
                     Postup se počítá z podúkolů, ručně se posouvat nedá.
                   </p>
@@ -199,12 +226,13 @@ export function TaskDetail({ taskId }: { taskId: string }) {
                   />
 
                   <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
+                    <div className="flex items-center gap-1 rounded-xl bg-muted p-1">
                       <Button
                         variant="ghost"
                         size="icon"
+                        className="size-11 rounded-lg transition-transform active:scale-90"
                         aria-label={`Ubrat ${task.step}`}
-                        onClick={() => adjustTask(task.id, -task.step)}
+                        onClick={() => bump(-task.step)}
                       >
                         <Minus />
                       </Button>
@@ -214,8 +242,9 @@ export function TaskDetail({ taskId }: { taskId: string }) {
                       <Button
                         variant="ghost"
                         size="icon"
+                        className="size-11 rounded-lg transition-transform active:scale-90"
                         aria-label={`Přidat ${task.step}`}
-                        onClick={() => adjustTask(task.id, task.step)}
+                        onClick={() => bump(task.step)}
                       >
                         <Plus />
                       </Button>
@@ -337,9 +366,6 @@ export function TaskDetail({ taskId }: { taskId: string }) {
               </Badge>
             ) : null}
           </div>
-          <Button size="sm" variant="outline" onClick={() => setSubtaskOpen(true)}>
-            <Plus /> Podúkol
-          </Button>
         </div>
 
         {children.length === 0 ? (
@@ -366,6 +392,10 @@ export function TaskDetail({ taskId }: { taskId: string }) {
       {task.dueDate ? (
         <p className="text-xs text-muted-foreground">Termín: {formatDate(task.dueDate)}</p>
       ) : null}
+
+      <Fab onClick={() => setSubtaskOpen(true)} aria-label="Nový podúkol">
+        <Plus /> Podúkol
+      </Fab>
 
       <TaskDialog
         open={editOpen}

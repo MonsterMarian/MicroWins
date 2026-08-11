@@ -2,7 +2,6 @@ import { Directory, Encoding, Filesystem } from "@capacitor/filesystem";
 import { Share } from "@capacitor/share";
 import { todayISO } from "./date";
 import { isNative } from "./native";
-import { getPrefs, parsePrefs, replacePrefs, type Prefs } from "./prefs";
 import { parseState } from "./storage";
 import { STATE_VERSION, type MicroWinsState } from "./types";
 
@@ -22,8 +21,6 @@ export const BACKUP_VERSION = 1;
 
 export interface BackupSettings {
   theme?: "dark" | "light";
-  /** Nastavení zobrazení (viz `prefs.ts`). */
-  prefs?: Prefs;
 }
 
 export interface Backup {
@@ -40,7 +37,7 @@ export const THEME_KEY = "microwins:theme";
 
 export function readSettings(): BackupSettings {
   if (typeof window === "undefined") return {};
-  const out: BackupSettings = { prefs: getPrefs() };
+  const out: BackupSettings = {};
   try {
     const theme = window.localStorage.getItem(THEME_KEY);
     if (theme === "dark" || theme === "light") out.theme = theme;
@@ -53,7 +50,6 @@ export function readSettings(): BackupSettings {
 export function applySettings(settings: BackupSettings): void {
   if (typeof window === "undefined") return;
 
-  if (settings.prefs) replacePrefs(settings.prefs);
   if (!settings.theme) return;
 
   try {
@@ -90,7 +86,6 @@ function parseSettings(raw: unknown): BackupSettings {
   const record = raw as Record<string, unknown>;
   const out: BackupSettings = {};
   if (record.theme === "dark" || record.theme === "light") out.theme = record.theme;
-  if (record.prefs !== undefined) out.prefs = parsePrefs(record.prefs);
   return out;
 }
 

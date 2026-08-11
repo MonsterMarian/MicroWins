@@ -16,7 +16,6 @@ import { Dialog } from "@/components/ui/dialog";
 import { Input, Textarea } from "@/components/ui/input";
 import { useStore } from "@/components/providers/store-provider";
 import { useToast } from "@/components/providers/toast-provider";
-import { setPrefs, usePrefs } from "@/components/providers/use-prefs";
 import { parseBackup } from "@/lib/backup";
 import {
   countState,
@@ -25,7 +24,6 @@ import {
   type ImportMode,
   type ImportScope,
 } from "@/lib/import";
-import { ACCENTS } from "@/lib/prefs";
 import type { MicroWinsState } from "@/lib/types";
 import {
   applyPendingUpdate,
@@ -129,10 +127,6 @@ export function SettingsDialog({
       <div className="flex flex-col gap-5">
         <Section title="Vzhled">
           <ThemeChoice />
-        </Section>
-
-        <Section title="Barva postupu" hint="Týká se pruhů, procent a hotových úkolů v projektech.">
-          <AccentChoice />
         </Section>
 
         <Section
@@ -581,47 +575,6 @@ function Stat({ value, label }: { value: number; label: string }) {
     <div>
       <dd className="tabular text-base font-semibold">{value}</dd>
       <dt className="text-[11px] leading-tight text-muted-foreground">{label}</dt>
-    </div>
-  );
-}
-
-/**
- * Barva postupu. Ukázka není napevno zadaná barva, ale kousek pruhu obarvený
- * přes `data-accent` - je to přesně ta zeleň, co pak bude v projektech,
- * včetně tmavé varianty.
- */
-function AccentChoice() {
-  const { accent } = usePrefs();
-
-  return (
-    <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-      {ACCENTS.map((option) => {
-        const active = option.id === accent;
-        return (
-          <button
-            key={option.id}
-            type="button"
-            onClick={() => setPrefs({ accent: option.id })}
-            aria-pressed={active}
-            className={cn(
-              "flex items-center gap-2.5 rounded-lg border px-3 py-2 text-left text-sm transition-colors",
-              active
-                ? "border-foreground/40 bg-accent font-medium"
-                : "text-muted-foreground hover:bg-accent/50",
-            )}
-          >
-            <span data-accent={option.id} className="flex shrink-0 items-center gap-1">
-              <span className="size-4 rounded-full bg-progress" />
-              <span className="h-2 w-6 rounded-full bg-progress-muted" />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block truncate">{option.label}</span>
-              <span className="block truncate text-xs text-muted-foreground">{option.hint}</span>
-            </span>
-            {active ? <Check className="size-3.5 shrink-0 opacity-60" /> : null}
-          </button>
-        );
-      })}
     </div>
   );
 }

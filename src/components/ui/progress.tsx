@@ -48,7 +48,9 @@ export function ProgressBar({
       className={cn(
         "relative w-full overflow-hidden rounded-full bg-track",
         "shadow-[inset_0_1px_2px_rgb(0_0_0/0.16)]",
-        size === "sm" ? "h-1.5" : size === "lg" ? "h-3" : size === "xl" ? "h-4" : "h-2",
+        /* Tenké schválně: pruh je vedlejší údaj vedle procenta, tlusté pruhy
+           v seznamu přebíjely názvy. Šířka zůstává, mění se jen výška. */
+        size === "sm" ? "h-1" : size === "lg" ? "h-2" : size === "xl" ? "h-2.5" : "h-1.5",
         className,
       )}
     >
@@ -164,7 +166,7 @@ export function Slider({
 
   return (
     <div className={cn("relative flex h-8 w-full items-center", className)}>
-      <div className="absolute inset-x-0 h-3 overflow-hidden rounded-full bg-track shadow-[inset_0_1px_2px_rgb(0_0_0/0.16)]">
+      <div className="absolute inset-x-0 h-2 overflow-hidden rounded-full bg-track shadow-[inset_0_1px_2px_rgb(0_0_0/0.16)]">
         <div
           className={cn(
             "relative h-full rounded-full bg-progress",

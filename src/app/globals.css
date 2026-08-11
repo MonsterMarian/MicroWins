@@ -25,20 +25,23 @@
   --input: oklch(0.92 0.004 286.32);
   --ring: oklch(0.705 0.015 286.067);
 
-  /* Dva sémantické akcenty: jantar = microwin/rekord, zelená = postup projektu. */
+  /* Jediný barevný akcent v appce: jantar = microwin/rekord. */
   --win: oklch(0.72 0.16 62);
   --win-foreground: oklch(0.99 0 0);
   --win-muted: oklch(0.96 0.035 75);
   --win-muted-foreground: oklch(0.46 0.11 55);
 
-  /* Výchozí zelená = Terminál. Ostatní varianty jsou níž u data-accent.
-     Musí sedět na DEFAULT_PREFS v `prefs.ts`: skript v hlavičce nasadí
-     uloženou barvu ještě před prvním paintem, a když je uložená zrušená
-     varianta, spadne se sem. */
-  --progress: oklch(0.54 0.165 145);
-  --progress-foreground: oklch(0.99 0 0);
-  --progress-muted: oklch(0.95 0.026 145);
-  --progress-muted-foreground: oklch(0.44 0.115 145);
+  /*
+   * Postup nemá vlastní barvu - jede na stejné dvojici jako tlačítka
+   * (`--primary`). Zelená se zkoušela v pěti odstínech a žádný nesedl:
+   * vedle jantaru winů to byly dvě barvy, které si konkurovaly, a ani jedna
+   * nic neznamenala. Teď nese význam jediný akcent - jantar u microwinů -
+   * a postup je prostě popředí.
+   */
+  --progress: oklch(0.21 0.006 285.885);
+  --progress-foreground: oklch(0.985 0 0);
+  --progress-muted: oklch(0.967 0.001 286.375);
+  --progress-muted-foreground: oklch(0.45 0.008 286);
   --track: oklch(0.9 0.004 286.32);
 }
 
@@ -68,102 +71,11 @@
   --win-muted: oklch(0.32 0.06 66);
   --win-muted-foreground: oklch(0.88 0.09 75);
 
-  --progress: oklch(0.85 0.26 145);
-  --progress-foreground: oklch(0.17 0.04 145);
-  --progress-muted: oklch(0.3 0.042 145);
-  --progress-muted-foreground: oklch(0.88 0.178 145);
+  --progress: oklch(0.92 0.004 286.32);
+  --progress-foreground: oklch(0.21 0.006 285.885);
+  --progress-muted: oklch(0.274 0.006 286.033);
+  --progress-muted-foreground: oklch(0.75 0.008 286);
   --track: oklch(1 0 0 / 14%);
-}
-
-/*
- * Pět zelených na výběr (Nastavení → Barva postupu). Atribut `data-accent`
- * sedí na <html>, stejně jako třída `.dark`, takže se obě volby kombinují.
- *
- * Selektory schválně nejsou vázané na <html>: stejný atribut na libovolném
- * elementu přebarví jen jeho podstrom, což používají ukázky barev v Nastavení.
- * Tmavá dvojice proto musí být pro každou variantu zvlášť a specifičtější -
- * jinak by hodnoty pro světlý režim přebily `.dark`.
- *
- * Odstíny jsou vybrané proti našemu pozadí (#09090b) a oranžové winů (68°):
- * drží se v pásmu 130-176°, tedy nejmíň 60° od oranžové, aby se ty dvě barvy
- * nepletly. Sytost každé z nich je podíl toho, co pro daný odstín vůbec
- * unese sRGB - proto je Terminál na 145° nejostřejší (tam má gamut zelené
- * špičku) a Mech nejtišší. Světlý režim je o poznání tmavší, aby na tlačítku
- * unesl bílý text (kontrast aspoň 4,5:1).
- */
-[data-accent="terminal"] {
-  --progress: oklch(0.54 0.165 145);
-  --progress-foreground: oklch(0.99 0 0);
-  --progress-muted: oklch(0.95 0.026 145);
-  --progress-muted-foreground: oklch(0.44 0.115 145);
-}
-
-.dark[data-accent="terminal"],
-.dark [data-accent="terminal"] {
-  --progress: oklch(0.85 0.26 145);
-  --progress-foreground: oklch(0.17 0.04 145);
-  --progress-muted: oklch(0.3 0.042 145);
-  --progress-muted-foreground: oklch(0.88 0.178 145);
-}
-
-[data-accent="acid"] {
-  --progress: oklch(0.54 0.131 130);
-  --progress-foreground: oklch(0.99 0 0);
-  --progress-muted: oklch(0.95 0.032 130);
-  --progress-muted-foreground: oklch(0.44 0.091 130);
-}
-
-.dark[data-accent="acid"],
-.dark [data-accent="acid"] {
-  --progress: oklch(0.84 0.203 130);
-  --progress-foreground: oklch(0.17 0.04 130);
-  --progress-muted: oklch(0.3 0.034 130);
-  --progress-muted-foreground: oklch(0.88 0.16 130);
-}
-
-[data-accent="emerald"] {
-  --progress: oklch(0.54 0.114 158);
-  --progress-foreground: oklch(0.99 0 0);
-  --progress-muted: oklch(0.95 0.021 158);
-  --progress-muted-foreground: oklch(0.44 0.08 158);
-}
-
-.dark[data-accent="emerald"],
-.dark [data-accent="emerald"] {
-  --progress: oklch(0.84 0.177 158);
-  --progress-foreground: oklch(0.17 0.04 158);
-  --progress-muted: oklch(0.3 0.029 158);
-  --progress-muted-foreground: oklch(0.88 0.139 158);
-}
-
-[data-accent="mint"] {
-  --progress: oklch(0.54 0.101 176);
-  --progress-foreground: oklch(0.99 0 0);
-  --progress-muted: oklch(0.95 0.022 176);
-  --progress-muted-foreground: oklch(0.44 0.071 176);
-}
-
-.dark[data-accent="mint"],
-.dark [data-accent="mint"] {
-  --progress: oklch(0.84 0.157 176);
-  --progress-foreground: oklch(0.17 0.035 176);
-  --progress-muted: oklch(0.3 0.026 176);
-  --progress-muted-foreground: oklch(0.88 0.124 176);
-}
-
-[data-accent="moss"] {
-  --progress: oklch(0.54 0.063 150);
-  --progress-foreground: oklch(0.99 0 0);
-  --progress-muted: oklch(0.95 0.011 150);
-  --progress-muted-foreground: oklch(0.44 0.044 150);
-}
-
-.dark[data-accent="moss"],
-.dark [data-accent="moss"] {
-  --progress: oklch(0.7 0.081 150);
-  --progress-foreground: oklch(0.17 0.04 150);
-  --progress-muted: oklch(0.3 0.016 150);
-  --progress-muted-foreground: oklch(0.88 0.072 150);
 }
 
 @theme inline {
@@ -319,7 +231,7 @@
   .slider-input::-webkit-slider-thumb {
     appearance: none;
     width: 8px;
-    height: 26px;
+    height: 20px;
     border-radius: 4px;
     background: var(--progress);
     border: 2px solid var(--card);
@@ -335,7 +247,7 @@
 
   .slider-input::-moz-range-thumb {
     width: 8px;
-    height: 26px;
+    height: 20px;
     border-radius: 4px;
     background: var(--progress);
     border: 2px solid var(--card);

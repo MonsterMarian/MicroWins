@@ -59,34 +59,33 @@ describe("záloha", () => {
     expect(parseBackup("[]")).toBeNull();
   });
 
-  it("přenese i nastavení zobrazení", () => {
+  it("přenese i nastavení vzhledu", () => {
     const raw = serializeBackup(fullState());
-    const withPrefs = JSON.parse(raw);
-    withPrefs.settings = { theme: "light", prefs: { accent: "mint" } };
+    const withTheme = JSON.parse(raw);
+    withTheme.settings = { theme: "light" };
 
-    const restored = parseBackup(JSON.stringify(withPrefs))!;
+    const restored = parseBackup(JSON.stringify(withTheme))!;
     expect(restored.settings.theme).toBe("light");
-    expect(restored.settings.prefs).toEqual({ accent: "mint" });
   });
 
-  it("nesmyslné nastavení v záloze spadne na výchozí", () => {
+  it("nesmyslné nastavení v záloze se zahodí", () => {
     const withJunk = JSON.parse(serializeBackup(fullState()));
-    withJunk.settings = { theme: "duhove", prefs: { accent: "duhova" } };
+    withJunk.settings = { theme: "duhove" };
 
     const restored = parseBackup(JSON.stringify(withJunk))!;
     expect(restored.settings.theme).toBeUndefined();
-    expect(restored.settings.prefs).toEqual({ accent: "terminal" });
   });
 
-  /* Starší zálohy nesou zrušené volby - zelené, které už nejsou, a pohled na
-     winy, který zmizel celý. Nesmí kvůli tomu spadnout ani se protlačit dál. */
+  /* Starší zálohy nesou volby, které mezitím zmizely celé - barva postupu
+     a pohled na winy. Nesmí kvůli tomu spadnout ani se protlačit dál. */
   it("záloha ze starší verze se přečte, zrušené volby se zahodí", () => {
     const old = JSON.parse(serializeBackup(fullState()));
     old.settings = { theme: "dark", prefs: { winsView: "focus", accent: "sage" } };
 
     const restored = parseBackup(JSON.stringify(old))!;
     expect(restored.settings.theme).toBe("dark");
-    expect(restored.settings.prefs).toEqual({ accent: "terminal" });
+    expect(restored.settings).not.toHaveProperty("prefs");
+    expect(restored.state.microwins.length).toBeGreaterThan(0);
   });
 
   it("záloha nese formát a verzi, aby šla poznat", () => {

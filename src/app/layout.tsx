@@ -22,11 +22,8 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
-/**
- * Nastaví téma a barvu postupu před prvním paintem, aby neproblikl světlý
- * podklad ani výchozí zelená.
- */
-const themeScript = `try{var d=document.documentElement;var t=localStorage.getItem("microwins:theme");if(t==="dark"||(!t&&matchMedia("(prefers-color-scheme: dark)").matches))d.classList.add("dark");var a=localStorage.getItem("microwins:accent");if(a)d.setAttribute("data-accent",a)}catch(e){}`;
+/** Nastaví téma před prvním paintem, aby neproblikl světlý podklad. */
+const themeScript = `try{var d=document.documentElement;var t=localStorage.getItem("microwins:theme");if(t==="dark"||(!t&&matchMedia("(prefers-color-scheme: dark)").matches))d.classList.add("dark")}catch(e){}`;
 
 /**
  * Záchranná brzda živých aktualizací.

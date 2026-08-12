@@ -1,4 +1,4 @@
-import { todayISO } from "./date";
+import { addDays, todayISO } from "./date";
 import {
   allTasksOfProject,
   clampPercent,
@@ -273,6 +273,21 @@ export function updateTask(
 ): MicroWinsState {
   const task = taskById(state, id);
   if (!task) return state;
+
+  // Backfill a baseline snapshot for legacy tasks that have no history before today.
+  // Without this, the first modification of a legacy task would wipe its history baseline,
+  // causing taskDeltaToday to report 0%.
+  const hasHistory = state.taskSnapshots.some((s) => s.taskId === id && s.date < today);
+  if (!hasHistory && task.createdAt.slice(0, 10) < today) {
+    const oldPercent = roundPercent(taskPercent(state, task));
+    state = {
+      ...state,
+      taskSnapshots: [
+        ...state.taskSnapshots,
+        { taskId: id, date: addDays(today, -1), percent: oldPercent },
+      ],
+    };
+  }
 
   const merged: Task = { ...task, ...patch };
   merged.target = whole(merged.target, 1);

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { CalendarClock, Check, Lock, Sparkles, Trophy, Zap } from "lucide-react";
+import { CalendarClock, Check, Sparkles, Trophy, Zap } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,7 +20,6 @@ import {
   pushWinsOfWeek,
   DIFFICULTY_LABEL,
   KIND_LABEL,
-  PUSHWIN_UNLOCK,
 } from "@/lib/pushwin";
 import type { PushWin } from "@/lib/types";
 import { cn, formatNumber, plural } from "@/lib/utils";
@@ -39,14 +38,12 @@ export function PushWinCard() {
   const active = activePushWin(state, today);
   const week = pushWinsOfWeek(state, weekStart(today));
 
-  if (!enabled) {
-    // Zamčeno se ukazuje jen do doby, než se odemkne - pak už je to
-    // informace o vypnutém přepínači, kterou nikdo nepotřebuje.
-    return unlocked ? null : <LockedCard count={state.microwins.length} />;
+  if (!unlocked || !enabled) {
+    return null;
   }
 
   return (
-    <Card>
+    <Card className="border-win/30 bg-gradient-to-br from-win-muted/30 to-background">
       <CardHeader>
         <div className="flex flex-wrap items-center gap-2">
           <div className="min-w-0 flex-1">
@@ -69,25 +66,6 @@ export function PushWinCard() {
           .map((p) => (
             <DonePush key={p.id} push={p} />
           ))}
-      </CardContent>
-    </Card>
-  );
-}
-
-function LockedCard({ count }: { count: number }) {
-  const left = PUSHWIN_UNLOCK - count;
-  return (
-    <Card className="border-dashed">
-      <CardContent className="flex items-center gap-3 py-4">
-        <Lock className="size-4 shrink-0 text-muted-foreground" />
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium">PushWin se odemkne po {PUSHWIN_UNLOCK} microwinech</p>
-          <p className="text-xs text-muted-foreground">
-            Zbývá {left} {plural(left, "microwin", "microwiny", "microwinů")}. Do té doby nemá
-            appka z čeho postavit laťku, která by seděla zrovna tobě.
-          </p>
-        </div>
-        <ProgressBar value={(count / PUSHWIN_UNLOCK) * 100} className="w-16 shrink-0" quiet />
       </CardContent>
     </Card>
   );

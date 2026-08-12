@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { addCategory, addCheck, addMetric, addOnce, toggleCheck } from "./actions";
 import { parseBackup, serializeBackup } from "./backup";
+import { DEFAULT_PREFS } from "./prefs";
 import { createProject, createTask } from "./project-actions";
 import { EMPTY_STATE, type MicroWinsState } from "./types";
 
@@ -76,16 +77,30 @@ describe("záloha", () => {
     expect(restored.settings.theme).toBeUndefined();
   });
 
-  /* Starší zálohy nesou volby, které mezitím zmizely celé - barva postupu
-     a pohled na winy. Nesmí kvůli tomu spadnout ani se protlačit dál. */
+  /* Starší zálohy nesou volby, které mezitím zmizely (pohled na winy) nebo se
+     přejmenovaly (pět odstínů zelené na jednu). Nesmí kvůli tomu spadnout ani
+     se protlačit dál - neznámá volba spadne na výchozí. */
   it("záloha ze starší verze se přečte, zrušené volby se zahodí", () => {
     const old = JSON.parse(serializeBackup(fullState()));
     old.settings = { theme: "dark", prefs: { winsView: "focus", accent: "sage" } };
 
     const restored = parseBackup(JSON.stringify(old))!;
     expect(restored.settings.theme).toBe("dark");
-    expect(restored.settings).not.toHaveProperty("prefs");
+    expect(restored.settings.prefs).toEqual(DEFAULT_PREFS);
     expect(restored.state.microwins.length).toBeGreaterThan(0);
+  });
+
+  it("přenese vlastní volby zobrazení", () => {
+    const raw = JSON.parse(serializeBackup(fullState()));
+    raw.settings = { prefs: { accent: "white", overview: "pulse", doneStyle: "stamp" } };
+
+    const restored = parseBackup(JSON.stringify(raw))!;
+    expect(restored.settings.prefs).toEqual({
+      ...DEFAULT_PREFS,
+      accent: "white",
+      overview: "pulse",
+      doneStyle: "stamp",
+    });
   });
 
   it("záloha nese formát a verzi, aby šla poznat", () => {

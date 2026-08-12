@@ -15,8 +15,19 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Input, Textarea } from "@/components/ui/input";
 import { useStore } from "@/components/providers/store-provider";
+import { usePrefs, setPrefs } from "@/components/providers/use-prefs";
 import { useToast } from "@/components/providers/toast-provider";
+import { DoneButtonPreview } from "@/components/projects/done-button";
 import { parseBackup } from "@/lib/backup";
+import { ACCENTS, DONE_STYLES, OVERVIEWS } from "@/lib/prefs";
+import {
+  drawsPerWeek,
+  isUnlocked,
+  DIFFICULTY_LABEL,
+  PUSHWIN_SECOND_DRAW,
+  type Odds,
+} from "@/lib/pushwin";
+import type { PushWinDifficulty } from "@/lib/types";
 import {
   countState,
   hasScope,
@@ -128,6 +139,23 @@ export function SettingsDialog({
         <Section title="Vzhled">
           <ThemeChoice />
         </Section>
+
+        <Section title="Barva postupu" hint="Jantar u microwinů zůstává v obou případech.">
+          <AccentChoice />
+        </Section>
+
+        <Section title="Úvodní obrazovka" hint="Stejná data, jiná otázka. Přepíná záložku Přehled.">
+          <OverviewChoice />
+        </Section>
+
+        <Section
+          title="Tlačítko hotovo"
+          hint="Podoba přepínače u úkolu, který se dá jen odškrtnout (cíl 1, bez podúkolů)."
+        >
+          <DoneStyleChoice />
+        </Section>
+
+        {isUnlocked(state) ? <PushWinSection /> : null}
 
         <Section
           title="Data"
@@ -575,6 +603,199 @@ function Stat({ value, label }: { value: number; label: string }) {
     <div>
       <dd className="tabular text-base font-semibold">{value}</dd>
       <dt className="text-[11px] leading-tight text-muted-foreground">{label}</dt>
+    </div>
+  );
+}
+
+/**
+ * PushWiny. Ukazuje se až po odemčení - do té doby by přepínač sliboval něco,
+ * co appka neumí postavit.
+ */
+function PushWinSection() {
+  const { state } = useStore();
+  const { pushWins, pushOdds } = usePrefs();
+  const draws = drawsPerWeek(state);
+
+  const setOdd = (key: PushWinDifficulty, value: number) => {
+    const next: Odds = { ...pushOdds, [key]: Math.max(0, Math.min(100, value)) };
+    // Samé nuly by znamenaly nelosovat vůbec - poslední tažená obtížnost
+    // proto nesmí spadnout na nulu jako jediná.
+    if (next.easy + next.medium + next.hard === 0) return;
+    setPrefs({ pushOdds: next });
+  };
+
+  const total = pushOdds.easy + pushOdds.medium + pushOdds.hard;
+
+  return (
+    <Section
+      title="PushWin"
+      hint={
+        draws > 1
+          ? "Dvě losování týdně - odemklo se po roce zápisů."
+          : `Jedno losování týdně. Druhé se odemkne po ${PUSHWIN_SECOND_DRAW} microwinech.`
+      }
+    >
+      <button
+        type="button"
+        onClick={() => setPrefs({ pushWins: !pushWins })}
+        aria-pressed={pushWins}
+        className={cn(
+          "flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors",
+          pushWins ? "border-foreground/40 bg-accent" : "hover:bg-accent/50",
+        )}
+      >
+        <span className="min-w-0">
+          <span className="block text-sm font-medium">Týdenní výzvy</span>
+          <span className="block text-xs text-muted-foreground">
+            Jednou týdně výzva kousek za tím, co už jsi dokázal.
+          </span>
+        </span>
+        <span
+          className={cn(
+            "relative h-6 w-11 shrink-0 rounded-full transition-colors",
+            pushWins ? "bg-progress" : "bg-muted-foreground/30",
+          )}
+        >
+          <span
+            className={cn(
+              "absolute top-1 size-4 rounded-full bg-card shadow transition-[left] duration-200",
+              pushWins ? "left-6" : "left-1",
+            )}
+          />
+        </span>
+      </button>
+
+      {pushWins ? (
+        <div className="flex flex-col gap-2 rounded-lg border p-3">
+          <p className="text-xs font-medium text-muted-foreground">Šance obtížností</p>
+          {(["easy", "medium", "hard"] as PushWinDifficulty[]).map((key) => (
+            <label key={key} className="flex items-center gap-2 text-sm">
+              <span className="w-16 shrink-0 text-xs text-muted-foreground">
+                {DIFFICULTY_LABEL[key]}
+              </span>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={5}
+                value={pushOdds[key]}
+                onChange={(e) => setOdd(key, Number(e.target.value))}
+                aria-label={`Šance: ${DIFFICULTY_LABEL[key]}`}
+                className="slider-input h-6 min-w-0 flex-1 cursor-pointer appearance-none rounded-full bg-track"
+              />
+              <span className="tabular w-10 shrink-0 text-right text-xs">
+                {Math.round((pushOdds[key] / total) * 100)} %
+              </span>
+            </label>
+          ))}
+          <p className="text-xs text-muted-foreground">
+            Laťka se počítá z tvojí historie. Lehká míří pod tvůj rekord, těžká nad něj.
+          </p>
+        </div>
+      ) : null}
+    </Section>
+  );
+}
+
+/** Zelená / bílá. Náhledem je pruh - přesně to místo, kde barva rozhoduje. */
+function AccentChoice() {
+  const { accent } = usePrefs();
+
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      {ACCENTS.map((a) => {
+        const active = accent === a.id;
+        return (
+          <button
+            key={a.id}
+            type="button"
+            onClick={() => setPrefs({ accent: a.id })}
+            aria-pressed={active}
+            className={cn(
+              "flex flex-col gap-2 rounded-lg border px-3 py-2.5 text-left transition-colors",
+              active ? "border-foreground/40 bg-accent" : "hover:bg-accent/50",
+            )}
+          >
+            <span className="flex items-center gap-2 text-sm">
+              <span className={cn("font-medium", !active && "text-muted-foreground")}>{a.label}</span>
+              {active ? <Check className="ml-auto size-3.5 opacity-60" /> : null}
+            </span>
+            {/* Náhled nesmí poslouchat aktuální volbu, jinak by obě dlaždice
+                ukazovaly totéž - proto vlastní třída, ne --progress. */}
+            <span className="h-2 w-full overflow-hidden rounded-full bg-track">
+              <span
+                className={cn(
+                  "block h-full w-2/3 rounded-full",
+                  a.id === "green" ? "mw-swatch-green" : "mw-swatch-white",
+                )}
+              />
+            </span>
+            <span className="text-xs text-muted-foreground">{a.hint}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function OverviewChoice() {
+  const { overview } = usePrefs();
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      {OVERVIEWS.map((o) => {
+        const active = overview === o.id;
+        return (
+          <button
+            key={o.id}
+            type="button"
+            onClick={() => setPrefs({ overview: o.id })}
+            aria-pressed={active}
+            className={cn(
+              "flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm transition-colors",
+              active
+                ? "border-foreground/40 bg-accent font-medium"
+                : "text-muted-foreground hover:bg-accent/50",
+            )}
+          >
+            <span className="shrink-0">{o.label}</span>
+            <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{o.hint}</span>
+            {active ? <Check className="size-3.5 shrink-0 opacity-60" /> : null}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Pět podob se ukazuje naživo - popisek by u tvaru tlačítka nic neřekl. */
+function DoneStyleChoice() {
+  const { doneStyle } = usePrefs();
+
+  return (
+    <div className="flex flex-col gap-2">
+      {DONE_STYLES.map((d) => {
+        const active = doneStyle === d.id;
+        return (
+          <button
+            key={d.id}
+            type="button"
+            onClick={() => setPrefs({ doneStyle: d.id })}
+            aria-pressed={active}
+            className={cn(
+              "flex flex-col gap-1 rounded-lg border p-2.5 text-left transition-colors",
+              active ? "border-foreground/40 bg-accent/60" : "hover:bg-accent/40",
+            )}
+          >
+            <span className="flex items-center gap-2 px-1 text-sm">
+              <span className={cn("font-medium", !active && "text-muted-foreground")}>{d.label}</span>
+              <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{d.hint}</span>
+              {active ? <Check className="size-3.5 shrink-0 opacity-60" /> : null}
+            </span>
+            <DoneButtonPreview style={d.id} done={active} />
+          </button>
+        );
+      })}
     </div>
   );
 }

@@ -74,6 +74,16 @@ export function weekdayMondayFirst(iso: ISODate): number {
   return (fromISODate(iso).getDay() + 6) % 7;
 }
 
+/** Pondělí týdne, do kterého datum spadá. Identita týdne u PushWinů. */
+export function weekStart(iso: ISODate): ISODate {
+  return addDays(iso, -weekdayMondayFirst(iso));
+}
+
+/** Neděle téhož týdne - poslední den, kdy jde výzvu splnit. */
+export function weekEnd(iso: ISODate): ISODate {
+  return addDays(weekStart(iso), 6);
+}
+
 const MONTHS = [
   "led",
   "úno",

@@ -355,6 +355,14 @@ export function SortableItem({
       onContextMenu={(e) => {
         if (!disabled) e.preventDefault();
       }}
+      /*
+       * Myš na řádku, který je odkaz, spustí nativní tažení odkazu. To spolkne
+       * `pointermove` i `pointerup`, takže sezení uvnitř zůstane viset a řádek
+       * se nikam nepřesune. Na dotyku se to neděje, proto se chyba ukázala
+       * teprve na počítači.
+       */
+      onDragStart={(e) => e.preventDefault()}
+      draggable={false}
       onClickCapture={(e) => {
         if (!swallowClick.current) return;
         swallowClick.current = false;

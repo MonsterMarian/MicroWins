@@ -8,7 +8,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SettingsDialog } from "@/components/settings-dialog";
 import { useStore } from "@/components/providers/store-provider";
+import { usePrefs } from "@/components/providers/use-prefs";
 import { useTrackNavigation } from "@/components/providers/use-app-back";
+import { applyAccent } from "@/lib/prefs";
 import { applyPendingUpdate, checkForUpdate, markBootSucceeded } from "@/lib/live-update";
 import { hideSplash, isNative, registerBackButton, syncStatusBar } from "@/lib/native";
 import { streaks } from "@/lib/stats";
@@ -94,12 +96,16 @@ function useNativeShell() {
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const { accent } = usePrefs();
   const [settingsOpen, setSettingsOpen] = React.useState(false);
   const [native, setNative] = React.useState(false);
 
   useNativeShell();
   useTrackNavigation();
   React.useEffect(() => setNative(isNative()), []);
+  // Skript v hlavičce barvu nasadí před prvním paintem; tohle ji drží
+  // v souladu i po přepnutí v Nastavení a po načtení zálohy.
+  React.useEffect(() => applyAccent(accent), [accent]);
 
   return (
     <div className={cn("flex min-h-screen flex-col", native && "select-none")}>

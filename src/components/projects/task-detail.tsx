@@ -5,11 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
-  Check,
   ChevronDown,
-  ExternalLink,
   Flag,
-  FolderOpen,
   Minus,
   Pencil,
   Plus,
@@ -27,7 +24,8 @@ import { AnimatedPercent, DeltaBubble, ProgressBar, Slider } from "@/components/
 import { EntityIcon } from "@/components/ui/icon-picker";
 import { SortableItem, SortableList } from "@/components/ui/sortable";
 import { useStore } from "@/components/providers/store-provider";
-import { useAppBack } from "@/components/providers/use-app-back";
+import { useGoUp } from "@/components/providers/use-app-back";
+import { DoneButton } from "./done-button";
 import { TaskDialog } from "./task-dialog";
 import { TaskRow } from "./task-row";
 import { formatDate } from "@/lib/date";
@@ -40,6 +38,7 @@ import {
   subtaskCounts,
   subtasksOf,
   taskById,
+  taskDeltaToday,
   taskPercent,
 } from "@/lib/projects";
 import { tapFeedback, winFeedback } from "@/lib/native";
@@ -48,6 +47,7 @@ import { cn, formatNumber, formatTenth, parseWhole, plural } from "@/lib/utils";
 export function TaskDetail({ taskId }: { taskId: string }) {
   const {
     state,
+    today,
     hydrated,
     updateTask,
     setTaskCurrent,
@@ -57,7 +57,7 @@ export function TaskDetail({ taskId }: { taskId: string }) {
     reorderTasks,
   } = useStore();
   const router = useRouter();
-  const back = useAppBack();
+  const goUp = useGoUp();
   const [settingsOpen, setSettingsOpen] = React.useState(true);
   const [editOpen, setEditOpen] = React.useState(false);
   const [subtaskOpen, setSubtaskOpen] = React.useState(false);
@@ -99,6 +99,12 @@ export function TaskDetail({ taskId }: { taskId: string }) {
   const controlled = children.length > 0;
   const counts = subtaskCounts(state, task.id);
   const binary = isBinaryTask(state, task);
+  const deltaToday = taskDeltaToday(state, task, today);
+  /* O úroveň výš, ne zpět v historii: z podúkolu na úkol, z úkolu na projekt.
+     Stejně se chová strom microwinů. */
+  const parentHref = task.parentId
+    ? `/tasks?id=${task.parentId}`
+    : `/projects?id=${task.projectId}`;
 
   /* Krok hodnoty i s hmatovou odezvou. Doražení do cíle cvakne jinak než
      obyčejný krok - je to jediná chvíle, kdy se dá bez dívání poznat, že je
@@ -115,8 +121,8 @@ export function TaskDetail({ taskId }: { taskId: string }) {
         <Button
           variant="ghost"
           size="icon"
-          aria-label="Zpět"
-          onClick={() => back(`/projects?id=${task.projectId}`)}
+          aria-label={task.parentId ? "Zpět na nadřazený úkol" : "Zpět na projekt"}
+          onClick={() => goUp(parentHref)}
         >
           <ArrowLeft />
         </Button>
@@ -141,31 +147,15 @@ export function TaskDetail({ taskId }: { taskId: string }) {
       <Card>
         <CardContent className="flex flex-col gap-4 p-5">
           {binary ? (
-            /* Cíl 1 bez podúkolů: není co posouvat, buď je hotovo, nebo není. */
-            <button
-              type="button"
-              onClick={() => {
+            /* Cíl 1 bez podúkolů: není co posouvat, buď je hotovo, nebo není.
+               Podobu tlačítka si uživatel volí v Nastavení. */
+            <DoneButton
+              done={done}
+              onToggle={() => {
                 toggleTaskDone(task.id);
                 void (done ? tapFeedback() : winFeedback());
               }}
-              aria-pressed={done}
-              className={cn(
-                "flex items-center justify-center gap-3 rounded-xl border-2 px-4 py-6 text-base font-medium transition-colors",
-                done
-                  ? "border-progress bg-progress-muted/40 text-progress"
-                  : "border-dashed text-muted-foreground hover:border-progress/50 hover:text-foreground",
-              )}
-            >
-              <span
-                className={cn(
-                  "grid size-7 place-items-center rounded-md border",
-                  done ? "border-progress bg-progress text-progress-foreground" : "border-border",
-                )}
-              >
-                {done ? <Check className="size-5" /> : null}
-              </span>
-              {done ? "Hotovo" : "Označit jako hotové"}
-            </button>
+            />
           ) : (
             <>
               <div className="relative flex flex-col items-center gap-1">
@@ -203,6 +193,21 @@ export function TaskDetail({ taskId }: { taskId: string }) {
                     </>
                   )}
                 </p>
+                {/* Stejný údaj, jaký má u velkého čísla projekt: o kolik
+                    procentních bodů se úkol dnes pohnul. */}
+                <span
+                  className={cn(
+                    "tabular text-sm",
+                    deltaToday > 0.05
+                      ? "text-progress"
+                      : deltaToday < -0.05
+                        ? "text-destructive"
+                        : "text-muted-foreground",
+                  )}
+                >
+                  {deltaToday > 0.05 ? "+" : ""}
+                  {formatTenth(deltaToday)} % dnes
+                </span>
               </div>
 
               {controlled ? (
@@ -279,21 +284,7 @@ export function TaskDetail({ taskId }: { taskId: string }) {
 
         {settingsOpen ? (
           <CardContent className="flex flex-col gap-4">
-            <Row icon={FolderOpen} label="Projekt">
-              {project ? (
-                <Link
-                  href={`/projects?id=${project.id}`}
-                  className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs hover:bg-accent"
-                >
-                  <EntityIcon icon={project.icon} size="sm" />
-                  {project.name}
-                  <ExternalLink className="size-3" />
-                </Link>
-              ) : (
-                <span className="text-xs text-muted-foreground">-</span>
-              )}
-            </Row>
-
+            {/* Odkaz na projekt tu byl zbytečný - vede tam šipka v hlavičce. */}
             <Row icon={Flag} label="Milník">
               <Select
                 value={task.milestoneId ?? ""}
@@ -333,16 +324,25 @@ export function TaskDetail({ taskId }: { taskId: string }) {
             </Row>
 
             <Row icon={Scale} label="Váha">
-              <Input
-                value={String(task.weight)}
-                inputMode="numeric"
-                onChange={(e) => {
-                  const v = parseWhole(e.target.value);
-                  if (Number.isFinite(v) && v > 0) updateTask(task.id, { weight: v });
-                }}
-                className="h-8 w-20 text-xs"
-                aria-label="Váha úkolu"
-              />
+              <div className="flex items-center gap-2">
+                <Input
+                  value={String(task.weight)}
+                  inputMode="numeric"
+                  onChange={(e) => {
+                    const v = parseWhole(e.target.value);
+                    if (Number.isFinite(v) && v >= 0) updateTask(task.id, { weight: v });
+                  }}
+                  className="h-8 w-16 text-xs"
+                  aria-label="Jak moc se počítá do projektu"
+                />
+                <span className="text-xs text-muted-foreground">
+                  {task.weight === 0
+                    ? "nepočítá se do procent"
+                    : task.weight === 1
+                      ? "jako ostatní úkoly"
+                      : `${task.weight}× víc než běžný úkol`}
+                </span>
+              </div>
             </Row>
 
             <Textarea

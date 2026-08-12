@@ -1,5 +1,13 @@
 import { addDays, diffDays, todayISO } from "./date";
-import type { ISODate, MicroWinsState, Milestone, Project, Snapshot, Task } from "./types";
+import type {
+  ISODate,
+  MicroWinsState,
+  Milestone,
+  Project,
+  Snapshot,
+  Task,
+  TaskSnapshot,
+} from "./types";
 
 /**
  * Výpočty postupu projektů (čisté funkce).
@@ -17,6 +25,16 @@ export function clampPercent(n: number): number {
 
 export function roundPercent(n: number): number {
   return Math.round(clampPercent(n) * 10) / 10;
+}
+
+/**
+ * Váha úkolu v průměru. **Nula znamená „nepočítá se"** - úkol zůstane
+ * v seznamu, dá se posouvat i odškrtávat, ale procenty projektu nehne.
+ * Hodí se na poznámky, čekání na někoho jiného a na kroky, které jsou
+ * povinné, ale nejsou to práce.
+ */
+export function weightOf(task: Task): number {
+  return Number.isFinite(task.weight) ? Math.max(0, task.weight) : 1;
 }
 
 /**
@@ -64,9 +82,11 @@ export function milestonesOfProject(state: MicroWinsState, projectId: string): M
 export function taskPercent(state: MicroWinsState, task: Task): number {
   const children = subtasksOf(state, task.id);
   if (children.length > 0) {
-    const totalWeight = children.reduce((s, c) => s + (c.weight || 1), 0);
-    if (totalWeight === 0) return 0;
-    const sum = children.reduce((s, c) => s + taskPercent(state, c) * (c.weight || 1), 0);
+    const totalWeight = children.reduce((s, c) => s + weightOf(c), 0);
+    // Samé nuly = není z čeho průměrovat. Postup pak řídí vlastní hodnota
+    // úkolu, ne prázdný průměr - jinak by úkol navždy visel na nule.
+    if (totalWeight === 0) return task.target > 0 ? clampPercent((task.current / task.target) * 100) : 0;
+    const sum = children.reduce((s, c) => s + taskPercent(state, c) * weightOf(c), 0);
     return clampPercent(sum / totalWeight);
   }
   if (task.target <= 0) return task.current > 0 ? 100 : 0;
@@ -76,9 +96,10 @@ export function taskPercent(state: MicroWinsState, task: Task): number {
 export function projectPercent(state: MicroWinsState, projectId: string): number {
   const tasks = tasksOfProject(state, projectId);
   if (tasks.length === 0) return 0;
-  const totalWeight = tasks.reduce((s, t) => s + (t.weight || 1), 0);
+  const totalWeight = tasks.reduce((s, t) => s + weightOf(t), 0);
+  // Všechny úkoly s váhou 0 - projekt nemá co počítat, stejně jako bez úkolů.
   if (totalWeight === 0) return 0;
-  const sum = tasks.reduce((s, t) => s + taskPercent(state, t) * (t.weight || 1), 0);
+  const sum = tasks.reduce((s, t) => s + taskPercent(state, t) * weightOf(t), 0);
   return clampPercent(sum / totalWeight);
 }
 
@@ -102,6 +123,34 @@ export function subtaskCounts(
 ): { done: number; total: number } {
   const children = subtasksOf(state, taskId);
   return { done: children.filter((c) => isTaskDone(state, c)).length, total: children.length };
+}
+
+// --- historie úkolu ---------------------------------------------------------
+
+export function taskSnapshotsOf(state: MicroWinsState, taskId: string): TaskSnapshot[] {
+  return state.taskSnapshots
+    .filter((s) => s.taskId === taskId)
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/**
+ * Dnešní přírůstek úkolu v procentních bodech - stejný údaj, jaký má projekt
+ * u velkého čísla.
+ *
+ * Základ je poslední otisk **před** dneškem. Když žádný není, rozhoduje stáří
+ * úkolu: založený dnes roste od nuly, starší úkol bez historie hlásí nulu.
+ * Ta druhá věta je schválně opatrná - data z doby před otisky nebo z importu
+ * historii neznají a tvářit se, že dnes narostl celý postup, by byla lež.
+ */
+export function taskDeltaToday(
+  state: MicroWinsState,
+  task: Task,
+  today: ISODate = todayISO(),
+): number {
+  const percent = taskPercent(state, task);
+  const history = taskSnapshotsOf(state, task.id).filter((s) => s.date < today);
+  if (history.length > 0) return percent - history[history.length - 1].percent;
+  return task.createdAt.slice(0, 10) === today ? percent : 0;
 }
 
 // --- historie ---------------------------------------------------------------

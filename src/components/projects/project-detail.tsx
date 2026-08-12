@@ -27,8 +27,9 @@ import { AnimatedPercent, DeltaBubble, ProgressBar } from "@/components/ui/progr
 import { EntityIcon } from "@/components/ui/icon-picker";
 import { SortableItem, SortableList } from "@/components/ui/sortable";
 import { useStore } from "@/components/providers/store-provider";
-import { useAppBack } from "@/components/providers/use-app-back";
+import { useGoUp } from "@/components/providers/use-app-back";
 import { MilestonesDialog } from "./milestones-dialog";
+import { MilestonesSection } from "./milestones-section";
 import { ProjectDialog } from "./project-dialog";
 import { TaskDialog } from "./task-dialog";
 import { TaskRow } from "./task-row";
@@ -58,7 +59,7 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
   const { state, today, hydrated, updateProject, deleteProject, setProjectArchived, reorderTasks } =
     useStore();
   const router = useRouter();
-  const back = useAppBack();
+  const goUp = useGoUp();
   const [editOpen, setEditOpen] = React.useState(false);
   const [taskOpen, setTaskOpen] = React.useState(false);
   const [milestonesOpen, setMilestonesOpen] = React.useState(false);
@@ -108,7 +109,12 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
   return (
     <div className="flex flex-col gap-4">
       <header className="flex items-center gap-2">
-        <Button variant="ghost" size="icon" aria-label="Zpět" onClick={() => back("/?tab=projects")}>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="Zpět na projekty"
+          onClick={() => goUp("/?tab=projects")}
+        >
           <ArrowLeft />
         </Button>
         <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-muted text-lg">
@@ -332,6 +338,8 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
           </p>
         ) : null}
       </Card>
+
+      <MilestonesSection projectId={project.id} />
 
       {/* Přidávání úkolů je hlavní akce téhle obrazovky - patří pod palec,
           ne až na konec seznamu, kam se u dlouhého projektu musí scrollovat. */}

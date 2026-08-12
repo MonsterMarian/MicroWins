@@ -49,6 +49,13 @@ export interface TreeNode {
   /** Jen pro metriku. */
   aggregation?: Aggregation;
   createdAt: string;
+  /**
+   * Složka odložená stranou: PushWin na ni ani na nic pod ní necílí.
+   * Strom se nemaže - co se přestalo dělat, se jen odloží - a výzva
+   * "zapiš něco v Kurzu fotografování" u odloženého tématu je otrava,
+   * ne pobídka.
+   */
+  pushExempt?: boolean;
 }
 
 export interface Entry {
@@ -78,6 +85,47 @@ export interface Microwin {
   /** true = první záznam uzlu vůbec. */
   firstEver: boolean;
   createdAt: string;
+}
+
+// --- PushWin ----------------------------------------------------------------
+
+/**
+ * Týdenní výzva. Microwin čte laťku z historie zpětně ("dnes to bylo lepší"),
+ * PushWin ji staví dopředu ("zkus tohle"). Cíl se počítá z vlastních dat
+ * uživatele, nikdy z pevného čísla - "6 microwinů za den" je pro jednoho
+ * rozcvička a pro druhého nemožné.
+ */
+export type PushWinDifficulty = "easy" | "medium" | "hard";
+
+/**
+ * - `burst`: X microwinů v jednom dni.
+ * - `streak`: X dní po sobě aspoň jeden microwin.
+ * - `record`: dostat konkrétní metriku za den na X.
+ * - `volume`: součet metriky za týden aspoň X.
+ * - `breadth`: microwiny v X různých složkách.
+ * - `revive`: microwin ve složce, kde je delší dobu ticho.
+ */
+export type PushWinKind = "burst" | "streak" | "record" | "volume" | "breadth" | "revive";
+
+export interface PushWin {
+  id: string;
+  /** Pondělí týdne, do kterého výzva patří. */
+  week: ISODate;
+  kind: PushWinKind;
+  difficulty: PushWinDifficulty;
+  /** Cílové číslo: 5 microwinů, 35 kliků, 6 dní. */
+  target: number;
+  /** Uzel, kterého se výzva týká; null = napříč stromem. */
+  nodeId: string | null;
+  /**
+   * Zadání zamrzlé při losování. Skládat ho až při zobrazení by znamenalo,
+   * že přejmenovaná složka zpětně přepíše i dávno splněnou výzvu.
+   */
+  text: string;
+  drawnAt: string;
+  completedAt: string | null;
+  /** Microwiny, které výzvu naplnily - bez nich by u splněné zbylo jen "hotovo". */
+  microwinIds: string[];
 }
 
 // --- projekty a úkoly -------------------------------------------------------
@@ -127,12 +175,20 @@ export interface Task {
   completedAt: string | null;
 }
 
+/**
+ * Mezizastávka projektu. Odškrtává se ručně a **do procent projektu ani úkolů
+ * se nepočítá** - je to poznámka na ose, ne kus práce. Kdyby milník procenta
+ * hýbal, počítala by se stejná práce dvakrát: jednou v úkolu, podruhé
+ * v milníku, který ten úkol shrnuje.
+ */
 export interface Milestone {
   id: string;
   projectId: string;
   name: string;
   date: ISODate | null;
   createdAt: string;
+  /** Kdy ho uživatel odškrtl; null = ještě ne. */
+  doneAt: string | null;
 }
 
 /**
@@ -145,26 +201,41 @@ export interface Snapshot {
   percent: number;
 }
 
+/**
+ * Totéž pro jednotlivý úkol. Zapisuje se jen při skutečné změně, takže
+ * u nedotčeného úkolu nepřibývá řádek za den - jinak by dvacet úkolů za rok
+ * nadělalo sedm tisíc záznamů, které nikdo nikdy nepřečte.
+ */
+export interface TaskSnapshot {
+  taskId: string;
+  date: ISODate;
+  percent: number;
+}
+
 export interface MicroWinsState {
   version: number;
   nodes: TreeNode[];
   entries: Entry[];
   microwins: Microwin[];
+  pushWins: PushWin[];
   projects: Project[];
   tasks: Task[];
   milestones: Milestone[];
   snapshots: Snapshot[];
+  taskSnapshots: TaskSnapshot[];
 }
 
-export const STATE_VERSION = 2;
+export const STATE_VERSION = 4;
 
 export const EMPTY_STATE: MicroWinsState = {
   version: STATE_VERSION,
   nodes: [],
   entries: [],
   microwins: [],
+  pushWins: [],
   projects: [],
   tasks: [],
   milestones: [],
   snapshots: [],
+  taskSnapshots: [],
 };

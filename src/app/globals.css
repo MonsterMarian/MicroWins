@@ -32,16 +32,15 @@
   --win-muted-foreground: oklch(0.46 0.11 55);
 
   /*
-   * Postup nemá vlastní barvu - jede na stejné dvojici jako tlačítka
-   * (`--primary`). Zelená se zkoušela v pěti odstínech a žádný nesedl:
-   * vedle jantaru winů to byly dvě barvy, které si konkurovaly, a ani jedna
-   * nic neznamenala. Teď nese význam jediný akcent - jantar u microwinů -
-   * a postup je prostě popředí.
+   * Postup má vlastní barvu: zelenou. Odstín 145° je od jantaru winů (62°)
+   * dost daleko, aby se obě barvy na obrazovce nepletly, a leží tam, kde má
+   * gamut zelené špičku - proto snese vysokou sytost, aniž by se v sRGB
+   * usekla. Komu dvě barvy vadí, přepne v Nastavení na bílou (`data-accent`).
    */
-  --progress: oklch(0.21 0.006 285.885);
-  --progress-foreground: oklch(0.985 0 0);
-  --progress-muted: oklch(0.967 0.001 286.375);
-  --progress-muted-foreground: oklch(0.45 0.008 286);
+  --progress: oklch(0.66 0.19 145);
+  --progress-foreground: oklch(0.99 0 0);
+  --progress-muted: oklch(0.95 0.05 145);
+  --progress-muted-foreground: oklch(0.46 0.13 145);
   --track: oklch(0.9 0.004 286.32);
 }
 
@@ -71,11 +70,33 @@
   --win-muted: oklch(0.32 0.06 66);
   --win-muted-foreground: oklch(0.88 0.09 75);
 
+  --progress: oklch(0.82 0.2 145);
+  --progress-foreground: oklch(0.17 0.04 145);
+  --progress-muted: oklch(0.31 0.08 145);
+  --progress-muted-foreground: oklch(0.89 0.16 145);
+  --track: oklch(1 0 0 / 14%);
+}
+
+/*
+ * Bílý postup. Bere si stejnou dvojici jako tlačítka (`--primary`), takže bílé
+ * „Nový úkol" a pruh postupu mluví stejným jazykem a barevný akcent zbyde
+ * v appce jediný - jantar u microwinů.
+ *
+ * Pořadí je tady nosné: `.dark` a `[data-accent]` mají stejnou váhu, takže
+ * přepis musí stát níž. Kombinace obojího pak přebije obě.
+ */
+[data-accent="white"] {
+  --progress: oklch(0.21 0.006 285.885);
+  --progress-foreground: oklch(0.985 0 0);
+  --progress-muted: oklch(0.967 0.001 286.375);
+  --progress-muted-foreground: oklch(0.45 0.008 286);
+}
+
+.dark[data-accent="white"] {
   --progress: oklch(0.92 0.004 286.32);
   --progress-foreground: oklch(0.21 0.006 285.885);
   --progress-muted: oklch(0.274 0.006 286.033);
   --progress-muted-foreground: oklch(0.75 0.008 286);
-  --track: oklch(1 0 0 / 14%);
 }
 
 @theme inline {
@@ -259,6 +280,25 @@
     background: transparent;
   }
 
+  /*
+   * Vzorky barvy v Nastavení. Nesmí jít přes --progress: obě dlaždice by pak
+   * ukazovaly právě zvolenou barvu a nebylo by z čeho vybírat.
+   */
+  .mw-swatch-green {
+    background: oklch(0.66 0.19 145);
+  }
+
+  .dark .mw-swatch-green {
+    background: oklch(0.82 0.2 145);
+  }
+
+  .mw-swatch-white {
+    background: oklch(0.21 0.006 285.885);
+  }
+
+  .dark .mw-swatch-white {
+    background: oklch(0.92 0.004 286.32);
+  }
 }
 
 @layer utilities {
@@ -363,6 +403,23 @@
     animation: mw-flash 0.9s ease-out both;
   }
 
+  /*
+   * Losování PushWinu. Pás výzev projede kolem značky a dojede - zpomalení
+   * na konci dělá celé napětí, proto křivka s dlouhým doběhem.
+   */
+  @keyframes mw-reel {
+    from {
+      transform: translateX(0);
+    }
+    to {
+      transform: translateX(-72%);
+    }
+  }
+
+  .mw-reel {
+    animation: mw-reel 2.6s cubic-bezier(0.12, 0.7, 0.1, 1) both;
+  }
+
   /* Plovoucí tlačítko nepřilétá odnikud, jen se zvedne zpod svého místa. */
   @keyframes mw-fab-in {
     from {
@@ -385,7 +442,8 @@
     .mw-pop,
     .mw-rise,
     .mw-flash,
-    .mw-fab-in {
+    .mw-fab-in,
+    .mw-reel {
       animation: none;
     }
 

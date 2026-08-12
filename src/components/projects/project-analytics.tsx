@@ -78,13 +78,21 @@ export function ProjectAnalytics({ projectId }: { projectId: string }) {
       </header>
 
       <Card>
-        <CardContent className="flex flex-wrap items-start justify-center gap-6 p-6 sm:gap-10">
+        {/*
+         * Tři kolečka vždy vedle sebe. Zalamování je pouštělo na telefonu do
+         * dvou řad (3 × 104 px se do 375 px nevejde) a z trojice čísel, která
+         * se mají číst naráz, byl schod. Místo zalomení se proto zmenší samy:
+         * mřížka o třech stejných sloupcích a poloměr podle šířky okna.
+         */}
+        <CardContent className="grid grid-cols-3 items-start gap-2 p-4 sm:gap-6 sm:p-6">
           <Ring value={stats.percent} label="Postup">
-            <span className="tabular text-lg font-semibold">{displayPercent(stats.percent)} %</span>
+            <span className="tabular text-base font-semibold sm:text-lg">
+              {displayPercent(stats.percent)} %
+            </span>
           </Ring>
           <Ring value={dayRingValue} label="Dny">
             <div className="flex flex-col items-center leading-none">
-              <span className="tabular text-lg font-semibold">{stats.daysElapsed}</span>
+              <span className="tabular text-base font-semibold sm:text-lg">{stats.daysElapsed}</span>
               {stats.totalDays ? (
                 <span className="tabular text-[10px] text-muted-foreground">
                   z {stats.totalDays}
@@ -94,7 +102,7 @@ export function ProjectAnalytics({ projectId }: { projectId: string }) {
           </Ring>
           <Ring value={taskRingValue} label="Hotové úkoly">
             <div className="flex flex-col items-center leading-none">
-              <span className="tabular text-lg font-semibold">{stats.tasksDone}</span>
+              <span className="tabular text-base font-semibold sm:text-lg">{stats.tasksDone}</span>
               <span className="my-0.5 h-px w-5 bg-border" />
               <span className="tabular text-sm text-muted-foreground">{stats.tasksTotal}</span>
             </div>

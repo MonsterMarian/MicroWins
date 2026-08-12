@@ -19,7 +19,8 @@ function normalizeTask(task: Task): Task {
   const target = whole(task.target, 1);
   const current = Math.min(whole(task.current, 0), target);
   const step = whole(task.step, 1);
-  const weight = whole(task.weight, 1);
+  // 0 je platná váha - takový úkol se do procent nepočítá.
+  const weight = whole(task.weight, 0);
   if (
     target === task.target &&
     current === task.current &&
@@ -46,10 +47,13 @@ export function parseState(raw: string): MicroWinsState | null {
       nodes: data.nodes as MicroWinsState["nodes"],
       entries: data.entries as MicroWinsState["entries"],
       microwins: arr("microwins"),
+      pushWins: arr("pushWins"),
       projects: arr("projects"),
       tasks: arr("tasks").map(normalizeTask),
-      milestones: arr("milestones"),
+      // Milníky z v2 neznaly odškrtnutí - doplní se jako neodškrtnuté.
+      milestones: arr("milestones").map((m) => (m.doneAt === undefined ? { ...m, doneAt: null } : m)),
       snapshots: arr("snapshots"),
+      taskSnapshots: arr("taskSnapshots"),
     };
   } catch {
     return null;

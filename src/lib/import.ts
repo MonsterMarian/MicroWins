@@ -1,4 +1,4 @@
-import type { MicroWinsState, Project, Snapshot, Task, TreeNode } from "./types";
+import type { MicroWinsState, Project, Snapshot, Task, TaskSnapshot, TreeNode } from "./types";
 import { createId } from "./utils";
 
 /**
@@ -67,7 +67,7 @@ function projectPart(
   incoming: MicroWinsState,
   fresh: boolean,
   orderOffset: number,
-): Pick<MicroWinsState, "projects" | "tasks" | "milestones" | "snapshots"> {
+): Pick<MicroWinsState, "projects" | "tasks" | "milestones" | "snapshots" | "taskSnapshots"> {
   const projectIds = remap(incoming.projects.map((p) => p.id));
   const taskIds = remap(incoming.tasks.map((t) => t.id));
   const milestoneIds = remap(incoming.milestones.map((m) => m.id));
@@ -106,7 +106,11 @@ function projectPart(
     .filter((s) => known.has(s.projectId))
     .map((s) => ({ ...s, projectId: pid(s.projectId) }));
 
-  return { projects, tasks, milestones, snapshots };
+  const taskSnapshots: TaskSnapshot[] = incoming.taskSnapshots
+    .filter((s) => knownTasks.has(s.taskId))
+    .map((s) => ({ ...s, taskId: tid(s.taskId) }));
+
+  return { projects, tasks, milestones, snapshots, taskSnapshots };
 }
 
 /**
@@ -116,7 +120,7 @@ function projectPart(
 function treePart(
   incoming: MicroWinsState,
   fresh: boolean,
-): Pick<MicroWinsState, "nodes" | "entries" | "microwins"> {
+): Pick<MicroWinsState, "nodes" | "entries" | "microwins" | "pushWins"> {
   const nodeIds = remap(incoming.nodes.map((n) => n.id));
   const nid = (id: string) => (fresh ? (nodeIds.get(id) ?? id) : id);
   const known = new Set(incoming.nodes.map((n) => n.id));
@@ -127,6 +131,9 @@ function treePart(
     parentId: n.parentId && known.has(n.parentId) ? nid(n.parentId) : null,
   }));
 
+  const microwinIds = remap(incoming.microwins.map((m) => m.id));
+  const wid = (id: string) => (fresh ? (microwinIds.get(id) ?? id) : id);
+
   return {
     nodes,
     entries: incoming.entries
@@ -134,7 +141,15 @@ function treePart(
       .map((e) => ({ ...e, metricId: nid(e.metricId) })),
     microwins: incoming.microwins
       .filter((m) => known.has(m.metricId))
-      .map((m) => ({ ...m, metricId: nid(m.metricId) })),
+      .map((m) => ({ ...m, id: wid(m.id), metricId: nid(m.metricId) })),
+    // Výzva na smazaný uzel by se nedala splnit ani přečíst.
+    pushWins: incoming.pushWins
+      .filter((p) => p.nodeId === null || known.has(p.nodeId))
+      .map((p) => ({
+        ...p,
+        nodeId: p.nodeId ? nid(p.nodeId) : null,
+        microwinIds: p.microwinIds.map(wid),
+      })),
   };
 }
 
@@ -142,6 +157,13 @@ function treePart(
 function dedupeSnapshots(snapshots: Snapshot[]): Snapshot[] {
   const map = new Map<string, Snapshot>();
   for (const s of snapshots) map.set(`${s.projectId}|${s.date}`, s);
+  return [...map.values()];
+}
+
+/** Totéž pro otisky úkolů. */
+function dedupeTaskSnapshots(snapshots: TaskSnapshot[]): TaskSnapshot[] {
+  const map = new Map<string, TaskSnapshot>();
+  for (const s of snapshots) map.set(`${s.taskId}|${s.date}`, s);
   return [...map.values()];
 }
 
@@ -169,6 +191,7 @@ export function mergeState(
           nodes: [...next.nodes, ...part.nodes],
           entries: [...next.entries, ...part.entries],
           microwins: [...next.microwins, ...part.microwins],
+          pushWins: [...next.pushWins, ...part.pushWins],
         }
       : { ...next, ...part };
   }
@@ -183,6 +206,7 @@ export function mergeState(
           tasks: [...next.tasks, ...part.tasks],
           milestones: [...next.milestones, ...part.milestones],
           snapshots: dedupeSnapshots([...next.snapshots, ...part.snapshots]),
+          taskSnapshots: dedupeTaskSnapshots([...next.taskSnapshots, ...part.taskSnapshots]),
         }
       : {
           ...next,
@@ -190,6 +214,7 @@ export function mergeState(
           tasks: part.tasks,
           milestones: part.milestones,
           snapshots: dedupeSnapshots(part.snapshots),
+          taskSnapshots: dedupeTaskSnapshots(part.taskSnapshots),
         };
   }
 

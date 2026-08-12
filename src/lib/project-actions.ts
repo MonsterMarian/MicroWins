@@ -1,13 +1,17 @@
 import { todayISO } from "./date";
 import {
+  allTasksOfProject,
   clampPercent,
   isTaskDone,
   projectPercent,
+  roundPercent,
   subtasksOf,
   taskById,
+  taskPercent,
   tasksOfProject,
+  weightOf,
 } from "./projects";
-import type { ISODate, MicroWinsState, Milestone, Project, Task } from "./types";
+import type { ISODate, MicroWinsState, Milestone, Project, Task, TaskSnapshot } from "./types";
 import { createId } from "./utils";
 
 /** CRUD nad projekty a úkoly. Každá změna hodnoty rovnou zapíše denní otisk. */
@@ -56,12 +60,14 @@ export function updateProject(
 }
 
 export function deleteProject(state: MicroWinsState, id: string): MicroWinsState {
+  const taskIds = new Set(state.tasks.filter((t) => t.projectId === id).map((t) => t.id));
   return {
     ...state,
     projects: state.projects.filter((p) => p.id !== id),
     tasks: state.tasks.filter((t) => t.projectId !== id),
     milestones: state.milestones.filter((m) => m.projectId !== id),
     snapshots: state.snapshots.filter((s) => s.projectId !== id),
+    taskSnapshots: state.taskSnapshots.filter((s) => !taskIds.has(s.taskId)),
   };
 }
 
@@ -140,7 +146,7 @@ export function moveProject(state: MicroWinsState, id: string, direction: -1 | 1
 
 // --- otisky -----------------------------------------------------------------
 
-/** Zapíše (nebo přepíše) dnešní otisk postupu projektu. */
+/** Zapíše (nebo přepíše) dnešní otisk postupu projektu i jeho úkolů. */
 export function snapshotProject(
   state: MicroWinsState,
   projectId: string,
@@ -148,7 +154,54 @@ export function snapshotProject(
 ): MicroWinsState {
   const percent = projectPercent(state, projectId);
   const rest = state.snapshots.filter((s) => !(s.projectId === projectId && s.date === today));
-  return { ...state, snapshots: [...rest, { projectId, date: today, percent }] };
+  const withProject: MicroWinsState = {
+    ...state,
+    snapshots: [...rest, { projectId, date: today, percent }],
+  };
+  return { ...withProject, taskSnapshots: snapshotTasks(withProject, projectId, today) };
+}
+
+/**
+ * Denní otisky jednotlivých úkolů. Zapisují se stejně jako u projektu -
+ * hodnota na konci dne - ale jen tam, kde se opravdu něco hnulo. Nedotčený
+ * úkol tak nezakládá řádek za den; dvacet úkolů by za rok nadělalo sedm tisíc
+ * záznamů, které by nikdo nikdy nepřečetl.
+ */
+function snapshotTasks(
+  state: MicroWinsState,
+  projectId: string,
+  today: ISODate,
+): TaskSnapshot[] {
+  const tasks = allTasksOfProject(state, projectId);
+  const ids = new Set(tasks.map((t) => t.id));
+  // Dnešní řádky vlastních úkolů se skládají znovu; cizí zůstávají.
+  const kept = state.taskSnapshots.filter((s) => !(ids.has(s.taskId) && s.date === today));
+  const fresh: TaskSnapshot[] = [];
+
+  for (const task of tasks) {
+    const percent = roundPercent(taskPercent(state, task));
+    const before = lastTaskSnapshot(kept, task.id, today);
+    // Beze změny proti poslednímu známému dni není co zapisovat. Úkol bez
+    // historie svůj první řádek dostane vždy - je to základ pro příští přírůstek.
+    if (before && Math.abs(before.percent - percent) < 0.05) continue;
+    fresh.push({ taskId: task.id, date: today, percent });
+  }
+
+  return [...kept, ...fresh];
+}
+
+/** Poslední otisk úkolu ke dni `date` (včetně). */
+function lastTaskSnapshot(
+  snapshots: TaskSnapshot[],
+  taskId: string,
+  date: ISODate,
+): TaskSnapshot | undefined {
+  let best: TaskSnapshot | undefined;
+  for (const s of snapshots) {
+    if (s.taskId !== taskId || s.date > date) continue;
+    if (!best || s.date > best.date) best = s;
+  }
+  return best;
 }
 
 // --- úkoly ------------------------------------------------------------------
@@ -200,7 +253,7 @@ export function createTask(
     current,
     unit: input.unit?.trim() || undefined,
     step: whole(input.step, 1),
-    weight: whole(input.weight, 1),
+    weight: whole(input.weight, 0, 1),
     dueDate: input.dueDate ?? null,
     milestoneId: input.milestoneId ?? null,
     description: input.description ?? "",
@@ -225,7 +278,8 @@ export function updateTask(
   merged.target = whole(merged.target, 1);
   merged.current = Math.min(Math.max(whole(merged.current, 0, 0), 0), merged.target);
   merged.step = whole(merged.step, 1);
-  merged.weight = whole(merged.weight, 1);
+  // Váha smí být 0 - takový úkol se do průměru nepočítá.
+  merged.weight = whole(merged.weight, 0, 1);
 
   const next: MicroWinsState = {
     ...state,
@@ -290,7 +344,11 @@ export function deleteTask(
   if (!task) return state;
   const ids = new Set<string>([id]);
   for (const child of subtasksOf(state, id)) ids.add(child.id);
-  const next: MicroWinsState = { ...state, tasks: state.tasks.filter((t) => !ids.has(t.id)) };
+  const next: MicroWinsState = {
+    ...state,
+    tasks: state.tasks.filter((t) => !ids.has(t.id)),
+    taskSnapshots: state.taskSnapshots.filter((s) => !ids.has(s.taskId)),
+  };
   return snapshotProject(next, task.projectId, today);
 }
 
@@ -331,8 +389,34 @@ export function createMilestone(
     name: name.trim(),
     date,
     createdAt: new Date().toISOString(),
+    doneAt: null,
   };
   return { state: { ...state, milestones: [...state.milestones, milestone] }, milestone };
+}
+
+/**
+ * Odškrtnutí milníku. Schválně nesahá na úkoly ani na otisky - milník je
+ * poznámka na ose, ne kus práce. Kdyby hýbal procenty, počítala by se stejná
+ * práce dvakrát: jednou v úkolu, podruhé v milníku, který ten úkol shrnuje.
+ */
+export function toggleMilestoneDone(state: MicroWinsState, id: string): MicroWinsState {
+  return {
+    ...state,
+    milestones: state.milestones.map((m) =>
+      m.id === id ? { ...m, doneAt: m.doneAt ? null : new Date().toISOString() } : m,
+    ),
+  };
+}
+
+export function updateMilestone(
+  state: MicroWinsState,
+  id: string,
+  patch: Partial<Pick<Milestone, "name" | "date">>,
+): MicroWinsState {
+  return {
+    ...state,
+    milestones: state.milestones.map((m) => (m.id === id ? { ...m, ...patch } : m)),
+  };
 }
 
 export function deleteMilestone(state: MicroWinsState, id: string): MicroWinsState {
@@ -343,13 +427,17 @@ export function deleteMilestone(state: MicroWinsState, id: string): MicroWinsSta
   };
 }
 
-/** Postup milníku = vážený průměr jeho úkolů. */
+/**
+ * Postup milníku = vážený průměr jeho úkolů. Jen informativní číslo do výpisu -
+ * procenta projektu z něj nevycházejí, milník se odškrtává ručně.
+ */
 export function milestonePercent(state: MicroWinsState, milestoneId: string): number {
   const tasks = state.tasks.filter((t) => t.milestoneId === milestoneId);
   if (tasks.length === 0) return 0;
-  const totalWeight = tasks.reduce((s, t) => s + (t.weight || 1), 0);
+  const totalWeight = tasks.reduce((s, t) => s + weightOf(t), 0);
+  if (totalWeight === 0) return 0;
   const sum = tasks.reduce(
-    (s, t) => s + (t.target > 0 ? Math.min(100, (t.current / t.target) * 100) : 0) * (t.weight || 1),
+    (s, t) => s + (t.target > 0 ? Math.min(100, (t.current / t.target) * 100) : 0) * weightOf(t),
     0,
   );
   return clampPercent(sum / totalWeight);

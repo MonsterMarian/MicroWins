@@ -4,13 +4,17 @@ import * as React from "react";
 import { usePathname, useRouter } from "next/navigation";
 
 /**
- * Tlačítko Zpět v detailech.
+ * Šipka zpět v detailech.
  *
- * `router.back()` je správná odpověď, dokud je kam se vracet - vrátí i stav
- * seznamu (rozkliknutá záložka, pozice ve výpisu). Když ale appka naběhla
- * rovnou na detailu (odkaz zvenčí, obnovený tab, studený start nativní appky),
- * v historii nic není a tlačítko by nedělalo nic. Proto se počítají přechody
- * uvnitř appky a bez nich se jde na náhradní adresu.
+ * Nevrací se v historii, ale **o úroveň výš ve stromu**: z podúkolu na úkol,
+ * z úkolu na projekt, z projektu na seznam. Stejně se chová strom microwinů
+ * a je to jediné chování, které jde předvídat - `router.back()` po delším
+ * proklikávání vracel tam, odkud člověk přišel, což u třetího kliknutí
+ * znamenalo skok do úplně jiné části appky.
+ *
+ * Historii přesto počítáme: když appka naběhla rovnou na detailu (odkaz
+ * zvenčí, obnovený tab, studený start nativní appky), nemá `push` na co
+ * navázat a je čistší cíl nahradit, aby v zásobníku nezůstala prázdná stopa.
  */
 let inAppNavigations = 0;
 
@@ -28,12 +32,13 @@ export function useTrackNavigation(): void {
   }, [pathname]);
 }
 
-export function useAppBack(): (fallback: string) => void {
+/** Vrátí funkci „jdi na tuhle nadřazenou obrazovku". */
+export function useGoUp(): (href: string) => void {
   const router = useRouter();
   return React.useCallback(
-    (fallback: string) => {
-      if (inAppNavigations > 0) router.back();
-      else router.replace(fallback);
+    (href: string) => {
+      if (inAppNavigations > 0) router.push(href);
+      else router.replace(href);
     },
     [router],
   );

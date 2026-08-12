@@ -18,6 +18,7 @@ export function Ring({
   value: number;
   label?: string;
   children?: React.ReactNode;
+  /** Největší průměr v pixelech; v užším sloupci se kolečko zmenší samo. */
   size?: number;
   stroke?: number;
   tone?: "progress" | "win";
@@ -29,9 +30,12 @@ export function Ring({
   const dash = (pct / 100) * circumference;
 
   return (
-    <div className={cn("flex flex-col items-center gap-2", className)}>
-      <div className="relative" style={{ width: size, height: size }}>
-        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden>
+    <div className={cn("flex min-w-0 flex-col items-center gap-2", className)}>
+      {/* Šířka se řídí sloupcem, `size` je jen strop. SVG se doškáluje samo
+          přes viewBox, takže tři kolečka vedle sebe se na telefonu vejdou
+          a nemusí se zalamovat do druhé řady. */}
+      <div className="relative w-full" style={{ maxWidth: size, aspectRatio: "1 / 1" }}>
+        <svg className="block h-full w-full" viewBox={`0 0 ${size} ${size}`} aria-hidden>
           <circle
             cx={size / 2}
             cy={size / 2}

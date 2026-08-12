@@ -13,9 +13,10 @@ import {
   isTaskDone,
   subtasksOf,
   taskPercent,
+  taskDeltaToday,
 } from "@/lib/projects";
 import type { Task } from "@/lib/types";
-import { cn, formatNumber, plural } from "@/lib/utils";
+import { cn, formatNumber, formatTenth, plural } from "@/lib/utils";
 
 /**
  * Řádek úkolu v seznamu. Schválně nic nepřepíná: dřív tu vlevo bylo
@@ -37,6 +38,7 @@ export function TaskRow({
   const done = isTaskDone(state, task);
   const children = subtasksOf(state, task.id);
   const overdue = task.dueDate !== null && task.dueDate < today && !done;
+  const deltaToday = taskDeltaToday(state, task, today);
   /* Cíl 1 bez podúkolů je jen "hotovo / nehotovo" - pruh ani "1 / 1" k tomu
      nic nedodají, takže zbyde samotný stav u ikony. */
   const binary = isBinaryTask(state, task);
@@ -88,6 +90,9 @@ export function TaskRow({
               </span>
             ) : null}
             {showProject ? <span>· {showProject}</span> : null}
+            {deltaToday > 0.05 ? (
+              <span className="text-progress font-medium">· +{formatTenth(deltaToday)} % dnes</span>
+            ) : null}
           </span>
         ) : null}
       </span>

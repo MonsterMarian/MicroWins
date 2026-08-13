@@ -1,74 +1,13 @@
-/**
- * Vygeneruje ikonu a splash screen pro Android z jednoho SVG.
- *
- * Proč skript a ne hotové PNG: assety se dají kdykoli přegenerovat ze zdroje,
- * takže se nerozejdou s paletou appky. Barvy odpovídají tokenům v globals.css
- * (--background a --win v tmavém režimu).
- *
- * Spuštění: node scripts/android-assets.mjs
- */
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
 
 const RES = path.join("android", "app", "src", "main", "res");
 
+// Tmavé pozadí odpovídající obrázku nebo defaultní
 const BG = "#09090B";
-const WIN = "#F5A33A";
-const INK = "#FAFAFA";
 
-/**
- * Tři stoupající sloupce, nejvyšší v barvě winu, nad ním šipka nahoru.
- * Drží se odděleně, aby to bylo čitelné i na 48 px v šuplíku aplikací.
- */
-function markSvg(size, inset = 0) {
-  const s = size;
-  const pad = s * inset;
-  const w = s - pad * 2;
-  const bar = w * 0.16;
-  const gap = w * 0.08;
-  const baseY = pad + w * 0.84;
-  const heights = [0.3, 0.44, 0.58];
-  const bars = heights
-    .map((h, i) => {
-      const x = pad + w * 0.15 + i * (bar + gap);
-      const height = w * h;
-      const last = i === 2;
-      return `<rect x="${x}" y="${baseY - height}" width="${bar}" height="${height}" rx="${bar * 0.3}" fill="${last ? WIN : INK}" opacity="${last ? 1 : 0.4}"/>`;
-    })
-    .join("");
-  const cx = pad + w * 0.71;
-  const cy = pad + w * 0.15;
-  const arm = w * 0.1;
-  const caret = `<path d="M ${cx - arm} ${cy + arm * 0.8} L ${cx} ${cy} L ${cx + arm} ${cy + arm * 0.8}" fill="none" stroke="${WIN}" stroke-width="${w * 0.085}" stroke-linecap="round" stroke-linejoin="round"/>`;
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${s}" height="${s}" viewBox="0 0 ${s} ${s}">${bars}${caret}</svg>`;
-}
-
-function iconSvg(size) {
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
-  <rect width="${size}" height="${size}" rx="${size * 0.22}" fill="${BG}"/>
-  ${markSvg(size, 0.06).replace(/<svg[^>]*>|<\/svg>/g, "")}
-</svg>`;
-}
-
-/** Adaptivní ikona: kresba musí sedět do vnitřních 66 % plochy. */
-function foregroundSvg(size) {
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
-  ${markSvg(size, 0.26).replace(/<svg[^>]*>|<\/svg>/g, "")}
-</svg>`;
-}
-
-function splashSvg(w, h) {
-  const mark = Math.round(Math.min(w, h) * 0.26);
-  const x = Math.round((w - mark) / 2);
-  const y = Math.round((h - mark) / 2);
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
-  <rect width="${w}" height="${h}" fill="${BG}"/>
-  <g transform="translate(${x} ${y})">${markSvg(mark, 0.02).replace(/<svg[^>]*>|<\/svg>/g, "")}</g>
-</svg>`;
-}
-
-const png = (svg) => sharp(Buffer.from(svg)).png().toBuffer();
+const SOURCE_IMAGE = "assets/icon_source.jpg";
 
 async function write(file, buffer) {
   await mkdir(path.dirname(file), { recursive: true });
@@ -85,28 +24,93 @@ const SPLASH = {
   xxxhdpi: [1280, 1920],
 };
 
-for (const [density, size] of Object.entries(LAUNCHER)) {
-  const icon = await png(iconSvg(size));
-  await write(path.join(RES, `mipmap-${density}`, "ic_launcher.png"), icon);
-  await write(path.join(RES, `mipmap-${density}`, "ic_launcher_round.png"), icon);
-  await write(
-    path.join(RES, `mipmap-${density}`, "ic_launcher_foreground.png"),
-    await png(foregroundSvg(FOREGROUND[density])),
-  );
+async function processImage(size, radius = 0) {
+    let img = sharp(SOURCE_IMAGE).resize(size, size, { fit: 'cover' });
+    
+    if (radius > 0) {
+        const roundedRect = Buffer.from(
+            `<svg><rect x="0" y="0" width="${size}" height="${size}" rx="${radius}" ry="${radius}"/></svg>`
+        );
+        img = img.composite([{ input: roundedRect, blend: 'dest-in' }]);
+    }
+    
+    return await img.png().toBuffer();
 }
 
-for (const [density, [w, h]] of Object.entries(SPLASH)) {
-  await write(path.join(RES, `drawable-port-${density}`, "splash.png"), await png(splashSvg(w, h)));
-  await write(path.join(RES, `drawable-land-${density}`, "splash.png"), await png(splashSvg(h, w)));
+async function processForeground(size) {
+    // Pro adaptive ikonu zmenšíme obrázek, aby seděl doprostřed a nebyl oříznut.
+    // Ořízneme ho na kruh a vložíme do průhledného plátna.
+    const innerSize = Math.round(size * 0.66);
+    let img = await sharp(SOURCE_IMAGE)
+        .resize(innerSize, innerSize, { fit: 'cover' })
+        .toBuffer();
+    
+    // uděláme z něj kruh
+    const circle = Buffer.from(`<svg><circle cx="${innerSize/2}" cy="${innerSize/2}" r="${innerSize/2}"/></svg>`);
+    img = await sharp(img).composite([{ input: circle, blend: 'dest-in' }]).png().toBuffer();
+    
+    return await sharp({
+        create: {
+            width: size,
+            height: size,
+            channels: 4,
+            background: { r: 0, g: 0, b: 0, alpha: 0 }
+        }
+    }).composite([{ input: img, gravity: 'center' }]).png().toBuffer();
 }
-await write(path.join(RES, "drawable", "splash.png"), await png(splashSvg(480, 800)));
 
-// Adaptivní ikona kreslí pozadí barvou, ne obrázkem - proto sem, ne do PNG.
-await write(
-  path.join(RES, "values", "ic_launcher_background.xml"),
-  Buffer.from(
-    `<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <color name="ic_launcher_background">${BG}</color>\n</resources>\n`,
-  ),
-);
+async function processSplash(w, h) {
+    // Splash: velké logo doprostřed tmavého plátna.
+    const mark = Math.round(Math.min(w, h) * 0.26);
+    let img = await sharp(SOURCE_IMAGE)
+        .resize(mark, mark, { fit: 'cover' })
+        .toBuffer();
+        
+    const roundedRect = Buffer.from(
+        `<svg><rect x="0" y="0" width="${mark}" height="${mark}" rx="${mark * 0.2}" ry="${mark * 0.2}"/></svg>`
+    );
+    img = await sharp(img).composite([{ input: roundedRect, blend: 'dest-in' }]).png().toBuffer();
+    
+    return await sharp({
+        create: {
+            width: w,
+            height: h,
+            channels: 4,
+            background: { r: 9, g: 9, b: 11, alpha: 1 } // #09090B
+        }
+    }).composite([{ input: img, gravity: 'center' }]).png().toBuffer();
+}
 
-console.log("Ikony a splash vygenerovány do", RES);
+async function generate() {
+    // Generate rounded icon for general assets
+    const roundedIcon = await processImage(1024, 225);
+    await write("assets/icon.png", roundedIcon);
+    await write("assets/splash.png", roundedIcon);
+
+    for (const [density, size] of Object.entries(LAUNCHER)) {
+      const icon = await processImage(size, size * 0.22);
+      const iconRound = await processImage(size, size * 0.5); // kruhová
+      await write(path.join(RES, `mipmap-${density}`, "ic_launcher.png"), icon);
+      await write(path.join(RES, `mipmap-${density}`, "ic_launcher_round.png"), iconRound);
+      
+      const fg = await processForeground(FOREGROUND[density]);
+      await write(path.join(RES, `mipmap-${density}`, "ic_launcher_foreground.png"), fg);
+    }
+
+    for (const [density, [w, h]] of Object.entries(SPLASH)) {
+      await write(path.join(RES, `drawable-port-${density}`, "splash.png"), await processSplash(w, h));
+      await write(path.join(RES, `drawable-land-${density}`, "splash.png"), await processSplash(h, w));
+    }
+    await write(path.join(RES, "drawable", "splash.png"), await processSplash(480, 800));
+
+    await write(
+      path.join(RES, "values", "ic_launcher_background.xml"),
+      Buffer.from(
+        `<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <color name="ic_launcher_background">${BG}</color>\n</resources>\n`,
+      ),
+    );
+
+    console.log("Ikony a splash vygenerovány z fotky.");
+}
+
+generate().catch(console.error);

@@ -10,6 +10,7 @@ import { SettingsDialog } from "@/components/settings-dialog";
 import { useStore } from "@/components/providers/store-provider";
 import { usePrefs } from "@/components/providers/use-prefs";
 import { useTrackNavigation } from "@/components/providers/use-app-back";
+import { useSwipeNav } from "@/components/providers/use-swipe-nav";
 import { applyAccent } from "@/lib/prefs";
 import { applyPendingUpdate, checkForUpdate, markBootSucceeded } from "@/lib/live-update";
 import { hideSplash, isNative, registerBackButton, syncStatusBar } from "@/lib/native";
@@ -94,6 +95,8 @@ function useNativeShell() {
   }, [router]);
 }
 
+const NAV_ROUTES = NAV.map((n) => n.href);
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { accent } = usePrefs();
@@ -102,6 +105,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   useNativeShell();
   useTrackNavigation();
+  /*
+   * Přejíždění mezi sekcemi platí jen na těch třech - v detailu projektu nebo
+   * úkolu by odvedlo od rozdělané práce a v úkolu si vodorovný tah bere
+   * posuvník hodnoty. `normalizePath` kvůli statickému exportu, ten na konec
+   * adresy přidává lomítko.
+   */
+  useSwipeNav(NAV_ROUTES, normalizePath(pathname));
   React.useEffect(() => setNative(isNative()), []);
   // Skript v hlavičce barvu nasadí před prvním paintem; tohle ji drží
   // v souladu i po přepnutí v Nastavení a po načtení zálohy.

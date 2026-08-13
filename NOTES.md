@@ -20,7 +20,7 @@ Aplikace **MicroWins** ve dvou částech:
 
 | Sekce | Route | Obsah |
 |---|---|---|
-| Projekty | `/` | záložky Přehled / ToDo / Projekty, filtry, řazení, hledání |
+| Projekty | `/` | záložky Přehled / ToDo / Projekty, filtry, řazení, hledání; mezi sekcemi se dá přejet prstem |
 | Detail projektu | `/projects/[id]` | %, delta dne, start–deadline, zbývá dní, tempo %/den, popis, úkoly, milníky, archiv |
 | Statistiky projektu | `/projects/[id]/stats` | prstence (Postup / Dny / Hotové úkoly), plošný graf, deník změn |
 | Detail úkolu | `/tasks/[id]` | %, `630 / 2 000`, posuvník, −/+ s krokem, nastavení, podúkoly (cíl 1 = jen zaškrtnout) |
@@ -60,6 +60,9 @@ Věci, které ze zadání jednoznačně nevyplývaly a musely se dořešit:
 | **ToDo je samostatný seznam, ne třetí pohled na projekty** | Kdo si chce odškrtnout, co má koupit, nemá kvůli tomu zakládat projekt s procenty a deadlinem. Položka umí čtyři věci - napsat, odškrtnout, přepsat, smazat - a nic víc: kdyby si žádala nastavení, byl by to úkol a ten už v appce je. |
 | **Odškrtnutá položka se maže sama po 6 h** | Hned by nešla vrátit omylem odškrtnutá věc a odpoledne by nebylo vidět, co za den odpadlo. Později by z toho byl druhý archiv - na to jsou projekty. Do té doby leží pod otevřenými, nejnovější první, takže postupně klesá a zmizí odspodu. |
 | **Indikátor času je vlasový pruh bez čísla** | Šedý, 2 px, přepočet po minutě. Číslo ani barva se schválně nekreslí: pruh nemá říkat, kolik zbývá, jen že se s tím něco děje. Kdo to nechce vidět, nevidí to. |
+| **Appka se otevírá na ToDo, když je co odškrtnout** | Bez `?tab=` v adrese rozhoduje seznam - něco otevřeného = ToDo, prázdno = Přehled. Rozhodne se **jednou při otevření** a dál se drží: kdyby se to počítalo při každém renderu, odškrtnutí poslední položky by pod rukama přehodilo záložku na Přehled právě ve chvíli, kdy si chce člověk prohlédnout, co dodělal. |
+| **Přejetí prstem mezi sekcemi** | Tři sekce vedle sebe (Projekty - Strom - Analýza), doleva dál, doprava zpět. Necyklí se: "swipe mě vrátil na začátek" je nepříjemné překvapení a člověk pak neví, kde v řadě stojí. V detailech neplatí - odvedlo by od rozdělané práce a v úkolu si vodorovný tah bere posuvník. |
+| **Gesto se pozná až po puštění** | Přejetí musí vyhrát nad scrolováním a to se dá rozhodnout jedině z celého tvaru pohybu: 64 px do strany, nejmíň 1,6× víc než nahoru/dolů, do 700 ms. Uvnitř vodorovného scrolleru (kalendář roku, cesta ve stromu, široká tabulka) patří gesto jemu - ale jen dokud tam je kam posouvat, doscrollovaná tabulka prst nepotřebuje. Myš ne: tahem myši se vybírá text. |
 
 ---
 

@@ -55,13 +55,25 @@ export function ProjectsHub() {
    * záložce nic neví. `replace` proto, aby přepínání záložek nezahltilo
    * historii a tlačítko Zpět vedlo rovnou z rozdělané práce ven.
    */
-  const tab: Tab = isTab(params.get("tab")) ? (params.get("tab") as Tab) : "overview";
   const setTab = (next: Tab) => router.replace(`/?tab=${next}`, { scroll: false });
+
+  /*
+   * Bez `?tab=` v adrese (studený start appky, klik na logo, spodní lišta)
+   * rozhoduje seznam: je-li co odškrtnout, otevře se ToDo, jinak Přehled.
+   *
+   * Spočítá se **jednou při otevření** a dál se drží. Kdyby se to přepočítávalo
+   * při každém renderu, odškrtnutí poslední položky by uživateli pod rukama
+   * přehodilo záložku na Přehled - přesně ve chvíli, kdy si chce prohlédnout,
+   * co dodělal.
+   */
+  const [openedOn] = React.useState<Tab>(() =>
+    countTodos(state.todos).open > 0 ? "todo" : "overview",
+  );
+  const tab: Tab = isTab(params.get("tab")) ? (params.get("tab") as Tab) : openedOn;
 
   /* Prázdná výzva k založení projektu platí jen tam, kde jsou projekty vidět.
      Na ToDo by zakryla seznam, se kterým projekty nemají nic společného. */
   const noProjects = state.projects.length === 0 && tab !== "todo";
-  const openTodos = countTodos(state.todos).open;
 
   return (
     <div className="flex flex-col gap-5">
@@ -92,18 +104,13 @@ export function ProjectsHub() {
             type="button"
             onClick={() => setTab(t.id)}
             className={cn(
-              "-mb-px flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm transition-colors",
+              "-mb-px border-b-2 px-3 py-2 text-sm transition-colors",
               tab === t.id
                 ? "border-foreground font-medium text-foreground"
                 : "border-transparent text-muted-foreground hover:text-foreground",
             )}
           >
             {t.label}
-            {/* Kolik zbývá, se hodí vědět i z jiné záložky - ale jen když něco
-                zbývá, jinak by nula visela na liště jako výtka. */}
-            {t.id === "todo" && openTodos > 0 ? (
-              <span className="tabular text-xs text-muted-foreground">{openTodos}</span>
-            ) : null}
           </button>
         ))}
       </div>

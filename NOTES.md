@@ -20,7 +20,7 @@ Aplikace **MicroWins** ve dvou částech:
 
 | Sekce | Route | Obsah |
 |---|---|---|
-| Projekty | `/` | záložky Přehled / Projekty / Úkoly / Dnes, filtry, řazení, hledání |
+| Projekty | `/` | záložky Přehled / ToDo / Projekty, filtry, řazení, hledání |
 | Detail projektu | `/projects/[id]` | %, delta dne, start–deadline, zbývá dní, tempo %/den, popis, úkoly, milníky, archiv |
 | Statistiky projektu | `/projects/[id]/stats` | prstence (Postup / Dny / Hotové úkoly), plošný graf, deník změn |
 | Detail úkolu | `/tasks/[id]` | %, `630 / 2 000`, posuvník, −/+ s krokem, nastavení, podúkoly (cíl 1 = jen zaškrtnout) |
@@ -56,6 +56,10 @@ Věci, které ze zadání jednoznačně nevyplývaly a musely se dořešit:
 | **Kalendář po celých rocích** | "Posledních 53 týdnů" začínalo uprostřed loňska a nešlo se podle toho zorientovat. Rok je pevná jednotka, mřížka se sama posune na dnešek. |
 | **Import po částech, ne všechno naráz** | Appka má dvě nezávislé poloviny (strom a projekty). Kdo si tahá projekty odjinud, nesmí tím smazat strom, co si vede měsíce. Proto se u zálohy vybírá rozsah a jestli se přidává nebo nahrazuje — a napřed se ukáže náhled se skutečnými počty "po načtení". |
 | **Ikona jako string s předponou** | Emoji se ukládá rovnou, kreslená ikona jako `lucide:Dumbbell`. Stará data zůstala platná a nic se nemigrovalo. Komponenty se importují jmenovitě, aby v balíku neskončilo všech 1500 ikon knihovny. |
+| **Ikonu má jen složka, ne win** | Winy poznává oko podle druhu (měrák / fajfka / hvězda) a vlastní ikona by ten rozdíl zakryla. Složka bez vybrané ikony zůstává kresleným `Folder`, takže strom bez jediné ikony vypadá jako dřív a nic se nemigrovalo. |
+| **ToDo je samostatný seznam, ne třetí pohled na projekty** | Kdo si chce odškrtnout, co má koupit, nemá kvůli tomu zakládat projekt s procenty a deadlinem. Položka umí čtyři věci - napsat, odškrtnout, přepsat, smazat - a nic víc: kdyby si žádala nastavení, byl by to úkol a ten už v appce je. |
+| **Odškrtnutá položka se maže sama po 6 h** | Hned by nešla vrátit omylem odškrtnutá věc a odpoledne by nebylo vidět, co za den odpadlo. Později by z toho byl druhý archiv - na to jsou projekty. Do té doby leží pod otevřenými, nejnovější první, takže postupně klesá a zmizí odspodu. |
+| **Indikátor času je vlasový pruh bez čísla** | Šedý, 2 px, přepočet po minutě. Číslo ani barva se schválně nekreslí: pruh nemá říkat, kolik zbývá, jen že se s tím něco děje. Kdo to nechce vidět, nevidí to. |
 
 ---
 
@@ -175,6 +179,7 @@ src/lib/
   projects.ts         výpočty postupu, řady pro graf, filtry
   project-actions.ts  CRUD projektů a úkolů (+ snapshotProject)
   stats.ts            série, kalendář roku, přehled winů
+  todos.ts            jednoduchý seznam (přidat, odškrtnout, mazání po 6 h)
   storage.ts          localStorage + export/import  ← jediné místo k výměně za DB
   backup.ts           záloha celé appky (stav + nastavení), sdílení souboru
   prefs.ts            nastavení zobrazení mimo hlavní stav

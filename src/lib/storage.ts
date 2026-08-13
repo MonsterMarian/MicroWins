@@ -1,4 +1,4 @@
-import { EMPTY_STATE, STATE_VERSION, type MicroWinsState, type Task } from "./types";
+import { EMPTY_STATE, STATE_VERSION, type MicroWinsState, type Task, type Todo } from "./types";
 
 export const STORAGE_KEY = "microwins:v1";
 
@@ -19,8 +19,10 @@ function normalizeTask(task: Task): Task {
   const target = whole(task.target, 1);
   const current = Math.min(whole(task.current, 0), target);
   const step = whole(task.step, 1);
-  // 0 je platná váha - takový úkol se do procent nepočítá.
-  const weight = whole(task.weight, 0);
+  /* 0 je platná váha - takový úkol se do procent nepočítá. Chybějící váha ale
+     znamená "běžný úkol": cizí nebo starý JSON bez `weight` by s nulou tiše
+     přestal hýbat procenty projektu. */
+  const weight = task.weight === undefined ? 1 : whole(task.weight, 0);
   if (
     target === task.target &&
     current === task.current &&
@@ -30,6 +32,27 @@ function normalizeTask(task: Task): Task {
     return task;
   }
   return { ...task, target, current, step, weight };
+}
+
+/**
+ * Položka ToDo z cizího JSONu. Text je jediné, co musí být - bez něj není co
+ * ukazovat. Chybějící `doneAt` znamená otevřenou položku, ne vypršelou.
+ */
+function normalizeTodos(raw: unknown[]): Todo[] {
+  const out: Todo[] = [];
+  raw.forEach((item, index) => {
+    if (!isRecord(item)) return;
+    const text = typeof item.text === "string" ? item.text.trim() : "";
+    if (!text) return;
+    out.push({
+      id: typeof item.id === "string" && item.id ? item.id : `tdo_${index}`,
+      text,
+      createdAt: typeof item.createdAt === "string" ? item.createdAt : new Date().toISOString(),
+      doneAt: typeof item.doneAt === "string" ? item.doneAt : null,
+      order: typeof item.order === "number" && Number.isFinite(item.order) ? item.order : index,
+    });
+  });
+  return out;
 }
 
 /** Tolerantní validace - poškozený nebo cizí JSON raději zahodíme, než abychom spadli. */
@@ -54,6 +77,8 @@ export function parseState(raw: string): MicroWinsState | null {
       milestones: arr("milestones").map((m) => (m.doneAt === undefined ? { ...m, doneAt: null } : m)),
       snapshots: arr("snapshots"),
       taskSnapshots: arr("taskSnapshots"),
+      // ToDo přišlo až v v5 - starší zálohy ho neznají a začnou s prázdným.
+      todos: normalizeTodos(Array.isArray(data.todos) ? data.todos : []),
     };
   } catch {
     return null;

@@ -4,14 +4,27 @@ import * as React from "react";
 import { CheckSquare, FolderPlus, Gauge, Star } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
+import { IconField } from "@/components/ui/icon-picker";
 import { Field, Input, Select, Textarea } from "@/components/ui/input";
 import { useStore } from "@/components/providers/store-provider";
 import { usePrefs } from "@/components/providers/use-prefs";
 import { useToast } from "@/components/providers/toast-provider";
 import { formatDate } from "@/lib/date";
 import { formatMetricLabel, hasPlaceholder, onceEntry } from "@/lib/domain";
+import { DEFAULT_FOLDER_ICON } from "@/lib/icons";
 import type { Aggregation, NodeKind, TreeNode } from "@/lib/types";
 import { cn } from "@/lib/utils";
+
+/** Rychlá volba u složky - zbytek katalogu je v okně s výběrem. */
+const QUICK_FOLDER_ICONS = [
+  DEFAULT_FOLDER_ICON,
+  "lucide:Briefcase",
+  "lucide:Dumbbell",
+  "lucide:BookOpen",
+  "lucide:Brain",
+  "lucide:Wallet",
+  "lucide:Home",
+];
 
 export interface NodeDialogState {
   /** Předvolený druh. Při zakládání ho jde v dialogu přepnout. */
@@ -40,6 +53,7 @@ export function NodeDialog({
   const { toast } = useToast();
   const [kind, setKind] = React.useState<NodeKind>("metric");
   const [name, setName] = React.useState("");
+  const [icon, setIcon] = React.useState(DEFAULT_FOLDER_ICON);
   const [unit, setUnit] = React.useState("");
   const [aggregation, setAggregation] = React.useState<Aggregation>("sum");
   const [date, setDate] = React.useState(today);
@@ -57,6 +71,7 @@ export function NodeDialog({
       request.node?.kind === "once" ? onceEntry(entriesRef.current, request.node.id) : undefined;
     setKind(request.node?.kind ?? request.kind);
     setName(request.node?.name ?? "");
+    setIcon(request.node?.icon ?? DEFAULT_FOLDER_ICON);
     setUnit(request.node?.unit ?? "");
     setAggregation(request.node?.aggregation ?? "sum");
     setDate(existing?.date ?? today);
@@ -78,6 +93,7 @@ export function NodeDialog({
     if (isEdit && request.node) {
       if (kind === "metric") updateNode(request.node.id, { name: trimmed, unit, aggregation });
       else if (kind === "once") updateOnce(request.node.id, { name: trimmed, date, note });
+      else if (kind === "category") updateNode(request.node.id, { name: trimmed, icon });
       else updateNode(request.node.id, { name: trimmed });
     } else if (kind === "metric") {
       addMetric(request.parentId, { name: trimmed, unit, aggregation });
@@ -91,13 +107,13 @@ export function NodeDialog({
         description: "Jednorázový win - zapíše se jednou a je hotový.",
       });
     } else {
-      addCategory(request.parentId, trimmed);
+      addCategory(request.parentId, trimmed, icon);
     }
     onOpenChange(false);
   };
 
   const TITLES: Record<NodeKind, [create: string, edit: string]> = {
-    category: ["Nová složka", "Přejmenovat složku"],
+    category: ["Nová složka", "Upravit složku"],
     metric: ["Nový číselný win", "Upravit číselný win"],
     check: ["Nové zaškrtnutí", "Upravit zaškrtnutí"],
     once: ["Nový jednorázový win", "Upravit jednorázový win"],
@@ -182,6 +198,14 @@ export function NodeDialog({
             autoComplete="off"
           />
         </Field>
+
+        {/* Ikonu má jen složka: winy poznává oko podle druhu (měrák, fajfka,
+            hvězda) a vlastní ikona by ten rozdíl zakryla. */}
+        {kind === "category" ? (
+          <Field label="Ikona">
+            <IconField value={icon} onChange={setIcon} quick={QUICK_FOLDER_ICONS} />
+          </Field>
+        ) : null}
 
         {isEdit && kind === "category" ? <PushExemptToggle node={request.node!} /> : null}
 

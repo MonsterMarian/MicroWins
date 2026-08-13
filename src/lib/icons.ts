@@ -640,6 +640,12 @@ export const LUCIDE_GROUPS: IconGroup[] = [
 
 export const DEFAULT_PROJECT_ICON = "📁";
 export const DEFAULT_TASK_ICON = "📝";
+/**
+ * Výchozí ikona složky ve stromu winů. Kreslená, ne emoji - složka bez vybrané
+ * ikony se odjakživa kreslila `Folder` z lucide a starší data se nemigrovala,
+ * takže musí zůstat u téhož znaku.
+ */
+export const DEFAULT_FOLDER_ICON = lucideRef("Folder");
 
 /** Všechny položky jednoho katalogu na plocho - pro hledání. */
 export function flattenGroups(groups: IconGroup[]): IconEntry[] {

@@ -10,6 +10,7 @@ import { mergeState, type ImportMode, type ImportScope } from "@/lib/import";
 import { getPrefs } from "@/lib/prefs";
 import { drawPushWin, settlePushWins } from "@/lib/pushwin";
 import { loadState, saveState } from "@/lib/storage";
+import * as todoActions from "@/lib/todos";
 import {
   EMPTY_STATE,
   type ISODate,
@@ -18,6 +19,7 @@ import {
   type Project,
   type PushWin,
   type Task,
+  type Todo,
   type TreeNode,
 } from "@/lib/types";
 
@@ -26,13 +28,13 @@ export interface StoreApi {
   /** Aktuální den uživatele - obnovuje se po půlnoci i po návratu do okna. */
   today: ISODate;
   hydrated: boolean;
-  addCategory: (parentId: string | null, name: string) => TreeNode;
+  addCategory: (parentId: string | null, name: string, icon?: string) => TreeNode;
   addMetric: (parentId: string | null, input: actions.MetricInput) => TreeNode;
   addCheck: (parentId: string | null, name: string) => TreeNode;
   addOnce: (parentId: string | null, input: actions.OnceInput) => actions.AddOnceResult;
   updateNode: (
     id: string,
-    patch: Partial<Pick<TreeNode, "name" | "unit" | "aggregation">>,
+    patch: Partial<Pick<TreeNode, "name" | "icon" | "unit" | "aggregation">>,
   ) => void;
   updateOnce: (id: string, patch: actions.OncePatch) => void;
   /** Přesune uzel s celým podstromem pod jinou složku; null = kořen. */
@@ -63,6 +65,14 @@ export interface StoreApi {
   moveTask: (id: string, direction: -1 | 1) => void;
   /** Nové pořadí sourozenců po přetažení. */
   reorderTasks: (ids: string[]) => void;
+
+  /** Jednoduchý seznam. Vrací null, když text po očištění nic neobsahuje. */
+  addTodo: (text: string) => Todo | null;
+  renameTodo: (id: string, text: string) => void;
+  /** Odškrtne (nebo vrátí zpět). Odškrtnutá položka se za 6 h smaže sama. */
+  toggleTodo: (id: string) => void;
+  deleteTodo: (id: string) => void;
+  reorderTodos: (ids: string[]) => void;
 
   createMilestone: (projectId: string, name: string, date: ISODate | null) => Milestone;
   updateMilestone: (id: string, patch: Partial<Pick<Milestone, "name" | "date">>) => void;
@@ -105,7 +115,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     // Testovací data z adresy `?seed` - jen ve vývoji, viz lib/dev-seed.ts.
     // Výzvy se dopočítají hned při startu: appka mohla být týden zavřená
     // a zpětně doplněné záznamy mohly rozdělanou výzvu naplnit.
-    const loaded = settlePushWins(applyDevSeed(loadState()), todayISO());
+    // Appka mohla být zavřená přes noc - odškrtnuté položky ToDo, kterým
+    // mezitím vypršelo, musí být pryč ještě před prvním vykreslením.
+    const loaded = todoActions.purgeTodos(settlePushWins(applyDevSeed(loadState()), todayISO()));
     ref.current = loaded;
     setState(loaded);
     setToday(todayISO());
@@ -116,9 +128,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (hydrated) saveState(state);
   }, [state, hydrated]);
 
-  // Přechod přes půlnoc: co bylo "dnes", je najednou včerejšek.
+  /*
+   * Přechod přes půlnoc: co bylo "dnes", je najednou včerejšek. Na stejném
+   * tiku visí i mazání dojetých ToDo - `purgeTodos` vrací tentýž stav, když
+   * není co mazat, takže se z toho nestane překreslení každou minutu.
+   */
   React.useEffect(() => {
-    const tick = () => setToday(todayISO());
+    const tick = () => {
+      setToday(todayISO());
+      const purged = todoActions.purgeTodos(ref.current);
+      if (purged !== ref.current) commit(purged);
+    };
     const id = window.setInterval(tick, 60_000);
     window.addEventListener("focus", tick);
     document.addEventListener("visibilitychange", tick);
@@ -127,15 +147,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       window.removeEventListener("focus", tick);
       document.removeEventListener("visibilitychange", tick);
     };
-  }, []);
+  }, [commit]);
 
   const api = React.useMemo<StoreApi>(
     () => ({
       state,
       today,
       hydrated,
-      addCategory: (parentId, name) => {
-        const res = actions.addCategory(ref.current, parentId, name);
+      addCategory: (parentId, name, icon) => {
+        const res = actions.addCategory(ref.current, parentId, name, icon);
         commit(res.state);
         return res.node;
       },
@@ -211,6 +231,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       deleteTask: (id) => commit(projectActions.deleteTask(ref.current, id, todayISO())),
       moveTask: (id, direction) => commit(projectActions.moveTask(ref.current, id, direction)),
       reorderTasks: (ids) => commit(projectActions.reorderTasks(ref.current, ids)),
+
+      addTodo: (text) => {
+        const res = todoActions.addTodo(ref.current, text);
+        if (res.todo) commit(res.state);
+        return res.todo;
+      },
+      renameTodo: (id, text) => commit(todoActions.renameTodo(ref.current, id, text)),
+      toggleTodo: (id) => commit(todoActions.toggleTodo(ref.current, id)),
+      deleteTodo: (id) => commit(todoActions.deleteTodo(ref.current, id)),
+      reorderTodos: (ids) => commit(todoActions.reorderTodos(ref.current, ids)),
 
       createMilestone: (projectId, name, date) => {
         const res = projectActions.createMilestone(ref.current, projectId, name, date);

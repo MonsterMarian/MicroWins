@@ -22,6 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
+import { EntityIcon } from "@/components/ui/icon-picker";
 import { Field, Select } from "@/components/ui/input";
 import { useStore } from "@/components/providers/store-provider";
 import { useToast } from "@/components/providers/toast-provider";
@@ -291,7 +292,7 @@ function FolderRow({
           onClick={() => onOpen(node.id)}
           className="flex min-w-0 flex-1 items-center gap-2 rounded-md py-2 pl-2 text-left"
         >
-          <Folder className="size-4 shrink-0 text-muted-foreground" />
+          <FolderIcon node={node} />
           {/* Na telefonu jde popis pod název - na jeden řádek se vedle tlačítek
               vejde tak sedm znaků a z názvu složky nezbude nic čitelného. */}
           <span className="flex min-w-0 flex-1 flex-col gap-0.5 sm:flex-row sm:items-center sm:gap-2">
@@ -315,7 +316,7 @@ function FolderRow({
             <Settings2 />
           </IconAction>
           <IconAction
-            label="Přejmenovat"
+            label="Upravit"
             onClick={() => onNodeRequest({ kind: node.kind, parentId: node.parentId, node })}
           >
             <Pencil />
@@ -444,6 +445,18 @@ function WinRow({
       ) : null}
     </li>
   );
+}
+
+/**
+ * Ikona složky. Vlastní ikona se kreslí naplno, protože ji uživatel vybral
+ * proto, aby šla poznat; složka bez ikony zůstává tlumeným `Folder` jako dřív,
+ * takže se strom bez jediné vybrané ikony nezmění.
+ */
+function FolderIcon({ node }: { node: TreeNode }) {
+  if (!node.icon) return <Folder className="size-4 shrink-0 text-muted-foreground" />;
+  // `text-base` je kvůli emoji: to nemá vlastní velikost jako kreslená ikona
+  // a v tenhle text-sm kontextu by vyšlo o dva pixely menší než sousedi.
+  return <EntityIcon icon={node.icon} size="sm" className="shrink-0 text-base leading-none" />;
 }
 
 /* Stejná velikost jako složková ikona - jinak by se sloupec s ikonami mezi

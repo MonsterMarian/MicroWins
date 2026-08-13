@@ -29,12 +29,15 @@ export function addCategory(
   state: MicroWinsState,
   parentId: string | null,
   name: string,
+  /** Nevyplněno = kreslená složka, stejně jako u dat z doby před ikonami. */
+  icon?: string,
 ): { state: MicroWinsState; node: TreeNode } {
   const node: TreeNode = {
     id: createId("cat"),
     parentId,
     kind: "category",
     name: name.trim(),
+    icon: icon?.trim() || undefined,
     createdAt: new Date().toISOString(),
   };
   return { state: { ...state, nodes: [...state.nodes, node] }, node };
@@ -137,7 +140,7 @@ export function addOnce(
 export function updateNode(
   state: MicroWinsState,
   id: string,
-  patch: Partial<Pick<TreeNode, "name" | "unit" | "aggregation">>,
+  patch: Partial<Pick<TreeNode, "name" | "icon" | "unit" | "aggregation">>,
   today: ISODate = todayISO(),
 ): MicroWinsState {
   const next: MicroWinsState = {
@@ -148,6 +151,8 @@ export function updateNode(
             ...n,
             ...patch,
             name: patch.name !== undefined ? patch.name.trim() : n.name,
+            // Prázdná ikona neznamená "nech starou", ale "vrať kreslenou složku".
+            icon: patch.icon !== undefined ? patch.icon.trim() || undefined : n.icon,
             unit: patch.unit !== undefined ? patch.unit.trim() || undefined : n.unit,
           }
         : n,

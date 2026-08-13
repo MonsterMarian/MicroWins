@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { addCategory, addCheck, addEntry, addMetric } from "./actions";
 import { countState, hasScope, mergeState } from "./import";
 import { createProject, createTask } from "./project-actions";
+import { addTodo, toggleTodo } from "./todos";
 import { EMPTY_STATE, type MicroWinsState } from "./types";
 
 const TODAY = "2026-08-10";
@@ -97,6 +98,48 @@ describe("import jen projektů", () => {
   it("pořadí přidaných projektů navazuje, nepřekrývá se", () => {
     const merged = mergeState(current, incoming, "projects", "add");
     expect(merged.projects.map((p) => p.order)).toEqual([0, 1]);
+  });
+});
+
+describe("ToDo v záloze", () => {
+  const mine = addTodo(stateWith({ tree: "Můj strom", project: "Můj projekt" }), "moje").state;
+  const theirs = addTodo(stateWith({ tree: "Cizí strom", project: "Cizí projekt" }), "cizí").state;
+
+  it("jede s projektovou polovinou, ne se stromem", () => {
+    expect(mergeState(mine, theirs, "tree", "add").todos).toBe(mine.todos);
+    expect(mergeState(mine, theirs, "projects", "add").todos.map((t) => t.text)).toEqual([
+      "moje",
+      "cizí",
+    ]);
+  });
+
+  it("nahrazením zbude jen seznam ze zálohy", () => {
+    expect(mergeState(mine, theirs, "projects", "replace").todos.map((t) => t.text)).toEqual([
+      "cizí",
+    ]);
+  });
+
+  it("přidání přerazí id a posadí pořadí za stávající položky", () => {
+    const merged = mergeState(mine, mine, "projects", "add");
+
+    expect(new Set(merged.todos.map((t) => t.id)).size).toBe(2);
+    expect(merged.todos.map((t) => t.order)).toEqual([0, 1]);
+  });
+
+  it("záloha se samotným seznamem se pozná jako projektová", () => {
+    const onlyTodos = addTodo(EMPTY_STATE, "koupit mléko").state;
+    const counts = countState(onlyTodos);
+
+    expect(counts.todos).toBe(1);
+    expect(hasScope(counts, "projects")).toBe(true);
+    expect(hasScope(counts, "tree")).toBe(false);
+  });
+
+  it("odškrtnuté položky se do počtů neberou - mizí samy", () => {
+    const base = addTodo(EMPTY_STATE, "hotová").state;
+    const done = toggleTodo(base, base.todos[0].id);
+
+    expect(countState(done).todos).toBe(0);
   });
 });
 

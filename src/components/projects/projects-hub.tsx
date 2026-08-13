@@ -11,6 +11,8 @@ import { useStore } from "@/components/providers/store-provider";
 import { Overview } from "./overviews";
 import { ProjectDialog } from "./project-dialog";
 import { ProjectRow } from "./project-row";
+import { TodoPanel } from "./todo-panel";
+import { countTodos } from "@/lib/todos";
 import {
   filterProjects,
   sortProjects,
@@ -22,14 +24,18 @@ import {
 import { cn } from "@/lib/utils";
 
 /*
- * Záložky jsou dvě. „Úkoly" a „Dnes" ukazovaly stejná data potřetí a počtvrté
- * - úkoly jsou v projektu, dnešek v přehledu. Čtyři záložky na telefonu jen
- * schovávaly to, co člověk hledá.
+ * Tři záložky. „Úkoly" a „Dnes" ukazovaly stejná data potřetí a počtvrté
+ * - úkoly jsou v projektu, dnešek v přehledu - a zmizely.
+ *
+ * ToDo je mezi Přehledem a Projekty schválně: je to obyčejný seznam na dnešek,
+ * ne třetí pohled na projekty. Kdo si chce jen odškrtnout, co má koupit, nemá
+ * kvůli tomu zakládat projekt s procenty a deadlinem.
  */
-type Tab = "overview" | "projects";
+type Tab = "overview" | "todo" | "projects";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "overview", label: "Přehled" },
+  { id: "todo", label: "ToDo" },
   { id: "projects", label: "Projekty" },
 ];
 
@@ -52,20 +58,31 @@ export function ProjectsHub() {
   const tab: Tab = isTab(params.get("tab")) ? (params.get("tab") as Tab) : "overview";
   const setTab = (next: Tab) => router.replace(`/?tab=${next}`, { scroll: false });
 
-  const empty = state.projects.length === 0;
+  /* Prázdná výzva k založení projektu platí jen tam, kde jsou projekty vidět.
+     Na ToDo by zakryla seznam, se kterým projekty nemají nic společného. */
+  const noProjects = state.projects.length === 0 && tab !== "todo";
+  const openTodos = countTodos(state.todos).open;
 
   return (
     <div className="flex flex-col gap-5">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">Projekty</h1>
+          <h1 className="text-xl font-semibold tracking-tight">
+            {tab === "todo" ? "ToDo" : "Projekty"}
+          </h1>
           <p className="text-sm text-muted-foreground">
-            Velké cíle rozsekané na měřitelné úkoly a denní postup.
+            {tab === "todo"
+              ? "Krátký seznam na dnešek. Odškrtnuté zmizí samo."
+              : "Velké cíle rozsekané na měřitelné úkoly a denní postup."}
           </p>
         </div>
-        <Button onClick={() => setDialogOpen(true)}>
-          <Plus /> Nový projekt
-        </Button>
+        {/* Na ToDo tlačítko nepatří: nová položka se píše rovnou do řádku
+            nad seznamem a druhá cesta k témuž by jen pletla. */}
+        {tab === "todo" ? null : (
+          <Button onClick={() => setDialogOpen(true)}>
+            <Plus /> Nový projekt
+          </Button>
+        )}
       </header>
 
       <div className="flex gap-1 border-b">
@@ -75,30 +92,42 @@ export function ProjectsHub() {
             type="button"
             onClick={() => setTab(t.id)}
             className={cn(
-              "-mb-px border-b-2 px-3 py-2 text-sm transition-colors",
+              "-mb-px flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm transition-colors",
               tab === t.id
                 ? "border-foreground font-medium text-foreground"
                 : "border-transparent text-muted-foreground hover:text-foreground",
             )}
           >
             {t.label}
+            {/* Kolik zbývá, se hodí vědět i z jiné záložky - ale jen když něco
+                zbývá, jinak by nula visela na liště jako výtka. */}
+            {t.id === "todo" && openTodos > 0 ? (
+              <span className="tabular text-xs text-muted-foreground">{openTodos}</span>
+            ) : null}
           </button>
         ))}
       </div>
 
-      {empty ? (
+      {noProjects ? (
         <Card>
           <CardContent className="flex flex-col items-center gap-3 py-10 text-center">
             <p className="text-sm font-medium">Zatím žádný projekt</p>
             <p className="max-w-sm text-sm text-muted-foreground">
               Projekt drží procenta, deadline a úkoly. Postup se zaznamenává den po dni, takže
-              vznikne graf i deník změn.
+              vznikne graf i deník změn. Na jednorázové věci je vedle ToDo.
             </p>
-            <Button size="sm" onClick={() => setDialogOpen(true)}>
-              <Plus /> Nový projekt
-            </Button>
+            <div className="flex flex-wrap justify-center gap-2">
+              <Button size="sm" onClick={() => setDialogOpen(true)}>
+                <Plus /> Nový projekt
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setTab("todo")}>
+                Otevřít ToDo
+              </Button>
+            </div>
           </CardContent>
         </Card>
+      ) : tab === "todo" ? (
+        <TodoPanel />
       ) : tab === "overview" ? (
         <Overview onNewProject={() => setDialogOpen(true)} />
       ) : (

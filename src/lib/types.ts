@@ -44,6 +44,11 @@ export interface TreeNode {
    * Check a once: prostý text winu ("Ranní protažení").
    */
   name: string;
+  /**
+   * Ikona složky - emoji nebo `lucide:Jméno`, stejný zápis jako u projektů.
+   * Nevyplněno = kreslená složka, takže starší data vypadají jako dřív.
+   */
+  icon?: string;
   /** Jen pro metriku - jednotka do popisků, např. "H" nebo "km". */
   unit?: string;
   /** Jen pro metriku. */
@@ -212,6 +217,30 @@ export interface TaskSnapshot {
   percent: number;
 }
 
+// --- ToDo -------------------------------------------------------------------
+
+/**
+ * Obyčejný seznam na dnešek. Schválně nemá nic z projektů - žádná procenta,
+ * cíle, jednotky ani váhy. Napsat, odškrtnout, zapomenout: kdyby si položka
+ * žádala nastavení, byl by to úkol a ten už v appce je.
+ *
+ * Odškrtnutá položka se **sama smaže** za `TODO_TTL_MS`. Do té doby zůstane
+ * dole pod otevřenými, aby se šlo přesvědčit, že se to opravdu stalo, a šla
+ * vrátit omylem odškrtnutá věc.
+ */
+export interface Todo {
+  id: string;
+  text: string;
+  createdAt: string;
+  /** Čas odškrtnutí (ISO); null = otevřená položka. Od něj běží mazání. */
+  doneAt: string | null;
+  /** Ruční pořadí mezi otevřenými položkami. */
+  order: number;
+}
+
+/** Jak dlouho odškrtnutá položka zůstane, než zmizí. */
+export const TODO_TTL_MS = 6 * 60 * 60 * 1000;
+
 export interface MicroWinsState {
   version: number;
   nodes: TreeNode[];
@@ -223,9 +252,10 @@ export interface MicroWinsState {
   milestones: Milestone[];
   snapshots: Snapshot[];
   taskSnapshots: TaskSnapshot[];
+  todos: Todo[];
 }
 
-export const STATE_VERSION = 4;
+export const STATE_VERSION = 5;
 
 export const EMPTY_STATE: MicroWinsState = {
   version: STATE_VERSION,
@@ -238,4 +268,5 @@ export const EMPTY_STATE: MicroWinsState = {
   milestones: [],
   snapshots: [],
   taskSnapshots: [],
+  todos: [],
 };

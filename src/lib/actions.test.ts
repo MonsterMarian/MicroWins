@@ -10,12 +10,14 @@ import {
   moveNode,
   moveTargets,
   toggleCheck,
+  updateNode,
   updateOnce,
 } from "./actions";
 import {
   breadcrumb,
   childrenOf,
   formatMetricLabel,
+  nodeById,
   recordOf,
   subtreeIds,
   summarizeFlag,
@@ -348,6 +350,39 @@ describe("pořadí ve složce", () => {
       "check",
       "once",
     ]);
+  });
+});
+
+describe("ikona složky", () => {
+  it("založí se s vybranou ikonou", () => {
+    const cat = addCategory(EMPTY_STATE, null, "Fitness", "lucide:Dumbbell");
+
+    expect(cat.node.icon).toBe("lucide:Dumbbell");
+  });
+
+  it("bez ikony zůstane nevyplněná, ne prázdný string", () => {
+    // Starší data ikonu neznají a nesmí se migrovat - `undefined` je signál
+    // "kresli složku", zatímco "" by se do zálohy uložilo jako ikona.
+    expect(addCategory(EMPTY_STATE, null, "Business").node.icon).toBeUndefined();
+    expect(addCategory(EMPTY_STATE, null, "Business", "  ").node.icon).toBeUndefined();
+  });
+
+  it("dá se přepsat i vrátit na výchozí složku", () => {
+    const cat = addCategory(EMPTY_STATE, null, "Business", "💼");
+
+    const changed = updateNode(cat.state, cat.node.id, { icon: "lucide:Rocket" }, TODAY);
+    expect(nodeById(changed.nodes, cat.node.id)?.icon).toBe("lucide:Rocket");
+
+    const cleared = updateNode(changed, cat.node.id, { icon: "" }, TODAY);
+    expect(nodeById(cleared.nodes, cat.node.id)?.icon).toBeUndefined();
+  });
+
+  it("přejmenování ikonu nesundá", () => {
+    const cat = addCategory(EMPTY_STATE, null, "Business", "💼");
+    const renamed = updateNode(cat.state, cat.node.id, { name: "Podnikání" }, TODAY);
+
+    expect(nodeById(renamed.nodes, cat.node.id)?.name).toBe("Podnikání");
+    expect(nodeById(renamed.nodes, cat.node.id)?.icon).toBe("💼");
   });
 });
 

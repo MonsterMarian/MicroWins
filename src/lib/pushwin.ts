@@ -188,11 +188,21 @@ export interface Candidate {
   text: string;
 }
 
-/** Denní počty microwinů za posledních `days` dní (jen dny, kdy něco padlo). */
-function dailyCounts(state: MicroWinsState, days: number, today: ISODate): number[] {
+/**
+ * Denní počty microwinů za posledních `days` dní (jen dny, kdy něco padlo).
+ *
+ * Bere jen microwiny, které se do výzvy smí počítat. Kdyby se laťka stavěla
+ * i z odložených složek, vyšel by cíl z práce, kterou pak `windowMicrowins`
+ * odfiltruje - výzva "6 microwinů za den" by šla splnit jen v pěti složkách.
+ */
+function dailyCounts(
+  microwins: Microwin[],
+  days: number,
+  today: ISODate,
+): number[] {
   const from = addDays(today, -days);
   const byDate = new Map<ISODate, number>();
-  for (const m of state.microwins) {
+  for (const m of microwins) {
     if (m.date < from || m.date > today) continue;
     byDate.set(m.date, (byDate.get(m.date) ?? 0) + 1);
   }
@@ -224,9 +234,9 @@ function weeklySums(state: MicroWinsState, nodeId: string): number[] {
 }
 
 /** Kolik různých složek mělo microwin v jednotlivých týdnech. */
-function weeklyBreadth(state: MicroWinsState): number[] {
+function weeklyBreadth(state: MicroWinsState, microwins: Microwin[]): number[] {
   const byWeek = new Map<ISODate, Set<string>>();
-  for (const m of state.microwins) {
+  for (const m of microwins) {
     const node = nodeById(state.nodes, m.metricId);
     if (!node) continue;
     const folder = node.parentId ?? m.metricId;
@@ -268,7 +278,7 @@ export function candidates(
   const liveMicrowins = state.microwins.filter((m) => allowedIds.has(m.metricId));
 
   // 1. Nádech - X microwinů v jednom dni.
-  const counts = dailyCounts(state, 60, today);
+  const counts = dailyCounts(liveMicrowins, 60, today);
   if (counts.length >= 3) {
     const target = Math.max(2, ladder(median(counts), Math.max(...counts), difficulty));
     out.push({
@@ -324,7 +334,7 @@ export function candidates(
   }
 
   // 5. Šířka - microwiny v X různých složkách.
-  const breadth = weeklyBreadth(state);
+  const breadth = weeklyBreadth(state, liveMicrowins);
   const folders = new Set(allowed.filter((n) => n.kind === "category").map((n) => n.id));
   if (breadth.length >= 3 && folders.size >= 2) {
     const target = Math.min(

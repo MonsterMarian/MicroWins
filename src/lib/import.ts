@@ -1,4 +1,4 @@
-import type { MicroWinsState, Project, Snapshot, Task, TaskSnapshot, TreeNode } from "./types";
+import type { MicroWinsState, Project, Snapshot, Task, TaskSnapshot, Todo, TreeNode } from "./types";
 import { createId } from "./utils";
 
 /**
@@ -30,6 +30,8 @@ export interface StateCounts {
   projects: number;
   tasks: number;
   milestones: number;
+  /** Otevřené položky ToDo; odškrtnuté se do zálohy počítat nemají, mizí samy. */
+  todos: number;
 }
 
 export function countState(state: MicroWinsState): StateCounts {
@@ -41,13 +43,16 @@ export function countState(state: MicroWinsState): StateCounts {
     projects: state.projects.length,
     tasks: state.tasks.length,
     milestones: state.milestones.length,
+    todos: state.todos.filter((t) => t.doneAt === null).length,
   };
 }
 
 /** Záloha nese aspoň jednu z polovin - jinak není co načítat. */
 export function hasScope(counts: StateCounts, scope: ImportScope): boolean {
   const tree = counts.folders + counts.wins > 0;
-  const projects = counts.projects > 0;
+  // ToDo patří k projektové polovině: záloha se samotným seznamem je pořád
+  // něco, co má smysl načíst.
+  const projects = counts.projects + counts.todos > 0;
   if (scope === "tree") return tree;
   if (scope === "projects") return projects;
   return tree || projects;
@@ -199,6 +204,16 @@ export function mergeState(
   if (takeProjects) {
     const offset = fresh ? next.projects.length : 0;
     const part = projectPart(incoming, fresh, offset);
+    // ToDo na nic neodkazuje, takže se jen přerazí id a pořadí posadí za
+    // stávající položky - jinak by se dva seznamy prolnuly.
+    const todoOffset = fresh
+      ? next.todos.reduce((max, t) => Math.max(max, t.order + 1), 0)
+      : 0;
+    const todos: Todo[] = incoming.todos.map((t, i) => ({
+      ...t,
+      id: fresh ? createId("imp") : t.id,
+      order: todoOffset + i,
+    }));
     next = fresh
       ? {
           ...next,
@@ -207,6 +222,7 @@ export function mergeState(
           milestones: [...next.milestones, ...part.milestones],
           snapshots: dedupeSnapshots([...next.snapshots, ...part.snapshots]),
           taskSnapshots: dedupeTaskSnapshots([...next.taskSnapshots, ...part.taskSnapshots]),
+          todos: [...next.todos, ...todos],
         }
       : {
           ...next,
@@ -215,6 +231,7 @@ export function mergeState(
           milestones: part.milestones,
           snapshots: dedupeSnapshots(part.snapshots),
           taskSnapshots: dedupeTaskSnapshots(part.taskSnapshots),
+          todos,
         };
   }
 

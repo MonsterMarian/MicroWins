@@ -99,7 +99,7 @@ const NAV_ROUTES = NAV.map((n) => n.href);
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { accent } = usePrefs();
+  const { accent, headerLogo } = usePrefs();
   const [settingsOpen, setSettingsOpen] = React.useState(false);
   const [native, setNative] = React.useState(false);
 
@@ -122,6 +122,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <header className="mw-safe-top mw-safe-x sticky top-0 z-40 border-b bg-background/85 backdrop-blur">
         <div className="mx-auto flex h-14 w-full max-w-4xl items-center gap-2 px-4">
           <Link href="/" className="mr-2 flex items-center gap-2 font-semibold tracking-tight">
+            {headerLogo ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src="/logo-new.jpg" alt="" className="size-7 rounded-lg object-cover" />
+            ) : null}
             MicroWins
           </Link>
 

@@ -54,6 +54,8 @@ export interface Prefs {
   accent: Accent;
   overview: Overview;
   doneStyle: DoneStyle;
+  /** Nové logo z fotky v hlavičce místo samotného textu. */
+  headerLogo: boolean;
   /** PushWiny zapnuté. Odemykají se až po 50 microwinech, viz `pushwin.ts`. */
   pushWins: boolean;
   /** Šance jednotlivých obtížností při losování; poměr, ne procenta. */
@@ -64,6 +66,7 @@ export const DEFAULT_PREFS: Prefs = {
   accent: "green",
   overview: "classic",
   doneStyle: "card",
+  headerLogo: false,
   pushWins: false,
   pushOdds: DEFAULT_ODDS,
 };
@@ -108,6 +111,7 @@ export function parsePrefs(raw: unknown): Prefs {
     accent: isAccent(record.accent) ? record.accent : DEFAULT_PREFS.accent,
     overview: isOverview(record.overview) ? record.overview : DEFAULT_PREFS.overview,
     doneStyle: isDoneStyle(record.doneStyle) ? record.doneStyle : DEFAULT_PREFS.doneStyle,
+    headerLogo: record.headerLogo === true,
     pushWins: record.pushWins === true,
     pushOdds: parseOdds(record.pushOdds),
   };

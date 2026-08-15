@@ -138,6 +138,7 @@ export function SettingsDialog({
       <div className="flex flex-col gap-5">
         <Section title="Vzhled">
           <ThemeChoice />
+          <HeaderLogoChoice />
         </Section>
 
         <Section title="Barva postupu" hint="Jantar u microwinů zůstává v obou případech.">
@@ -797,6 +798,36 @@ function DoneStyleChoice() {
         );
       })}
     </div>
+  );
+}
+
+/** Logo z fotky v hlavičce - zapnuté/vypnuté, ať jde porovnat se současným. */
+function HeaderLogoChoice() {
+  const { headerLogo } = usePrefs();
+
+  return (
+    <button
+      type="button"
+      onClick={() => setPrefs({ headerLogo: !headerLogo })}
+      aria-pressed={headerLogo}
+      className={cn(
+        "flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors",
+        headerLogo ? "border-foreground/40 bg-accent" : "hover:bg-accent/50",
+      )}
+    >
+      <span className="min-w-0">
+        <span className="block text-sm font-medium">Logo v hlavičce</span>
+        <span className="block text-xs text-muted-foreground">
+          Nová ikonka vedle názvu; ikonu appky mění vždy.
+        </span>
+      </span>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/logo-new.jpg"
+        alt=""
+        className={cn("size-7 shrink-0 rounded-lg object-cover", !headerLogo && "opacity-40")}
+      />
+    </button>
   );
 }
 

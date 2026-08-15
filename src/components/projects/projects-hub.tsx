@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Plus, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -33,6 +33,8 @@ import { cn } from "@/lib/utils";
  */
 type Tab = "overview" | "todo" | "projects";
 
+const HUB_SCROLL_KEY = "microwins:hub-scroll";
+
 const TABS: { id: Tab; label: string }[] = [
   { id: "overview", label: "Přehled" },
   { id: "todo", label: "ToDo" },
@@ -46,8 +48,26 @@ function isTab(value: string | null): value is Tab {
 export function ProjectsHub() {
   const { state } = useStore();
   const router = useRouter();
+  const pathname = usePathname();
   const params = useSearchParams();
   const [dialogOpen, setDialogOpen] = React.useState(false);
+
+  /*
+   * Návrat z detailu projektu je `router.push`, ne `back` - hub se tak
+   * přemountuje a scroll i filtry skočí nahoru. Pozici proto schovalíme do
+   * sessionStorage při odchodu a po mountu vrátíme. Žije jen v rámci běžící
+   * appky, takže studený start začíná nahoře.
+   */
+  React.useEffect(() => {
+    const saved = sessionStorage.getItem(HUB_SCROLL_KEY);
+    if (saved !== null) {
+      sessionStorage.removeItem(HUB_SCROLL_KEY);
+      window.scrollTo(0, Number(saved));
+    }
+    return () => {
+      sessionStorage.setItem(HUB_SCROLL_KEY, String(window.scrollY));
+    };
+  }, [pathname]);
 
   /*
    * Záložka žije v adrese, ne ve stavu komponenty. Jinak by se návrat z detailu

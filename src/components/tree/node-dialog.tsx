@@ -7,7 +7,6 @@ import { Dialog } from "@/components/ui/dialog";
 import { IconField } from "@/components/ui/icon-picker";
 import { Field, Input, Select, Textarea } from "@/components/ui/input";
 import { useStore } from "@/components/providers/store-provider";
-import { usePrefs } from "@/components/providers/use-prefs";
 import { useToast } from "@/components/providers/toast-provider";
 import { formatDate } from "@/lib/date";
 import { formatMetricLabel, hasPlaceholder, onceEntry } from "@/lib/domain";
@@ -207,7 +206,6 @@ export function NodeDialog({
           </Field>
         ) : null}
 
-        {isEdit && kind === "category" ? <PushExemptToggle node={request.node!} /> : null}
 
         {kind === "metric" ? (
           <>
@@ -283,50 +281,3 @@ export function NodeDialog({
   );
 }
 
-/**
- * Odložení složky stranou.
- *
- * Strom se nemaže - co člověk přestal dělat, jen odloží - ale PushWin by na
- * odložené téma pořád cílil a výzva „zapiš něco v Kurzu fotografování" u věci,
- * kterou jsem před rokem opustil, je otrava, ne pobídka. Odložení se týká celé
- * složky včetně všeho pod ní; na zápis ani na statistiky nemá vliv.
- */
-function PushExemptToggle({ node }: { node: TreeNode }) {
-  const { state, setPushExempt } = useStore();
-  const { pushWins } = usePrefs();
-  const exempt = state.nodes.find((n) => n.id === node.id)?.pushExempt === true;
-
-  if (!pushWins) return null;
-
-  return (
-    <button
-      type="button"
-      onClick={() => setPushExempt(node.id, !exempt)}
-      aria-pressed={exempt}
-      className={cn(
-        "flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors",
-        exempt ? "border-foreground/40 bg-accent" : "hover:bg-accent/50",
-      )}
-    >
-      <span className="min-w-0">
-        <span className="block text-sm font-medium">Mimo PushWiny</span>
-        <span className="block text-xs text-muted-foreground">
-          Výzvy nebudou cílit na tuhle složku ani na nic pod ní.
-        </span>
-      </span>
-      <span
-        className={cn(
-          "relative h-6 w-11 shrink-0 rounded-full transition-colors",
-          exempt ? "bg-progress" : "bg-muted-foreground/30",
-        )}
-      >
-        <span
-          className={cn(
-            "absolute top-1 size-4 rounded-full bg-card shadow transition-[left] duration-200",
-            exempt ? "left-6" : "left-1",
-          )}
-        />
-      </span>
-    </button>
-  );
-}

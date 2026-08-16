@@ -2,6 +2,8 @@
 
 import * as React from "react";
 import {
+  ArrowDown,
+  ArrowUp,
   Check,
   ChevronRight,
   ClipboardPaste,
@@ -17,17 +19,8 @@ import { Input, Textarea } from "@/components/ui/input";
 import { useStore } from "@/components/providers/store-provider";
 import { usePrefs, setPrefs } from "@/components/providers/use-prefs";
 import { useToast } from "@/components/providers/toast-provider";
-import { DoneButtonPreview } from "@/components/projects/done-button";
 import { parseBackup } from "@/lib/backup";
-import { ACCENTS, DONE_STYLES, OVERVIEWS } from "@/lib/prefs";
-import {
-  drawsPerWeek,
-  isUnlocked,
-  DIFFICULTY_LABEL,
-  PUSHWIN_SECOND_DRAW,
-  type Odds,
-} from "@/lib/pushwin";
-import type { PushWinDifficulty } from "@/lib/types";
+import { ACCENTS, ADDONS, HUB_TABS, OVERVIEWS, type HubTab } from "@/lib/prefs";
 import {
   countState,
   hasScope,
@@ -149,14 +142,13 @@ export function SettingsDialog({
           <OverviewChoice />
         </Section>
 
-        <Section
-          title="Tlačítko hotovo"
-          hint="Podoba přepínače u úkolu, který se dá jen odškrtnout (cíl 1, bez podúkolů)."
-        >
-          <DoneStyleChoice />
+        <Section title="Addony" hint="Vypnutá část zmizí i se svou záložkou; data zůstanou.">
+          <AddonChoice />
         </Section>
 
-        {isUnlocked(state) ? <PushWinSection /> : null}
+        <Section title="Pořadí záložek" hint="Zleva doprava nad projekty. Vypnuté addony se přeskočí.">
+          <TabOrderChoice />
+        </Section>
 
         <Section
           title="Data"
@@ -609,92 +601,95 @@ function Stat({ value, label }: { value: number; label: string }) {
 }
 
 /**
- * PushWiny. Ukazuje se až po odemčení - do té doby by přepínač sliboval něco,
- * co appka neumí postavit.
+ * Vypínatelné části appky. Seznam jede z `ADDONS`, takže druhý addon je jeden
+ * řádek v `prefs.ts` a tahle obrazovka se ho nemusí ani dotknout.
  */
-function PushWinSection() {
-  const { state } = useStore();
-  const { pushWins, pushOdds } = usePrefs();
-  const draws = drawsPerWeek(state);
-
-  const setOdd = (key: PushWinDifficulty, value: number) => {
-    const next: Odds = { ...pushOdds, [key]: Math.max(0, Math.min(100, value)) };
-    // Samé nuly by znamenaly nelosovat vůbec - poslední tažená obtížnost
-    // proto nesmí spadnout na nulu jako jediná.
-    if (next.easy + next.medium + next.hard === 0) return;
-    setPrefs({ pushOdds: next });
-  };
-
-  const total = pushOdds.easy + pushOdds.medium + pushOdds.hard;
+function AddonChoice() {
+  const { addons } = usePrefs();
 
   return (
-    <Section
-      title="PushWin"
-      hint={
-        draws > 1
-          ? "Dvě losování týdně - odemklo se po roce zápisů."
-          : `Jedno losování týdně. Druhé se odemkne po ${PUSHWIN_SECOND_DRAW} microwinech.`
-      }
-    >
-      <button
-        type="button"
-        onClick={() => setPrefs({ pushWins: !pushWins })}
-        aria-pressed={pushWins}
-        className={cn(
-          "flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors",
-          pushWins ? "border-foreground/40 bg-accent" : "hover:bg-accent/50",
-        )}
-      >
-        <span className="min-w-0">
-          <span className="block text-sm font-medium">Týdenní výzvy</span>
-          <span className="block text-xs text-muted-foreground">
-            Jednou týdně výzva kousek za tím, co už jsi dokázal.
-          </span>
-        </span>
-        <span
-          className={cn(
-            "relative h-6 w-11 shrink-0 rounded-full transition-colors",
-            pushWins ? "bg-progress" : "bg-muted-foreground/30",
-          )}
-        >
-          <span
+    <div className="flex flex-col gap-2">
+      {ADDONS.map((addon) => {
+        const on = addons[addon.id];
+        return (
+          <button
+            key={addon.id}
+            type="button"
+            onClick={() => setPrefs({ addons: { ...addons, [addon.id]: !on } })}
+            aria-pressed={on}
             className={cn(
-              "absolute top-1 size-4 rounded-full bg-card shadow transition-[left] duration-200",
-              pushWins ? "left-6" : "left-1",
+              "flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors",
+              on ? "border-foreground/40 bg-accent" : "hover:bg-accent/50",
             )}
-          />
-        </span>
-      </button>
-
-      {pushWins ? (
-        <div className="flex flex-col gap-2 rounded-lg border p-3">
-          <p className="text-xs font-medium text-muted-foreground">Šance obtížností</p>
-          {(["easy", "medium", "hard"] as PushWinDifficulty[]).map((key) => (
-            <label key={key} className="flex items-center gap-2 text-sm">
-              <span className="w-16 shrink-0 text-xs text-muted-foreground">
-                {DIFFICULTY_LABEL[key]}
-              </span>
-              <input
-                type="range"
-                min={0}
-                max={100}
-                step={5}
-                value={pushOdds[key]}
-                onChange={(e) => setOdd(key, Number(e.target.value))}
-                aria-label={`Šance: ${DIFFICULTY_LABEL[key]}`}
-                className="slider-input h-6 min-w-0 flex-1 cursor-pointer appearance-none rounded-full bg-track"
+          >
+            <span className="min-w-0">
+              <span className="block text-sm font-medium">{addon.label}</span>
+              <span className="block text-xs text-muted-foreground">{addon.hint}</span>
+            </span>
+            <span
+              className={cn(
+                "relative h-6 w-11 shrink-0 rounded-full transition-colors",
+                on ? "bg-progress" : "bg-muted-foreground/30",
+              )}
+            >
+              <span
+                className={cn(
+                  "absolute top-1 size-4 rounded-full bg-card shadow transition-[left] duration-200",
+                  on ? "left-6" : "left-1",
+                )}
               />
-              <span className="tabular w-10 shrink-0 text-right text-xs">
-                {Math.round((pushOdds[key] / total) * 100)} %
-              </span>
-            </label>
-          ))}
-          <p className="text-xs text-muted-foreground">
-            Laťka se počítá z tvojí historie. Lehká míří pod tvůj rekord, těžká nad něj.
-          </p>
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Pořadí záložek. Šipky, ne přetahování: seznam má tři položky a v dialogu,
+ * který se sám posouvá, by se táhlo špatně.
+ */
+function TabOrderChoice() {
+  const { tabOrder } = usePrefs();
+
+  const move = (index: number, direction: -1 | 1) => {
+    const next = [...tabOrder];
+    const target = index + direction;
+    if (target < 0 || target >= next.length) return;
+    [next[index], next[target]] = [next[target], next[index]];
+    setPrefs({ tabOrder: next });
+  };
+
+  const label = (id: HubTab) => HUB_TABS.find((t) => t.id === id)?.label ?? id;
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      {tabOrder.map((id, index) => (
+        <div key={id} className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm">
+          <span className="tabular w-4 shrink-0 text-xs text-muted-foreground">{index + 1}.</span>
+          <span className="min-w-0 flex-1 truncate font-medium">{label(id)}</span>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={`Posunout ${label(id)} doleva`}
+            disabled={index === 0}
+            onClick={() => move(index, -1)}
+          >
+            <ArrowUp />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={`Posunout ${label(id)} doprava`}
+            disabled={index === tabOrder.length - 1}
+            onClick={() => move(index, 1)}
+          >
+            <ArrowDown />
+          </Button>
         </div>
-      ) : null}
-    </Section>
+      ))}
+    </div>
   );
 }
 
@@ -762,38 +757,6 @@ function OverviewChoice() {
             <span className="shrink-0">{o.label}</span>
             <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{o.hint}</span>
             {active ? <Check className="size-3.5 shrink-0 opacity-60" /> : null}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-/** Pět podob se ukazuje naživo - popisek by u tvaru tlačítka nic neřekl. */
-function DoneStyleChoice() {
-  const { doneStyle } = usePrefs();
-
-  return (
-    <div className="flex flex-col gap-2">
-      {DONE_STYLES.map((d) => {
-        const active = doneStyle === d.id;
-        return (
-          <button
-            key={d.id}
-            type="button"
-            onClick={() => setPrefs({ doneStyle: d.id })}
-            aria-pressed={active}
-            className={cn(
-              "flex flex-col gap-1 rounded-lg border p-2.5 text-left transition-colors",
-              active ? "border-foreground/40 bg-accent/60" : "hover:bg-accent/40",
-            )}
-          >
-            <span className="flex items-center gap-2 px-1 text-sm">
-              <span className={cn("font-medium", !active && "text-muted-foreground")}>{d.label}</span>
-              <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{d.hint}</span>
-              {active ? <Check className="size-3.5 shrink-0 opacity-60" /> : null}
-            </span>
-            <DoneButtonPreview style={d.id} done={active} />
           </button>
         );
       })}

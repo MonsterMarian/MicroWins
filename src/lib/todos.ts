@@ -71,6 +71,18 @@ export function deleteTodo(state: MicroWinsState, id: string): MicroWinsState {
   return { ...state, todos: state.todos.filter((t) => t.id !== id) };
 }
 
+/**
+ * Vrátí smazanou položku zpátky.
+ *
+ * Bere celý objekt, ne id: po smazání už ve stavu není odkud vyčíst text,
+ * pořadí ani odškrtnutí. Protože `deleteTodo` ostatním položkám pořadí
+ * nepřečísluje, sedne vrácená přesně tam, odkud zmizela.
+ */
+export function restoreTodo(state: MicroWinsState, todo: Todo): MicroWinsState {
+  if (state.todos.some((t) => t.id === todo.id)) return state;
+  return { ...state, todos: [...state.todos, todo] };
+}
+
 /** Nové pořadí otevřených položek po přetažení. */
 export function reorderTodos(state: MicroWinsState, ids: string[]): MicroWinsState {
   const byId = new Map(ids.map((id, index) => [id, index]));

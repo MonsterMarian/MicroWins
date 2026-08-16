@@ -8,6 +8,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input, Select } from "@/components/ui/input";
 import { SortableItem, SortableList } from "@/components/ui/sortable";
 import { useStore } from "@/components/providers/store-provider";
+import { usePrefs } from "@/components/providers/use-prefs";
+import { ADDON_TAB, HUB_TABS, type HubTab } from "@/lib/prefs";
 import { Overview } from "./overviews";
 import { ProjectDialog } from "./project-dialog";
 import { ProjectRow } from "./project-row";
@@ -27,26 +29,20 @@ import { cn } from "@/lib/utils";
  * Tři záložky. „Úkoly" a „Dnes" ukazovaly stejná data potřetí a počtvrté
  * - úkoly jsou v projektu, dnešek v přehledu - a zmizely.
  *
- * ToDo je mezi Přehledem a Projekty schválně: je to obyčejný seznam na dnešek,
- * ne třetí pohled na projekty. Kdo si chce jen odškrtnout, co má koupit, nemá
- * kvůli tomu zakládat projekt s procenty a deadlinem.
+ * Seznam i výchozí pořadí bydlí v `lib/prefs.ts`: uživatel si je přeskládá
+ * v Nastavení a ToDo se dá celé vypnout jako addon.
  */
-type Tab = "overview" | "todo" | "projects";
+type Tab = HubTab;
 
 const HUB_SCROLL_KEY = "microwins:hub-scroll";
 
-const TABS: { id: Tab; label: string }[] = [
-  { id: "overview", label: "Přehled" },
-  { id: "todo", label: "ToDo" },
-  { id: "projects", label: "Projekty" },
-];
-
 function isTab(value: string | null): value is Tab {
-  return TABS.some((t) => t.id === value);
+  return HUB_TABS.some((t) => t.id === value);
 }
 
 export function ProjectsHub() {
   const { state } = useStore();
+  const { addons, tabOrder } = usePrefs();
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -77,19 +73,44 @@ export function ProjectsHub() {
    */
   const setTab = (next: Tab) => router.replace(`/?tab=${next}`, { scroll: false });
 
+  const todoOn = addons.todo;
+
+  /* Vypnutý addon svoji záložku nemá. Pořadí drží nastavení, viditelnost addony
+     - proto filtr až tady, ne v uloženém pořadí: zapnutím addonu se záložka
+     vrátí přesně tam, kde byla. */
+  const tabs = React.useMemo(
+    () =>
+      tabOrder
+        .filter((id) => {
+          const addon = (Object.keys(ADDON_TAB) as (keyof typeof ADDON_TAB)[]).find(
+            (key) => ADDON_TAB[key] === id,
+          );
+          return addon === undefined || addons[addon];
+        })
+        .map((id) => ({ id, label: HUB_TABS.find((t) => t.id === id)?.label ?? id })),
+    [tabOrder, addons],
+  );
+
   /*
    * Bez `?tab=` v adrese (studený start appky, klik na logo, spodní lišta)
-   * rozhoduje seznam: je-li co odškrtnout, otevře se ToDo, jinak Přehled.
+   * rozhoduje seznam: je-li co odškrtnout, otevře se ToDo, jinak první záložka
+   * v pořadí.
    *
    * Spočítá se **jednou při otevření** a dál se drží. Kdyby se to přepočítávalo
    * při každém renderu, odškrtnutí poslední položky by uživateli pod rukama
-   * přehodilo záložku na Přehled - přesně ve chvíli, kdy si chce prohlédnout,
+   * přehodilo záložku jinam - přesně ve chvíli, kdy si chce prohlédnout,
    * co dodělal.
    */
   const [openedOn] = React.useState<Tab>(() =>
-    countTodos(state.todos).open > 0 ? "todo" : "overview",
+    todoOn && countTodos(state.todos).open > 0 ? "todo" : "overview",
   );
-  const tab: Tab = isTab(params.get("tab")) ? (params.get("tab") as Tab) : openedOn;
+
+  const requested = isTab(params.get("tab")) ? (params.get("tab") as Tab) : openedOn;
+  /* Adresa může ukazovat na záložku, která už není vidět (vypnutý addon,
+     odkaz z dřívějška). Místo prázdné obrazovky se spadne na první viditelnou. */
+  const tab: Tab = tabs.some((t) => t.id === requested)
+    ? requested
+    : (tabs[0]?.id ?? "overview");
 
   /* Prázdná výzva k založení projektu platí jen tam, kde jsou projekty vidět.
      Na ToDo by zakryla seznam, se kterým projekty nemají nic společného. */
@@ -118,7 +139,7 @@ export function ProjectsHub() {
       </header>
 
       <div className="flex gap-1 border-b">
-        {TABS.map((t) => (
+        {tabs.map((t) => (
           <button
             key={t.id}
             type="button"
@@ -141,15 +162,17 @@ export function ProjectsHub() {
             <p className="text-sm font-medium">Zatím žádný projekt</p>
             <p className="max-w-sm text-sm text-muted-foreground">
               Projekt drží procenta, deadline a úkoly. Postup se zaznamenává den po dni, takže
-              vznikne graf i deník změn. Na jednorázové věci je vedle ToDo.
+              vznikne graf i deník změn.{todoOn ? " Na jednorázové věci je vedle ToDo." : ""}
             </p>
             <div className="flex flex-wrap justify-center gap-2">
               <Button size="sm" onClick={() => setDialogOpen(true)}>
                 <Plus /> Nový projekt
               </Button>
-              <Button size="sm" variant="outline" onClick={() => setTab("todo")}>
-                Otevřít ToDo
-              </Button>
+              {todoOn ? (
+                <Button size="sm" variant="outline" onClick={() => setTab("todo")}>
+                  Otevřít ToDo
+                </Button>
+              ) : null}
             </div>
           </CardContent>
         </Card>

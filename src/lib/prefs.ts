@@ -7,8 +7,6 @@
  * potřebuje pár komponent naráz. `useSyncExternalStore` si na něj sedne bez
  * dalšího providera.
  */
-import { DEFAULT_ODDS, type Odds } from "./pushwin";
-
 /**
  * Barva postupu. Zelená je výchozí - postup je druhá polovina appky a zaslouží
  * si vlastní hlas. Bílá zůstává na výběr pro toho, komu vedle jantaru microwinů
@@ -39,36 +37,60 @@ export const OVERVIEWS: { id: Overview; label: string; hint: string }[] = [
   { id: "table", label: "Tabulka", hint: "hustý výpis všech čísel pod sebou" },
 ];
 
-/** Podoba tlačítka „hotovo" u úkolu s cílem 1. */
-export type DoneStyle = "card" | "switch" | "stamp" | "bar" | "segment";
+/**
+ * Záložky nad projektovou polovinou appky. Jejich pořadí si uživatel skládá
+ * v Nastavení, takže seznam nemůže bydlet v komponentě, která je kreslí -
+ * nastavení by na něj muselo sáhnout skrz.
+ */
+export type HubTab = "overview" | "todo" | "projects";
 
-export const DONE_STYLES: { id: DoneStyle; label: string; hint: string }[] = [
-  { id: "card", label: "Rámeček", hint: "velká plocha s zaškrtávátkem" },
-  { id: "switch", label: "Přepínač", hint: "systémový vypínač s popiskem" },
-  { id: "stamp", label: "Razítko", hint: "kruh, do kterého fajfka dosedne" },
-  { id: "bar", label: "Pruh", hint: "postup od nuly do stovky jedním ťuknutím" },
-  { id: "segment", label: "Dvojice", hint: "nehotovo | hotovo vedle sebe" },
+export const HUB_TABS: { id: HubTab; label: string }[] = [
+  { id: "overview", label: "Přehled" },
+  { id: "todo", label: "ToDo" },
+  { id: "projects", label: "Projekty" },
 ];
+
+export const DEFAULT_TAB_ORDER: HubTab[] = ["overview", "todo", "projects"];
+
+/**
+ * Vypínatelné části appky. Přidání dalšího addonu je jeden řádek v `ADDONS`
+ * a jedna položka v `DEFAULT_ADDONS` - všechno ostatní (obrazovka v Nastavení,
+ * načítání i ukládání) jede z tohohle seznamu.
+ */
+export type AddonId = "todo";
+
+export const ADDONS: { id: AddonId; label: string; hint: string }[] = [
+  { id: "todo", label: "ToDo", hint: "krátký seznam na dnešek vedle projektů" },
+];
+
+export type Addons = Record<AddonId, boolean>;
+
+export const DEFAULT_ADDONS: Addons = {
+  todo: true,
+};
+
+/** Záložka, kterou vypnutý addon schová. Addon bez záložky sem nepatří. */
+export const ADDON_TAB: Partial<Record<AddonId, HubTab>> = {
+  todo: "todo",
+};
 
 export interface Prefs {
   accent: Accent;
   overview: Overview;
-  doneStyle: DoneStyle;
   /** Nové logo z fotky v hlavičce místo samotného textu. */
   headerLogo: boolean;
-  /** PushWiny zapnuté. Odemykají se až po 50 microwinech, viz `pushwin.ts`. */
-  pushWins: boolean;
-  /** Šance jednotlivých obtížností při losování; poměr, ne procenta. */
-  pushOdds: Odds;
+  /** Zapnuté části appky, viz `ADDONS`. */
+  addons: Addons;
+  /** Pořadí záložek zleva doprava. Vždy obsahuje všechny, jen jinak seřazené. */
+  tabOrder: HubTab[];
 }
 
 export const DEFAULT_PREFS: Prefs = {
   accent: "green",
   overview: "classic",
-  doneStyle: "card",
   headerLogo: false,
-  pushWins: false,
-  pushOdds: DEFAULT_ODDS,
+  addons: DEFAULT_ADDONS,
+  tabOrder: DEFAULT_TAB_ORDER,
 };
 
 export const PREFS_KEY = "microwins:prefs";
@@ -81,22 +103,36 @@ function isOverview(value: unknown): value is Overview {
   return OVERVIEWS.some((o) => o.id === value);
 }
 
-function isDoneStyle(value: unknown): value is DoneStyle {
-  return DONE_STYLES.some((d) => d.id === value);
+/**
+ * Uložené pořadí je jen nápověda, ne pravda: nová záložka v appce v něm ještě
+ * není a zrušená v něm zůstala. Bere se proto průnik se seznamem, který appka
+ * opravdu má, a chybějící se doplní na konec ve výchozím pořadí.
+ */
+export function parseTabOrder(raw: unknown): HubTab[] {
+  const known = new Set<string>(HUB_TABS.map((t) => t.id));
+  const seen = new Set<HubTab>();
+  const out: HubTab[] = [];
+  if (Array.isArray(raw)) {
+    for (const value of raw) {
+      if (typeof value !== "string" || !known.has(value)) continue;
+      const tab = value as HubTab;
+      if (seen.has(tab)) continue;
+      seen.add(tab);
+      out.push(tab);
+    }
+  }
+  for (const tab of DEFAULT_TAB_ORDER) if (!seen.has(tab)) out.push(tab);
+  return out;
 }
 
-/** Šance se ukládají jako čísla 0-100; nesmysl spadne na výchozí poměr. */
-function parseOdds(raw: unknown): Odds {
-  if (typeof raw !== "object" || raw === null) return DEFAULT_ODDS;
-  const record = raw as Record<string, unknown>;
-  const num = (value: unknown): number | null =>
-    typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.round(value) : null;
-  const easy = num(record.easy);
-  const medium = num(record.medium);
-  const hard = num(record.hard);
-  if (easy === null || medium === null || hard === null) return DEFAULT_ODDS;
-  if (easy + medium + hard === 0) return DEFAULT_ODDS;
-  return { easy, medium, hard };
+/** Chybějící addon je zapnutý - přidání nového nesmí zhasnout appku uživateli. */
+export function parseAddons(raw: unknown): Addons {
+  const record = typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : {};
+  const out = { ...DEFAULT_ADDONS };
+  for (const addon of ADDONS) {
+    if (addon.id in record) out[addon.id] = record[addon.id] !== false;
+  }
+  return out;
 }
 
 /**
@@ -110,10 +146,9 @@ export function parsePrefs(raw: unknown): Prefs {
   return {
     accent: isAccent(record.accent) ? record.accent : DEFAULT_PREFS.accent,
     overview: isOverview(record.overview) ? record.overview : DEFAULT_PREFS.overview,
-    doneStyle: isDoneStyle(record.doneStyle) ? record.doneStyle : DEFAULT_PREFS.doneStyle,
     headerLogo: record.headerLogo === true,
-    pushWins: record.pushWins === true,
-    pushOdds: parseOdds(record.pushOdds),
+    addons: parseAddons(record.addons),
+    tabOrder: parseTabOrder(record.tabOrder),
   };
 }
 

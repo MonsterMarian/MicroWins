@@ -125,7 +125,7 @@ function projectPart(
 function treePart(
   incoming: MicroWinsState,
   fresh: boolean,
-): Pick<MicroWinsState, "nodes" | "entries" | "microwins" | "pushWins"> {
+): Pick<MicroWinsState, "nodes" | "entries" | "microwins"> {
   const nodeIds = remap(incoming.nodes.map((n) => n.id));
   const nid = (id: string) => (fresh ? (nodeIds.get(id) ?? id) : id);
   const known = new Set(incoming.nodes.map((n) => n.id));
@@ -147,14 +147,6 @@ function treePart(
     microwins: incoming.microwins
       .filter((m) => known.has(m.metricId))
       .map((m) => ({ ...m, id: wid(m.id), metricId: nid(m.metricId) })),
-    // Výzva na smazaný uzel by se nedala splnit ani přečíst.
-    pushWins: incoming.pushWins
-      .filter((p) => p.nodeId === null || known.has(p.nodeId))
-      .map((p) => ({
-        ...p,
-        nodeId: p.nodeId ? nid(p.nodeId) : null,
-        microwinIds: p.microwinIds.map(wid),
-      })),
   };
 }
 
@@ -196,7 +188,6 @@ export function mergeState(
           nodes: [...next.nodes, ...part.nodes],
           entries: [...next.entries, ...part.entries],
           microwins: [...next.microwins, ...part.microwins],
-          pushWins: [...next.pushWins, ...part.pushWins],
         }
       : { ...next, ...part };
   }

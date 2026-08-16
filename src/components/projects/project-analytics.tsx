@@ -13,6 +13,7 @@ import { useStore } from "@/components/providers/store-provider";
 import { dayShort, formatDate } from "@/lib/date";
 import {
   dailyChanges,
+  dayRing,
   displayPercent,
   progressSeries,
   projectById,
@@ -50,10 +51,7 @@ export function ProjectAnalytics({ projectId }: { projectId: string }) {
     );
   }
 
-  const dayRingValue =
-    stats.totalDays && stats.totalDays > 0
-      ? Math.min(100, (stats.daysElapsed / stats.totalDays) * 100)
-      : Math.min(100, stats.daysElapsed);
+  const days = dayRing(stats);
   const taskRingValue = stats.tasksTotal > 0 ? (stats.tasksDone / stats.tasksTotal) * 100 : 0;
   const best = changes.reduce<number>((m, c) => Math.max(m, c.delta), 0);
 
@@ -90,13 +88,11 @@ export function ProjectAnalytics({ projectId }: { projectId: string }) {
               {displayPercent(stats.percent)} %
             </span>
           </Ring>
-          <Ring value={dayRingValue} label="Dny">
+          <Ring value={days.value} label="Dny">
             <div className="flex flex-col items-center leading-none">
-              <span className="tabular text-base font-semibold sm:text-lg">{stats.daysElapsed}</span>
-              {stats.totalDays ? (
-                <span className="tabular text-[10px] text-muted-foreground">
-                  z {stats.totalDays}
-                </span>
+              <span className="tabular text-base font-semibold sm:text-lg">{days.days}</span>
+              {days.total ? (
+                <span className="tabular text-[10px] text-muted-foreground">z {days.total}</span>
               ) : null}
             </div>
           </Ring>

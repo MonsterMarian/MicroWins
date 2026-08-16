@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { SortableItem, SortableList } from "@/components/ui/sortable";
 import { useStore } from "@/components/providers/store-provider";
+import { useToast } from "@/components/providers/toast-provider";
 import { tapFeedback } from "@/lib/native";
 import { countTodos, sortedTodos, todoRemaining, TODO_MAX_LENGTH } from "@/lib/todos";
 import type { Todo } from "@/lib/types";
@@ -134,7 +135,8 @@ function TodoRows({ rows, openIds }: { rows: Todo[]; openIds: string[] }) {
 }
 
 function TodoRow({ todo }: { todo: Todo }) {
-  const { toggleTodo, deleteTodo, renameTodo } = useStore();
+  const { toggleTodo, deleteTodo, restoreTodo, renameTodo } = useStore();
+  const { toast } = useToast();
   const done = todo.doneAt !== null;
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState(todo.text);
@@ -147,6 +149,23 @@ function TodoRow({ todo }: { todo: Todo }) {
   const onToggle = () => {
     void tapFeedback();
     toggleTodo(todo.id);
+  };
+
+  /*
+   * Koš maže rovnou, ale nabídne cestu zpátky. Potvrzovací dialog by překážel
+   * pokaždé, přitom se seznam na dnešek maže často a vedle trefit se stane
+   * jednou za čas - obtěžovat má ten vzácnější případ, ne ten běžný.
+   */
+  const onDelete = () => {
+    const removed = deleteTodo(todo.id);
+    if (!removed) return;
+    void tapFeedback();
+    toast({
+      tone: "info",
+      title: "Smazáno",
+      description: removed.text,
+      action: { label: "Vrátit", onClick: () => restoreTodo(removed) },
+    });
   };
 
   return (
@@ -221,7 +240,7 @@ function TodoRow({ todo }: { todo: Todo }) {
         aria-label="Smazat"
         title="Smazat"
         className="shrink-0 text-muted-foreground hover:text-destructive"
-        onClick={() => deleteTodo(todo.id)}
+        onClick={onDelete}
       >
         <Trash2 />
       </Button>

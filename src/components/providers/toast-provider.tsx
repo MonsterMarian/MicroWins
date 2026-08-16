@@ -11,6 +11,11 @@ interface Toast {
   tone: ToastTone;
   title: string;
   description?: string;
+  /**
+   * Tlačítko v hlášce - "Vrátit" u smazané položky. Jediná cesta zpátky
+   * u akce, která proběhla bez ptaní, takže hláška s ním zůstane déle.
+   */
+  action?: { label: string; onClick: () => void };
 }
 
 interface ToastApi {
@@ -39,7 +44,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     (t: Omit<Toast, "id">) => {
       const id = nextId.current++;
       setToasts((prev) => [...prev, { ...t, id }]);
-      window.setTimeout(() => dismiss(id), t.tone === "win" ? 6000 : 4000);
+      window.setTimeout(() => dismiss(id), t.action ? 7000 : t.tone === "win" ? 6000 : 4000);
     },
     [dismiss],
   );
@@ -74,6 +79,18 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
                   <p className="mt-0.5 text-xs opacity-80">{t.description}</p>
                 ) : null}
               </div>
+              {t.action ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    t.action!.onClick();
+                    dismiss(t.id);
+                  }}
+                  className="shrink-0 rounded-md border px-2 py-1 text-xs font-medium transition-colors hover:bg-accent"
+                >
+                  {t.action.label}
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={() => dismiss(t.id)}

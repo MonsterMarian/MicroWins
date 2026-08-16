@@ -344,13 +344,7 @@ function buildState(today: ISODate): MicroWinsState {
   };
 }
 
-/**
- * Kolik microwinů má seed vyrobit.
- *
- * Schválně o jeden pod hranicí odemčení PushWinů (50): dá se tak vyzkoušet
- * zamčená karta i samotné odemčení, které jinak nejde nasimulovat jinak než
- * vyklikáním padesáti winů.
- */
+/** Kolik microwinů má seed vyrobit - dost na to, aby statistiky měly co kreslit. */
 const WIN_TARGET = 49;
 
 /**
@@ -358,8 +352,8 @@ const WIN_TARGET = 49;
  *
  * Staví se skutečnými akcemi, ne ručně poskládaným polem: microwin padá jen
  * za den, ke kterému se zápis dělá, takže se historie musí odehrát den po dni.
- * Ručně vyrobené microwiny by neseděly na záznamech a PushWin i statistiky by
- * z nich počítaly nesmysly.
+ * Ručně vyrobené microwiny by neseděly na záznamech a statistiky by z nich
+ * počítaly nesmysly.
  *
  * Aby počet vyšel na `WIN_TARGET` přesně, jsou zdroje microwinů oddělené:
  *  - metrika dostane rekord hned první den a všechny další hodnoty leží pod
@@ -367,7 +361,7 @@ const WIN_TARGET = 49;
  *  - zaškrtávací win je pak jediný zdroj, který se dá počítat po jednom.
  *
  * Vedlejší efekt je realistický: denní součty kliků drží pásmo 30-40 s rekordem
- * na 40, takže laťka PushWinu má přesně to, z čeho má počítat.
+ * na 40, takže grafy nevypadají jako náhodný šum.
  */
 function buildTree(today: ISODate): Pick<MicroWinsState, "nodes" | "entries" | "microwins"> {
   const random = rng(4242);

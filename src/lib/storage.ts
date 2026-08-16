@@ -1,4 +1,11 @@
-import { EMPTY_STATE, STATE_VERSION, type MicroWinsState, type Task, type Todo } from "./types";
+import {
+  EMPTY_STATE,
+  STATE_VERSION,
+  type MicroWinsState,
+  type Task,
+  type Todo,
+  type TreeNode,
+} from "./types";
 
 export const STORAGE_KEY = "microwins:v1";
 
@@ -35,6 +42,21 @@ function normalizeTask(task: Task): Task {
 }
 
 /**
+ * Zrušené klíče ze starších verzí. Zůstat by mohly - typ o nich neví - ale
+ * pak by se při každém uložení psaly zpátky na disk a `pushExempt` by tam
+ * strašil i za rok. Načtení je jediné místo, kde je vidět a jde je zahodit.
+ */
+const DROPPED_NODE_KEYS = ["pushExempt"] as const;
+
+function normalizeNode(node: TreeNode): TreeNode {
+  const record = node as unknown as Record<string, unknown>;
+  if (!DROPPED_NODE_KEYS.some((key) => key in record)) return node;
+  const next = { ...record };
+  for (const key of DROPPED_NODE_KEYS) delete next[key];
+  return next as unknown as TreeNode;
+}
+
+/**
  * Položka ToDo z cizího JSONu. Text je jediné, co musí být - bez něj není co
  * ukazovat. Chybějící `doneAt` znamená otevřenou položku, ne vypršelou.
  */
@@ -67,10 +89,9 @@ export function parseState(raw: string): MicroWinsState | null {
     // Starší export (v1) neznal projekty - doplní se jako prázdné.
     return {
       version: STATE_VERSION,
-      nodes: data.nodes as MicroWinsState["nodes"],
+      nodes: (data.nodes as MicroWinsState["nodes"]).map(normalizeNode),
       entries: data.entries as MicroWinsState["entries"],
       microwins: arr("microwins"),
-      pushWins: arr("pushWins"),
       projects: arr("projects"),
       tasks: arr("tasks").map(normalizeTask),
       // Milníky z v2 neznaly odškrtnutí - doplní se jako neodškrtnuté.

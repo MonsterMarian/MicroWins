@@ -256,6 +256,25 @@ export interface ProjectStats {
   tasksDone: number;
   overdue: boolean;
   lastActivity: ISODate | null;
+  /** Den, kdy projekt naposledy vyskočil na 100 %; null = ještě není hotový. */
+  completedOn: ISODate | null;
+}
+
+/**
+ * Den, od kterého projekt drží stovku.
+ *
+ * Hledá se zpětně: kdo spadl pod 100 % a pak se tam vrátil, "dokončil" projekt
+ * až podruhé. První dosažení stovky by u takového projektu tvrdilo, že je
+ * hotový od jara, i když se v létě práce znovu otevřela.
+ */
+function completionDate(snaps: Snapshot[], percent: number): ISODate | null {
+  if (percent < 100) return null;
+  let date: ISODate | null = null;
+  for (let i = snaps.length - 1; i >= 0; i--) {
+    if (snaps[i].percent < 100) break;
+    date = snaps[i].date;
+  }
+  return date;
 }
 
 export function projectStats(
@@ -286,7 +305,43 @@ export function projectStats(
     tasksDone: tasks.filter((t) => isTaskDone(state, t)).length,
     overdue: daysLeft !== null && daysLeft < 0 && percent < 100,
     lastActivity: snaps.length ? snaps[snaps.length - 1].date : null,
+    completedOn: completionDate(snaps, percent),
   };
+}
+
+/**
+ * Prostřední kolečko na statistikách projektu.
+ *
+ * U rozdělaného projektu je to postup ke termínu: `26` a pod tím `z 30`.
+ * Jakmile je hotovo, kolečko se zastaví - prstenec je celý a zůstane jediné
+ * číslo, kolik dní to trvalo. Dopočítávat dny do termínu u projektu, který je
+ * hotový o čtyři dny dřív, znamená ukazovat, jak dlouho už je dodělaný.
+ */
+export interface DayRing {
+  /** Hodnota prstenu 0-100. */
+  value: number;
+  /** Číslo uvnitř kolečka. */
+  days: number;
+  /** Jmenovatel pod ním; null = neukazovat. */
+  total: number | null;
+}
+
+export function dayRing(stats: ProjectStats): DayRing {
+  if (stats.percent >= 100) {
+    // Bez otisku (starý projekt, ruční import) není odkud vzít den dokončení -
+    // pak je poctivější ukázat dnešek než tvrdit nulu.
+    const days = stats.completedOn
+      ? Math.max(0, diffDays(stats.project.startDate, stats.completedOn))
+      : stats.daysElapsed;
+    return { value: 100, days, total: null };
+  }
+
+  const value =
+    stats.totalDays && stats.totalDays > 0
+      ? Math.min(100, (stats.daysElapsed / stats.totalDays) * 100)
+      : Math.min(100, stats.daysElapsed);
+
+  return { value, days: stats.daysElapsed, total: stats.totalDays };
 }
 
 /**

@@ -147,8 +147,7 @@ export function TaskDetail({ taskId }: { taskId: string }) {
       <Card>
         <CardContent className="flex flex-col gap-4 p-5">
           {binary ? (
-            /* Cíl 1 bez podúkolů: není co posouvat, buď je hotovo, nebo není.
-               Podobu tlačítka si uživatel volí v Nastavení. */
+            /* Cíl 1 bez podúkolů: není co posouvat, buď je hotovo, nebo není. */
             <DoneButton
               done={done}
               onToggle={() => {

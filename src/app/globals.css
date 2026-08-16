@@ -403,23 +403,6 @@
     animation: mw-flash 0.9s ease-out both;
   }
 
-  /*
-   * Losování PushWinu. Pás výzev projede kolem značky a dojede - zpomalení
-   * na konci dělá celé napětí, proto křivka s dlouhým doběhem.
-   */
-  @keyframes mw-reel {
-    from {
-      transform: translateX(0);
-    }
-    to {
-      transform: translateX(-72%);
-    }
-  }
-
-  .mw-reel {
-    animation: mw-reel 2.6s cubic-bezier(0.12, 0.7, 0.1, 1) both;
-  }
-
   /* Plovoucí tlačítko nepřilétá odnikud, jen se zvedne zpod svého místa. */
   @keyframes mw-fab-in {
     from {
@@ -442,8 +425,7 @@
     .mw-pop,
     .mw-rise,
     .mw-flash,
-    .mw-fab-in,
-    .mw-reel {
+    .mw-fab-in {
       animation: none;
     }
 

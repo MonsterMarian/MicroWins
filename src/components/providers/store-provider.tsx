@@ -7,8 +7,6 @@ import { applySettings, exportBackup, parseBackup, type ExportOutcome } from "@/
 import { todayISO } from "@/lib/date";
 import { applyDevSeed } from "@/lib/dev-seed";
 import { mergeState, type ImportMode, type ImportScope } from "@/lib/import";
-import { getPrefs } from "@/lib/prefs";
-import { drawPushWin, settlePushWins } from "@/lib/pushwin";
 import { loadState, saveState } from "@/lib/storage";
 import * as todoActions from "@/lib/todos";
 import {
@@ -17,7 +15,6 @@ import {
   type MicroWinsState,
   type Milestone,
   type Project,
-  type PushWin,
   type Task,
   type Todo,
   type TreeNode,
@@ -43,10 +40,6 @@ export interface StoreApi {
   addEntry: (input: actions.AddEntryInput) => actions.AddEntryResult;
   toggleCheck: (id: string, date?: ISODate) => actions.ToggleCheckResult;
   deleteEntry: (id: string) => void;
-  /** Odloží složku stranou - PushWiny na ni pak necílí. */
-  setPushExempt: (id: string, exempt: boolean) => void;
-  /** Vylosuje týdenní výzvu; null = není z čeho, nebo už jedna běží. */
-  drawPushWin: () => PushWin | null;
 
   createProject: (input: projectActions.ProjectInput) => Project;
   updateProject: (id: string, patch: Partial<Omit<Project, "id" | "createdAt">>) => void;
@@ -71,7 +64,10 @@ export interface StoreApi {
   renameTodo: (id: string, text: string) => void;
   /** Odškrtne (nebo vrátí zpět). Odškrtnutá položka se za 6 h smaže sama. */
   toggleTodo: (id: string) => void;
-  deleteTodo: (id: string) => void;
+  /** Smaže a vrátí smazanou položku, aby ji šlo nabídnout zpátky. */
+  deleteTodo: (id: string) => Todo | null;
+  /** Vrátí smazanou položku na její původní místo. */
+  restoreTodo: (todo: Todo) => void;
   reorderTodos: (ids: string[]) => void;
 
   createMilestone: (projectId: string, name: string, date: ISODate | null) => Milestone;
@@ -113,11 +109,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   React.useEffect(() => {
     // Testovací data z adresy `?seed` - jen ve vývoji, viz lib/dev-seed.ts.
-    // Výzvy se dopočítají hned při startu: appka mohla být týden zavřená
-    // a zpětně doplněné záznamy mohly rozdělanou výzvu naplnit.
     // Appka mohla být zavřená přes noc - odškrtnuté položky ToDo, kterým
     // mezitím vypršelo, musí být pryč ještě před prvním vykreslením.
-    const loaded = todoActions.purgeTodos(settlePushWins(applyDevSeed(loadState()), todayISO()));
+    const loaded = todoActions.purgeTodos(applyDevSeed(loadState()));
     ref.current = loaded;
     setState(loaded);
     setToday(todayISO());
@@ -171,7 +165,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       },
       addOnce: (parentId, input) => {
         const res = actions.addOnce(ref.current, parentId, input, todayISO());
-        commit(settlePushWins(res.state, todayISO()));
+        commit(res.state);
         return res;
       },
       updateNode: (id, patch) => commit(actions.updateNode(ref.current, id, patch, todayISO())),
@@ -180,29 +174,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       deleteNode: (id) => commit(actions.deleteNode(ref.current, id)),
       addEntry: (input) => {
         const res = actions.addEntry(ref.current, input, todayISO());
-        if (res.state !== ref.current) commit(settlePushWins(res.state, todayISO()));
+        if (res.state !== ref.current) commit(res.state);
         return res;
       },
       toggleCheck: (id, date) => {
         const res = actions.toggleCheck(ref.current, id, date, todayISO());
-        if (res.state !== ref.current) commit(settlePushWins(res.state, todayISO()));
+        if (res.state !== ref.current) commit(res.state);
         return res;
       },
-      deleteEntry: (id) =>
-        commit(settlePushWins(actions.deleteEntry(ref.current, id, todayISO()), todayISO())),
-
-      setPushExempt: (id, exempt) =>
-        commit({
-          ...ref.current,
-          nodes: ref.current.nodes.map((n) =>
-            n.id === id ? { ...n, pushExempt: exempt || undefined } : n,
-          ),
-        }),
-      drawPushWin: () => {
-        const res = drawPushWin(ref.current, getPrefs().pushOdds, todayISO());
-        if (res.pushWin) commit(res.state);
-        return res.pushWin;
-      },
+      deleteEntry: (id) => commit(actions.deleteEntry(ref.current, id, todayISO())),
 
       createProject: (input) => {
         const res = projectActions.createProject(ref.current, input, todayISO());
@@ -239,7 +219,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       },
       renameTodo: (id, text) => commit(todoActions.renameTodo(ref.current, id, text)),
       toggleTodo: (id) => commit(todoActions.toggleTodo(ref.current, id)),
-      deleteTodo: (id) => commit(todoActions.deleteTodo(ref.current, id)),
+      deleteTodo: (id) => {
+        const todo = ref.current.todos.find((t) => t.id === id) ?? null;
+        commit(todoActions.deleteTodo(ref.current, id));
+        return todo;
+      },
+      restoreTodo: (todo) => commit(todoActions.restoreTodo(ref.current, todo)),
       reorderTodos: (ids) => commit(todoActions.reorderTodos(ref.current, ids)),
 
       createMilestone: (projectId, name, date) => {

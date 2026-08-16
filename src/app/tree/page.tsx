@@ -1,7 +1,6 @@
 "use client";
 
 import { useStore } from "@/components/providers/store-provider";
-import { PushWinCard } from "@/components/pushwin/pushwin-card";
 import { TodayPanel } from "@/components/today-panel";
 import { TreeView } from "@/components/tree/tree-view";
 
@@ -20,7 +19,6 @@ export default function TreePage() {
   return (
     <div className="flex flex-col gap-6">
       <TodayPanel />
-      <PushWinCard />
       <TreeView />
     </div>
   );

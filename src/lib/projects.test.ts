@@ -14,6 +14,7 @@ import {
 } from "./project-actions";
 import {
   dailyChanges,
+  dayRing,
   filterProjects,
   isBinaryTask,
   isTaskDone,
@@ -145,6 +146,65 @@ describe("souhrn projektu", () => {
     const stats = projectStats(s, projectId, TODAY)!;
     expect(stats.tasksDone).toBe(1);
     expect(stats.tasksTotal).toBe(2);
+  });
+});
+
+/* Projekt na 30 dní (19. 7. - 18. 8.), dokončený 14. 8. Kolečko dní se má
+   v ten moment zastavit na 26 a nepočítat dál k termínu. */
+describe("kolečko dní", () => {
+  const DONE_DAY = "2026-08-14";
+  const AFTER = "2026-08-20";
+
+  const finished = () => {
+    const { state, projectId } = withProject(30);
+    const r = createTask(state, projectId, { name: "a", target: 10, current: 4 }, TODAY);
+    return { state: setTaskCurrent(r.state, r.task.id, 10, DONE_DAY), projectId };
+  };
+
+  it("rozdělaný projekt ukazuje postup k termínu", () => {
+    const { state, projectId } = withProject(30);
+    const s = createTask(state, projectId, { name: "a", target: 100, current: 60 }, TODAY).state;
+
+    const ring = dayRing(projectStats(s, projectId, TODAY)!);
+    expect(ring.days).toBe(18);
+    expect(ring.total).toBe(30);
+    expect(Math.round(ring.value)).toBe(60);
+  });
+
+  it("na 100 % je prstenec plný a jmenovatel zmizí", () => {
+    const { state, projectId } = finished();
+
+    const ring = dayRing(projectStats(state, projectId, DONE_DAY)!);
+    expect(ring.value).toBe(100);
+    expect(ring.days).toBe(26); // 19. 7. -> 14. 8.
+    expect(ring.total).toBe(null);
+  });
+
+  it("počet dní se dál nezvyšuje, i když čas běží", () => {
+    const { state, projectId } = finished();
+
+    expect(dayRing(projectStats(state, projectId, AFTER)!).days).toBe(26);
+    expect(projectStats(state, projectId, AFTER)!.daysElapsed).toBe(32);
+  });
+
+  it("po pádu pod stovku a návratu platí pozdější dokončení", () => {
+    const { state, projectId } = finished();
+    const taskId = state.tasks[0].id;
+    const reopened = setTaskCurrent(state, taskId, 5, "2026-08-16");
+    const again = setTaskCurrent(reopened, taskId, 10, "2026-08-18");
+
+    const ring = dayRing(projectStats(again, projectId, AFTER)!);
+    expect(ring.value).toBe(100);
+    expect(ring.days).toBe(30); // 19. 7. -> 18. 8.
+  });
+
+  it("bez deadlinu drží nedokončený projekt počet dní bez jmenovatele", () => {
+    const { state, projectId } = withProject(null);
+    const s = createTask(state, projectId, { name: "a", target: 10, current: 1 }, TODAY).state;
+
+    const ring = dayRing(projectStats(s, projectId, TODAY)!);
+    expect(ring.days).toBe(18);
+    expect(ring.total).toBe(null);
   });
 });
 

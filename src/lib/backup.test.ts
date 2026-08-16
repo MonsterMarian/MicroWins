@@ -92,14 +92,22 @@ describe("záloha", () => {
 
   it("přenese vlastní volby zobrazení", () => {
     const raw = JSON.parse(serializeBackup(fullState()));
-    raw.settings = { prefs: { accent: "white", overview: "pulse", doneStyle: "stamp" } };
+    raw.settings = {
+      prefs: {
+        accent: "white",
+        overview: "pulse",
+        addons: { todo: false },
+        tabOrder: ["projects", "overview", "todo"],
+      },
+    };
 
     const restored = parseBackup(JSON.stringify(raw))!;
     expect(restored.settings.prefs).toEqual({
       ...DEFAULT_PREFS,
       accent: "white",
       overview: "pulse",
-      doneStyle: "stamp",
+      addons: { todo: false },
+      tabOrder: ["projects", "overview", "todo"],
     });
   });
 

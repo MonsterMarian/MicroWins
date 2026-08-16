@@ -7,6 +7,7 @@ import {
   purgeTodos,
   renameTodo,
   reorderTodos,
+  restoreTodo,
   sortedTodos,
   todoRemaining,
   toggleTodo,
@@ -161,6 +162,37 @@ describe("úpravy", () => {
 
     expect(deleteTodo(state, state.todos[0].id).todos.map((t) => t.text)).toEqual(["b"]);
     expect(deleteTodo(state, "neexistuje")).toBe(state);
+  });
+
+  /* Koš maže hned a hláška nabízí "Vrátit" - vrácená položka musí sednout tam,
+     odkud zmizela, ne na konec seznamu. */
+  it("vrácená položka sedí na svém původním místě", () => {
+    const state = withTodos("a", "b", "c");
+    const removed = sortedTodos(state.todos)[1];
+    const without = deleteTodo(state, removed.id);
+
+    expect(sortedTodos(restoreTodo(without, removed).todos).map((t) => t.text)).toEqual([
+      "a",
+      "b",
+      "c",
+    ]);
+  });
+
+  it("vrácení drží i odškrtnutí", () => {
+    const base = withTodos("a", "hotová");
+    const state = toggleTodo(base, base.todos[1].id, NOON);
+    const removed = state.todos.find((t) => t.text === "hotová")!;
+    const back = restoreTodo(deleteTodo(state, removed.id), removed);
+
+    expect(back.todos.find((t) => t.text === "hotová")!.doneAt).toBe(removed.doneAt);
+  });
+
+  it("dvojí vrácení položku nezdvojí", () => {
+    const state = withTodos("a", "b");
+    const removed = state.todos[0];
+    const once = restoreTodo(deleteTodo(state, removed.id), removed);
+
+    expect(restoreTodo(once, removed)).toBe(once);
   });
 
   it("přetažením přeskládá otevřené položky", () => {

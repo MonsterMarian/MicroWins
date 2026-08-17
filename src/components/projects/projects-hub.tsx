@@ -129,13 +129,6 @@ export function ProjectsHub() {
               : "Velké cíle rozsekané na měřitelné úkoly a denní postup."}
           </p>
         </div>
-        {/* Na ToDo tlačítko nepatří: nová položka se píše rovnou do řádku
-            nad seznamem a druhá cesta k témuž by jen pletla. */}
-        {tab === "todo" ? null : (
-          <Button onClick={() => setDialogOpen(true)}>
-            <Plus /> Nový projekt
-          </Button>
-        )}
       </header>
 
       <SortableList
@@ -244,6 +237,9 @@ function ProjectsTab({ onNewProject }: { onNewProject: () => void }) {
             </option>
           ))}
         </Select>
+        <Button size="sm" onClick={onNewProject} className="shrink-0">
+          <Plus /> Nový projekt
+        </Button>
         <div className="relative ml-auto w-full sm:w-56">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input

@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
 import { EntityIcon } from "@/components/ui/icon-picker";
+import { SortableItem, SortableList } from "@/components/ui/sortable";
 import { Field, Select } from "@/components/ui/input";
 import { useStore } from "@/components/providers/store-provider";
 import { useToast } from "@/components/providers/toast-provider";
@@ -54,7 +55,7 @@ import { cn, formatNumber, plural } from "@/lib/utils";
  * záznamy), protože ty už další úroveň nemají.
  */
 export function TreeView() {
-  const { state, deleteNode } = useStore();
+  const { state, deleteNode, reorderNodes } = useStore();
   /** Otevřená složka; null = kořen. */
   const [folderId, setFolderId] = React.useState<string | null>(null);
   /** Rozbalené winy (ne složky) - záznamy pod řádkem. */
@@ -102,30 +103,34 @@ export function TreeView() {
             onAddWin={() => setNodeRequest({ kind: "metric", parentId: folderId })}
           />
         ) : (
-          <ul className="p-1.5">
-            {items.map((node) =>
-              node.kind === "category" ? (
-                <FolderRow
-                  key={node.id}
-                  node={node}
-                  onOpen={setFolderId}
-                  onSettings={setSettingsFor}
-                  onNodeRequest={setNodeRequest}
-                  onDelete={setPendingDelete}
-                />
-              ) : (
-                <WinRow
-                  key={node.id}
-                  node={node}
-                  open={expanded.has(node.id)}
-                  onToggle={toggle}
-                  onAddEntry={setEntryFor}
-                  onNodeRequest={setNodeRequest}
-                  onDelete={setPendingDelete}
-                />
-              ),
-            )}
-          </ul>
+          <SortableList
+            ids={items.map((i) => i.id)}
+            onReorder={reorderNodes}
+            className="p-1.5 flex flex-col gap-0.5"
+          >
+            {items.map((node) => (
+              <SortableItem key={node.id} id={node.id}>
+                {node.kind === "category" ? (
+                  <FolderRow
+                    node={node}
+                    onOpen={setFolderId}
+                    onSettings={setSettingsFor}
+                    onNodeRequest={setNodeRequest}
+                    onDelete={setPendingDelete}
+                  />
+                ) : (
+                  <WinRow
+                    node={node}
+                    open={expanded.has(node.id)}
+                    onToggle={toggle}
+                    onAddEntry={setEntryFor}
+                    onNodeRequest={setNodeRequest}
+                    onDelete={setPendingDelete}
+                  />
+                )}
+              </SortableItem>
+            ))}
+          </SortableList>
         )}
       </Card>
 

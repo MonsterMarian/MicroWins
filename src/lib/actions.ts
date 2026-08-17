@@ -197,6 +197,22 @@ export function moveTargets(state: MicroWinsState, id: string): TreeNode[] {
   return state.nodes.filter((n) => n.kind === "category" && !blocked.has(n.id));
 }
 
+/** Přeuspořádá uzly ve stavu podle zadaného pořadí jejich ID. Ostatních uzlů se nedotkne. */
+export function reorderNodes(state: MicroWinsState, ids: string[]): MicroWinsState {
+  if (ids.length < 2) return state;
+  const indices = ids.map((id) => state.nodes.findIndex((n) => n.id === id)).filter((i) => i !== -1);
+  if (indices.length !== ids.length) return state; // Pojistka proti nekonzistenci
+  indices.sort((a, b) => a - b);
+
+  const nextNodes = [...state.nodes];
+  let i = 0;
+  for (const index of indices) {
+    const id = ids[i++];
+    nextNodes[index] = state.nodes.find((n) => n.id === id)!;
+  }
+  return { ...state, nodes: nextNodes };
+}
+
 /** Smaže uzel včetně celého podstromu, jeho záznamů i microwinů. */
 export function deleteNode(state: MicroWinsState, id: string): MicroWinsState {
   const ids = new Set(subtreeIds(state.nodes, id));

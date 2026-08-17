@@ -287,7 +287,6 @@ function FolderRow({
 }) {
   const { state } = useStore();
   const wins = microwinsInSubtree(state, node.id);
-  const count = childrenOf(state.nodes, node.id).length;
 
   return (
     <li>
@@ -302,18 +301,13 @@ function FolderRow({
               vejde tak sedm znaků a z názvu složky nezbude nic čitelného. */}
           <span className="flex min-w-0 flex-1 flex-col gap-0.5 sm:flex-row sm:items-center sm:gap-2">
             <span className="min-w-0 truncate text-sm font-medium">{node.name}</span>
-            <span className="flex shrink-0 items-center gap-1.5">
-              {wins > 0 ? (
-                <Badge variant="outline" className="tabular">
-                  {wins} {plural(wins, "microwin", "microwiny", "microwinů")}
-                </Badge>
-              ) : null}
-              <span className="tabular text-xs text-muted-foreground">
-                {count} {plural(count, "položka", "položky", "položek")}
-              </span>
-            </span>
+            {wins > 0 ? (
+              <Badge variant="outline" className="tabular">
+                {wins} {plural(wins, "microwin", "microwiny", "microwinů")}
+              </Badge>
+            ) : null}
           </span>
-          <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+
         </button>
 
         <div className="flex shrink-0 items-center gap-0.5">

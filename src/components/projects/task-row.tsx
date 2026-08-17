@@ -75,15 +75,11 @@ export function TaskRow({
           <span className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
             {binary ? null : children.length > 0 ? (
               <span className="tabular">
-                {children.filter((c) => isTaskDone(state, c)).length} / {children.length}{" "}
-                {plural(children.length, "podúkol", "podúkoly", "podúkolů")}
+                {children.length} {plural(children.length, "podúkol", "podúkoly", "podúkolů")}
               </span>
-            ) : (
-              <span className="tabular">
-                {formatNumber(task.current)} / {formatNumber(task.target)}
-                {task.unit ? ` ${task.unit}` : ""}
-              </span>
-            )}
+            ) : task.unit ? (
+              <span className="tabular">{task.unit}</span>
+            ) : null}
             {task.dueDate ? (
               <span className={cn(overdue && "text-destructive")}>
                 {binary ? "" : "· "}termín {formatDate(task.dueDate)}

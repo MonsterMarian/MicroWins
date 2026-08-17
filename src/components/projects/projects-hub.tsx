@@ -6,6 +6,7 @@ import { Plus, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input, Select } from "@/components/ui/input";
+import { Fab } from "@/components/ui/fab";
 import { SortableItem, SortableList } from "@/components/ui/sortable";
 import { useStore } from "@/components/providers/store-provider";
 import { usePrefs, setPrefs } from "@/components/providers/use-prefs";
@@ -221,9 +222,6 @@ function ProjectsTab({ onNewProject }: { onNewProject: () => void }) {
             </option>
           ))}
         </Select>
-        <Button size="sm" onClick={onNewProject} className="ml-auto shrink-0">
-          <Plus /> Nový projekt
-        </Button>
       </div>
 
       <Card className="overflow-hidden -mx-4 rounded-none border-x-0 sm:mx-0 sm:rounded-xl sm:border-x">
@@ -257,6 +255,10 @@ function ProjectsTab({ onNewProject }: { onNewProject: () => void }) {
             : "Přetahovat jde ve vlastním pořadí - přepni řazení vlevo nahoře."}
         </p>
       ) : null}
+
+      <Fab onClick={onNewProject} aria-label="Nový projekt">
+        <Plus /> Nový projekt
+      </Fab>
     </div>
   );
 }

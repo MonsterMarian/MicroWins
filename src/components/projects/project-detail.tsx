@@ -18,7 +18,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
 import { Fab } from "@/components/ui/fab";
@@ -64,6 +64,7 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
   const [taskOpen, setTaskOpen] = React.useState(false);
   const [milestonesOpen, setMilestonesOpen] = React.useState(false);
   const [confirmDelete, setConfirmDelete] = React.useState(false);
+  const [confirmArchive, setConfirmArchive] = React.useState(false);
   const [sort, setSort] = React.useState<TaskSort>("custom");
   const [description, setDescription] = React.useState("");
 
@@ -125,11 +126,11 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
         </h1>
         <Link
           href={`/projects/stats?id=${project.id}`}
-          className="inline-flex size-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+          className={buttonVariants({ variant: "ghost", size: "icon" })}
           aria-label="Statistiky projektu"
           title="Statistiky projektu"
         >
-          <ChartLine className="size-4" />
+          <ChartLine />
         </Link>
         <Button
           variant="ghost"
@@ -148,7 +149,7 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
           size="icon"
           aria-label={project.archivedAt ? "Vrátit z archivu" : "Archivovat"}
           title={project.archivedAt ? "Vrátit z archivu" : "Archivovat"}
-          onClick={() => setProjectArchived(project.id, project.archivedAt === null)}
+          onClick={() => setConfirmArchive(true)}
         >
           <Archive />
         </Button>
@@ -382,6 +383,32 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
           {state.snapshots.filter((s) => s.projectId === project.id).length} denních otisků.
         </p>
       </Dialog>
+
+      <Dialog
+        open={confirmArchive}
+        onOpenChange={setConfirmArchive}
+        title={project.archivedAt ? "Vrátit projekt z archivu?" : "Archivovat projekt?"}
+        description={
+          project.archivedAt
+            ? "Projekt se znovu zařadí mezi aktivní a bude se započítávat do přehledů."
+            : "Projekt zmizí z hlavní obrazovky, ale kdykoliv se k němu můžeš vrátit přes filtr."
+        }
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setConfirmArchive(false)}>
+              Zrušit
+            </Button>
+            <Button
+              onClick={() => {
+                setProjectArchived(project.id, project.archivedAt === null);
+                setConfirmArchive(false);
+              }}
+            >
+              {project.archivedAt ? "Vrátit" : "Archivovat"}
+            </Button>
+          </>
+        }
+      />
     </div>
   );
 }

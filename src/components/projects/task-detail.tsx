@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
+  ChartLine,
   ChevronDown,
   Flag,
   Minus,
@@ -15,7 +16,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
 import { Fab } from "@/components/ui/fab";
@@ -130,7 +131,20 @@ export function TaskDetail({ taskId }: { taskId: string }) {
           <EntityIcon icon={task.icon} size="lg" />
         </span>
         <h1 className="min-w-0 flex-1 truncate text-lg font-semibold tracking-tight">{task.name}</h1>
-        <Button variant="ghost" size="icon" aria-label="Upravit" onClick={() => setEditOpen(true)}>
+        <Link
+          href={`/projects/stats?id=${task.projectId}`}
+          className={buttonVariants({ variant: "ghost", size: "icon" })}
+          aria-label="Statistiky projektu"
+          title="Statistiky projektu"
+        >
+          <ChartLine />
+        </Link>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="Upravit"
+          onClick={() => setEditOpen(true)}
+        >
           <Pencil />
         </Button>
         <Button

@@ -3,11 +3,14 @@
 import * as React from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
+import { IconField } from "@/components/ui/icon-picker";
 import { Field, Input, Select } from "@/components/ui/input";
 import { useStore } from "@/components/providers/store-provider";
 import { milestonesOfProject } from "@/lib/projects";
 import type { Task } from "@/lib/types";
 import { parseWhole } from "@/lib/utils";
+
+const QUICK_ICONS = ["lucide:CheckCircle2", "lucide:Target", "lucide:Zap", "💪", "🏃", "🧠", "🎯"];
 
 export function TaskDialog({
   open,
@@ -26,6 +29,7 @@ export function TaskDialog({
 }) {
   const { state, createTask, updateTask } = useStore();
   const [name, setName] = React.useState("");
+  const [icon, setIcon] = React.useState("lucide:CheckCircle2");
   const [target, setTarget] = React.useState("1");
   const [current, setCurrent] = React.useState("0");
   const [unit, setUnit] = React.useState("");
@@ -39,6 +43,7 @@ export function TaskDialog({
   React.useEffect(() => {
     if (!open) return;
     setName(task?.name ?? "");
+    setIcon(task?.icon ?? "lucide:CheckCircle2");
     setTarget(String(task?.target ?? 1));
     setCurrent(String(task?.current ?? 0));
     setUnit(task?.unit ?? "");
@@ -72,6 +77,7 @@ export function TaskDialog({
     if (task) {
       updateTask(task.id, {
         name: trimmed,
+        icon,
         target: targetNum,
         current: currentNum,
         unit: unit.trim() || undefined,
@@ -84,6 +90,7 @@ export function TaskDialog({
     } else {
       createTask(projectId, {
         name: trimmed,
+        icon,
         target: targetNum,
         current: currentNum,
         unit: unit.trim() || undefined,
@@ -131,6 +138,10 @@ export function TaskDialog({
             placeholder="2000 kliků"
             autoComplete="off"
           />
+        </Field>
+
+        <Field label="Ikona">
+          <IconField value={icon} onChange={setIcon} quick={QUICK_ICONS} />
         </Field>
 
         <div className="grid grid-cols-3 gap-3">

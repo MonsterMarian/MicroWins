@@ -4,10 +4,21 @@ import sharp from "sharp";
 
 const RES = path.join("android", "app", "src", "main", "res");
 
-// Tmavé pozadí odpovídající obrázku nebo defaultní
-const BG = "#09090B";
-
 const SOURCE_IMAGE = "assets/icon_source.jpg";
+
+/**
+ * Pozadí adaptivní ikony se čte z rohu fotky, ne z konstanty.
+ *
+ * Fotka má vlastní tmavé pozadí a popředí ikony je její výřez - když se ty dvě
+ * barvy rozejdou, je v ikoně vidět světlejší čtverec fotky na tmavším podkladu.
+ * Přesně to se stalo, když pozadí zůstalo napevno na #09090B a fotka měla
+ * #161616. Odečtením z fotky to sedí i po její výměně.
+ */
+async function backgroundColor() {
+  const { data, info } = await sharp(SOURCE_IMAGE).raw().toBuffer({ resolveWithObject: true });
+  const [r, g, b] = [0, 1, 2].map((i) => data[(2 * info.width + 2) * info.channels + i]);
+  return { hex: `#${[r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("").toUpperCase()}`, r, g, b };
+}
 
 async function write(file, buffer) {
   await mkdir(path.dirname(file), { recursive: true });
@@ -37,18 +48,23 @@ async function processImage(size, radius = 0) {
     return await img.png().toBuffer();
 }
 
+/**
+ * Popředí adaptivní ikony.
+ *
+ * Tvar ikony si kreslí launcher - ořízne plátno svojí maskou (kolečko,
+ * čtvereček, squircle) a garantuje jen vnitřních zhruba 66 %. Fotka proto sedí
+ * zmenšená uprostřed, ale zůstává **čtvercová**: kdo si v launcheru nastaví
+ * čtvereček, dostane čtvereček. Dřív se tu fotka ořezávala natvrdo do kruhu,
+ * takže kolečko bylo vidět i na hranatém launcheru - a maska k tomu uřízla
+ * poháru podstavec.
+ */
 async function processForeground(size) {
-    // Pro adaptive ikonu zmenšíme obrázek, aby seděl doprostřed a nebyl oříznut.
-    // Ořízneme ho na kruh a vložíme do průhledného plátna.
     const innerSize = Math.round(size * 0.66);
-    let img = await sharp(SOURCE_IMAGE)
+    const img = await sharp(SOURCE_IMAGE)
         .resize(innerSize, innerSize, { fit: 'cover' })
+        .png()
         .toBuffer();
-    
-    // uděláme z něj kruh
-    const circle = Buffer.from(`<svg><circle cx="${innerSize/2}" cy="${innerSize/2}" r="${innerSize/2}"/></svg>`);
-    img = await sharp(img).composite([{ input: circle, blend: 'dest-in' }]).png().toBuffer();
-    
+
     return await sharp({
         create: {
             width: size,
@@ -59,7 +75,7 @@ async function processForeground(size) {
     }).composite([{ input: img, gravity: 'center' }]).png().toBuffer();
 }
 
-async function processSplash(w, h) {
+async function processSplash(w, h, bg) {
     // Splash: velké logo doprostřed tmavého plátna.
     const mark = Math.round(Math.min(w, h) * 0.26);
     let img = await sharp(SOURCE_IMAGE)
@@ -76,12 +92,14 @@ async function processSplash(w, h) {
             width: w,
             height: h,
             channels: 4,
-            background: { r: 9, g: 9, b: 11, alpha: 1 } // #09090B
+            background: { r: bg.r, g: bg.g, b: bg.b, alpha: 1 }
         }
     }).composite([{ input: img, gravity: 'center' }]).png().toBuffer();
 }
 
 async function generate() {
+    const bg = await backgroundColor();
+
     // Generate rounded icon for general assets
     const roundedIcon = await processImage(1024, 225);
     await write("assets/icon.png", roundedIcon);
@@ -98,19 +116,19 @@ async function generate() {
     }
 
     for (const [density, [w, h]] of Object.entries(SPLASH)) {
-      await write(path.join(RES, `drawable-port-${density}`, "splash.png"), await processSplash(w, h));
-      await write(path.join(RES, `drawable-land-${density}`, "splash.png"), await processSplash(h, w));
+      await write(path.join(RES, `drawable-port-${density}`, "splash.png"), await processSplash(w, h, bg));
+      await write(path.join(RES, `drawable-land-${density}`, "splash.png"), await processSplash(h, w, bg));
     }
-    await write(path.join(RES, "drawable", "splash.png"), await processSplash(480, 800));
+    await write(path.join(RES, "drawable", "splash.png"), await processSplash(480, 800, bg));
 
     await write(
       path.join(RES, "values", "ic_launcher_background.xml"),
       Buffer.from(
-        `<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <color name="ic_launcher_background">${BG}</color>\n</resources>\n`,
+        `<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <color name="ic_launcher_background">${bg.hex}</color>\n</resources>\n`,
       ),
     );
 
-    console.log("Ikony a splash vygenerovány z fotky.");
+    console.log(`Ikony a splash vygenerovány z fotky. Pozadí ${bg.hex} (odečteno z fotky).`);
 }
 
 generate().catch(console.error);

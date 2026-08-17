@@ -1,13 +1,32 @@
 "use client";
 
 import * as React from "react";
-import { Check, ChevronRight, Moon, RefreshCw, Sun } from "lucide-react";
+import {
+  Check,
+  ChevronRight,
+  ClipboardPaste,
+  Download,
+  Moon,
+  RefreshCw,
+  Sun,
+  Upload,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+import { Input, Textarea } from "@/components/ui/input";
+import { useStore } from "@/components/providers/store-provider";
 import { usePrefs, setPrefs } from "@/components/providers/use-prefs";
 import { useToast } from "@/components/providers/toast-provider";
+import { parseBackup } from "@/lib/backup";
 import { ACCENTS, ADDONS } from "@/lib/prefs";
+import {
+  countState,
+  hasScope,
+  mergeState,
+  type ImportMode,
+  type ImportScope,
+} from "@/lib/import";
+import type { MicroWinsState } from "@/lib/types";
 import {
   applyPendingUpdate,
   checkForUpdate,
@@ -19,7 +38,7 @@ import {
   setUpdateUrl,
 } from "@/lib/live-update";
 import { isNative, syncStatusBar } from "@/lib/native";
-import { cn } from "@/lib/utils";
+import { cn, plural } from "@/lib/utils";
 
 export function SettingsDialog({
   open,
@@ -28,7 +47,7 @@ export function SettingsDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const [activeTab, setActiveTab] = React.useState<"main" | "addons">("main");
+  const [activeTab, setActiveTab] = React.useState<Tab>("main");
   const [native, setNative] = React.useState(false);
 
   React.useEffect(() => setNative(isNative()), []);
@@ -43,34 +62,25 @@ export function SettingsDialog({
       open={open}
       onOpenChange={onOpenChange}
       title="Nastavení"
-      description="Vzhled a chování appky."
+      description="Vzhled, data a chování appky."
     >
       <div className="flex flex-col gap-5">
         <div className="flex gap-1 border-b">
-          <button
-            type="button"
-            onClick={() => setActiveTab("main")}
-            className={cn(
-              "-mb-px border-b-2 px-3 py-2 text-sm transition-colors",
-              activeTab === "main"
-                ? "border-foreground font-medium text-foreground"
-                : "border-transparent text-muted-foreground hover:text-foreground",
-            )}
-          >
-            Hlavní
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("addons")}
-            className={cn(
-              "-mb-px border-b-2 px-3 py-2 text-sm transition-colors",
-              activeTab === "addons"
-                ? "border-foreground font-medium text-foreground"
-                : "border-transparent text-muted-foreground hover:text-foreground",
-            )}
-          >
-            Addony
-          </button>
+          {TABS.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              className={cn(
+                "-mb-px border-b-2 px-3 py-2 text-sm transition-colors",
+                activeTab === tab.id
+                  ? "border-foreground font-medium text-foreground"
+                  : "border-transparent text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
 
         {activeTab === "main" ? (
@@ -86,6 +96,10 @@ export function SettingsDialog({
 
             {native ? <UpdateSection /> : null}
           </div>
+        ) : activeTab === "data" ? (
+          <div className="flex flex-col gap-5 animate-in-up">
+            <DataSection native={native} onImported={() => onOpenChange(false)} />
+          </div>
         ) : (
           <div className="flex flex-col gap-5 animate-in-up">
             <Section title="Addony" hint="Vypnutá část zmizí i se svou záložkou; data zůstanou.">
@@ -95,6 +109,381 @@ export function SettingsDialog({
         )}
       </div>
     </Dialog>
+  );
+}
+
+type Tab = "main" | "data" | "addons";
+
+const TABS: { id: Tab; label: string }[] = [
+  { id: "main", label: "Hlavní" },
+  { id: "data", label: "Data" },
+  { id: "addons", label: "Addony" },
+];
+
+interface PendingImport {
+  text: string;
+  /** Odkud data přišla - jméno souboru nebo "vložený text". */
+  source: string;
+  incoming: MicroWinsState;
+}
+
+/**
+ * Záloha a obnova. Export bere celý stav včetně nastavení (viz `lib/backup.ts`),
+ * takže odsud vypadne úplně všechno, co appka drží - ne jen to, co je zrovna
+ * vidět na obrazovce.
+ */
+function DataSection({ native, onImported }: { native: boolean; onImported: () => void }) {
+  const { state, exportJson, importJson } = useStore();
+  const { toast } = useToast();
+  const fileRef = React.useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = React.useState(false);
+  const [pasteOpen, setPasteOpen] = React.useState(false);
+  const [pasted, setPasted] = React.useState("");
+  /** Záloha čekající na potvrzení - viz `offerImport`. */
+  const [pending, setPending] = React.useState<PendingImport | null>(null);
+
+  const counts = React.useMemo(() => countState(state), [state]);
+
+  const onExport = async () => {
+    setBusy(true);
+    const res = await exportJson();
+    setBusy(false);
+    if (res.kind === "failed") {
+      toast({ tone: "warn", title: "Export se nepovedl", description: res.message.slice(0, 120) });
+      return;
+    }
+    toast({
+      tone: "info",
+      title: "Záloha vytvořena",
+      description:
+        res.kind === "shared"
+          ? "Vyber, kam ji uložit nebo komu poslat."
+          : res.kind === "saved"
+            ? `Uloženo do ${res.path}`
+            : "Soubor je ve složce Stažené.",
+    });
+  };
+
+  /**
+   * Záloha se nenačte rovnou - napřed se ukáže, co v ní je a co se se
+   * současnými daty stane. Import umí smazat práci několika měsíců, tohle je
+   * poslední místo, kde to jde zastavit.
+   */
+  const offerImport = (text: string, source: string) => {
+    const parsed = parseBackup(text);
+    if (!parsed) {
+      toast({
+        tone: "warn",
+        title: "Soubor nejde načíst",
+        description: "Nevypadá jako záloha MicroWins.",
+      });
+      return;
+    }
+    setPending({ text, source, incoming: parsed.state });
+  };
+
+  const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    offerImport(await file.text(), file.name);
+  };
+
+  return (
+    <>
+      <Section
+        title="Data"
+        hint={
+          native
+            ? "Vše žije v telefonu. Odinstalace appky data smaže - záloha je na tobě."
+            : "Vše žije v prohlížeči. Záloha je na tobě."
+        }
+      >
+        <dl className="mb-1 grid grid-cols-4 gap-2 rounded-lg border bg-muted/30 p-2.5 text-center">
+          <Stat value={counts.folders} label={plural(counts.folders, "složka", "složky", "složek")} />
+          <Stat value={counts.wins} label={plural(counts.wins, "win", "winy", "winů")} />
+          <Stat
+            value={counts.entries}
+            label={plural(counts.entries, "záznam", "záznamy", "záznamů")}
+          />
+          <Stat
+            value={counts.projects}
+            label={plural(counts.projects, "projekt", "projekty", "projektů")}
+          />
+        </dl>
+
+        <Button variant="outline" className="justify-start" disabled={busy} onClick={onExport}>
+          <Download /> {busy ? "Připravuju zálohu…" : "Exportovat vše"}
+        </Button>
+
+        <Button variant="outline" className="justify-start" onClick={() => fileRef.current?.click()}>
+          <Upload /> Obnovit ze souboru
+        </Button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="application/json,.json"
+          className="hidden"
+          onChange={onFile}
+        />
+
+        {pasteOpen ? (
+          <div className="flex flex-col gap-2 rounded-lg border p-3">
+            <Textarea
+              value={pasted}
+              onChange={(e) => setPasted(e.target.value)}
+              placeholder='{"format":"microwins-backup", …}'
+              className="min-h-24 font-mono text-xs"
+            />
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setPasteOpen(false)}>
+                Zrušit
+              </Button>
+              <Button
+                size="sm"
+                disabled={!pasted.trim()}
+                onClick={() => offerImport(pasted, "vložený text")}
+              >
+                Načíst
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setPasteOpen(true)}
+            className="flex items-center gap-1.5 self-start px-1 py-1 text-xs text-muted-foreground hover:text-foreground"
+          >
+            <ClipboardPaste className="size-3.5" />
+            Nebo vlož zálohu jako text
+          </button>
+        )}
+      </Section>
+
+      {pending ? (
+        <ImportDialog
+          pending={pending}
+          onClose={() => setPending(null)}
+          onConfirm={(scope, mode, summary) => {
+            if (importJson(pending.text, { scope, mode })) {
+              toast({ tone: "info", title: "Data načtena", description: summary });
+              setPending(null);
+              onImported();
+            } else {
+              toast({ tone: "warn", title: "Načtení selhalo" });
+            }
+          }}
+        />
+      ) : null}
+    </>
+  );
+}
+
+const SCOPES: { id: ImportScope; label: string; hint: string }[] = [
+  { id: "all", label: "Vše", hint: "strom i projekty" },
+  { id: "projects", label: "Jen projekty", hint: "strom winů zůstane beze změny" },
+  { id: "tree", label: "Jen strom", hint: "projekty zůstanou beze změny" },
+];
+
+const MODES: { id: ImportMode; label: string; hint: string }[] = [
+  { id: "add", label: "Přidat", hint: "nic se nesmaže, data se připojí" },
+  { id: "replace", label: "Nahradit", hint: "vybraná část se přepíše zálohou" },
+];
+
+/**
+ * Náhled importu: co je v souboru, co se s tím stane a co zůstane.
+ * Počty "po načtení" se počítají skutečným sloučením, ne odhadem - co je
+ * v náhledu, to se opravdu uloží.
+ */
+function ImportDialog({
+  pending,
+  onClose,
+  onConfirm,
+}: {
+  pending: PendingImport;
+  onClose: () => void;
+  onConfirm: (scope: ImportScope, mode: ImportMode, summary: string) => void;
+}) {
+  const { state } = useStore();
+  const incoming = React.useMemo(() => countState(pending.incoming), [pending.incoming]);
+
+  // Když záloha nese jen jednu polovinu, není co vybírat.
+  const [scope, setScope] = React.useState<ImportScope>(() => {
+    if (!hasScope(incoming, "tree")) return "projects";
+    if (!hasScope(incoming, "projects")) return "tree";
+    return "all";
+  });
+  const [mode, setMode] = React.useState<ImportMode>("add");
+
+  const before = React.useMemo(() => countState(state), [state]);
+  const after = React.useMemo(
+    () => countState(mergeState(state, pending.incoming, scope, mode)),
+    [state, pending.incoming, scope, mode],
+  );
+
+  const touchesTree = scope !== "projects";
+  const touchesProjects = scope !== "tree";
+  const summary = `${pending.source} · ${SCOPES.find((s) => s.id === scope)?.label.toLowerCase()}`;
+
+  return (
+    <Dialog
+      open
+      onOpenChange={(next) => !next && onClose()}
+      title="Načíst zálohu"
+      description={pending.source}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Zrušit
+          </Button>
+          <Button
+            variant={mode === "replace" ? "destructive" : "default"}
+            disabled={!hasScope(incoming, scope)}
+            onClick={() => onConfirm(scope, mode, summary)}
+          >
+            {mode === "replace" ? "Nahradit" : "Přidat"}
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-4">
+        <div className="rounded-lg border bg-muted/30 p-3">
+          <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            V souboru
+          </p>
+          <p className="text-sm">
+            {incoming.projects} {plural(incoming.projects, "projekt", "projekty", "projektů")},{" "}
+            {incoming.tasks} {plural(incoming.tasks, "úkol", "úkoly", "úkolů")} ·{" "}
+            {incoming.folders} {plural(incoming.folders, "složka", "složky", "složek")},{" "}
+            {incoming.wins} {plural(incoming.wins, "win", "winy", "winů")}
+          </p>
+        </div>
+
+        <Choice
+          label="Co načíst"
+          options={SCOPES}
+          value={scope}
+          onChange={setScope}
+          disabledIds={SCOPES.filter((s) => !hasScope(incoming, s.id)).map((s) => s.id)}
+        />
+        <Choice label="Jak" options={MODES} value={mode} onChange={setMode} />
+
+        <div className="flex flex-col gap-1.5 rounded-lg border p-3">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Po načtení
+          </p>
+          <Change
+            label="Projekty"
+            from={before.projects}
+            to={after.projects}
+            touched={touchesProjects}
+          />
+          <Change label="Úkoly" from={before.tasks} to={after.tasks} touched={touchesProjects} />
+          <Change label="ToDo" from={before.todos} to={after.todos} touched={touchesProjects} />
+          <Change label="Složky" from={before.folders} to={after.folders} touched={touchesTree} />
+          <Change label="Winy" from={before.wins} to={after.wins} touched={touchesTree} />
+          <Change
+            label="Microwiny"
+            from={before.microwins}
+            to={after.microwins}
+            touched={touchesTree}
+          />
+        </div>
+
+        {mode === "replace" ? (
+          <p className="text-xs text-destructive">
+            Nahrazení je nevratné. {scope === "projects" ? "Stávající projekty a úkoly zmizí." : null}
+            {scope === "tree" ? "Stávající strom, záznamy i microwiny zmizí." : null}
+            {scope === "all" ? "Všechna současná data zmizí." : null}
+          </p>
+        ) : null}
+      </div>
+    </Dialog>
+  );
+}
+
+function Choice<T extends string>({
+  label,
+  options,
+  value,
+  onChange,
+  disabledIds = [],
+}: {
+  label: string;
+  options: { id: T; label: string; hint: string }[];
+  value: T;
+  onChange: (value: T) => void;
+  disabledIds?: T[];
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <p className="text-xs font-medium text-muted-foreground">{label}</p>
+      {options.map((o) => {
+        const disabled = disabledIds.includes(o.id);
+        const active = o.id === value;
+        return (
+          <button
+            key={o.id}
+            type="button"
+            disabled={disabled}
+            onClick={() => onChange(o.id)}
+            aria-pressed={active}
+            className={cn(
+              "flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm transition-colors",
+              active
+                ? "border-foreground/40 bg-accent font-medium"
+                : "text-muted-foreground hover:bg-accent/50",
+              disabled && "cursor-not-allowed opacity-40 hover:bg-transparent",
+            )}
+          >
+            <span className="shrink-0">{o.label}</span>
+            <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+              {disabled ? "v souboru není" : o.hint}
+            </span>
+            {active ? <Check className="size-3.5 shrink-0 opacity-60" /> : null}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Řádek "Projekty 2 → 18"; nedotčená část se drží zpátky. */
+function Change({
+  label,
+  from,
+  to,
+  touched,
+}: {
+  label: string;
+  from: number;
+  to: number;
+  touched: boolean;
+}) {
+  return (
+    <div className="flex items-baseline gap-2 text-sm">
+      <span className={cn("flex-1", !touched && "text-muted-foreground")}>{label}</span>
+      {touched && to !== from ? (
+        <span className="tabular shrink-0">
+          <span className="text-muted-foreground">{from}</span>
+          <span className="mx-1 text-muted-foreground">→</span>
+          <span className={cn("font-medium", to < from && "text-destructive")}>{to}</span>
+        </span>
+      ) : (
+        <span className="tabular shrink-0 text-muted-foreground">
+          {from} {touched ? "" : "· beze změny"}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function Stat({ value, label }: { value: number; label: string }) {
+  return (
+    <div>
+      <dd className="tabular text-base font-semibold">{value}</dd>
+      <dt className="text-[11px] leading-tight text-muted-foreground">{label}</dt>
+    </div>
   );
 }
 

@@ -57,20 +57,23 @@ export const DEFAULT_TAB_ORDER: HubTab[] = ["overview", "todo", "projects"];
  * a jedna položka v `DEFAULT_ADDONS` - všechno ostatní (obrazovka v Nastavení,
  * načítání i ukládání) jede z tohohle seznamu.
  */
-export type AddonId = "todo";
+export type AddonId = "overview" | "todo";
 
 export const ADDONS: { id: AddonId; label: string; hint: string }[] = [
+  { id: "overview", label: "Přehled", hint: "úvodní obrazovka s celkovou statistikou" },
   { id: "todo", label: "ToDo", hint: "krátký seznam na dnešek vedle projektů" },
 ];
 
 export type Addons = Record<AddonId, boolean>;
 
 export const DEFAULT_ADDONS: Addons = {
+  overview: true,
   todo: true,
 };
 
 /** Záložka, kterou vypnutý addon schová. Addon bez záložky sem nepatří. */
 export const ADDON_TAB: Partial<Record<AddonId, HubTab>> = {
+  overview: "overview",
   todo: "todo",
 };
 

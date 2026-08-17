@@ -139,11 +139,17 @@ function treePart(
   const microwinIds = remap(incoming.microwins.map((m) => m.id));
   const wid = (id: string) => (fresh ? (microwinIds.get(id) ?? id) : id);
 
+  /* Záznam má vlastní id stejně jako uzel nebo microwin. Bez přeražení by
+     dvojí načtení téže zálohy v režimu `add` vyrobilo dva záznamy se stejným
+     id - a `deleteEntry` maže podle id, takže by smazání jednoho sebralo oba. */
+  const entryIds = remap(incoming.entries.map((e) => e.id));
+  const eid = (id: string) => (fresh ? (entryIds.get(id) ?? id) : id);
+
   return {
     nodes,
     entries: incoming.entries
       .filter((e) => known.has(e.metricId))
-      .map((e) => ({ ...e, metricId: nid(e.metricId) })),
+      .map((e) => ({ ...e, id: eid(e.id), metricId: nid(e.metricId) })),
     microwins: incoming.microwins
       .filter((m) => known.has(m.metricId))
       .map((m) => ({ ...m, id: wid(m.id), metricId: nid(m.metricId) })),

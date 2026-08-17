@@ -531,93 +531,32 @@ function TimelineOverview() {
 /** Kolik práce se skutečně odvedlo. Jediná karta, která měří tempo, ne stav. */
 function PulseOverview() {
   const { state, today } = useStore();
-  const activity = React.useMemo(() => portfolioActivity(state, 30, today), [state, today]);
-  const streak = React.useMemo(() => streaks(state, today), [state, today]);
   const movers = React.useMemo(() => todayMovers(state, today), [state, today]);
 
-  const total = activity.reduce((s, a) => s + a.gain, 0);
-  const activeDays = activity.filter((a) => a.gain > 0).length;
-  const best = activity.reduce((m, a) => (a.gain > m.gain ? a : m), activity[0]);
-
   return (
-    <div className="flex flex-col gap-4">
-      <div className="grid grid-cols-3 gap-3">
-        <Stat label="Za 30 dní" value={`${formatTenth(total)} b.`} hint="součet přírůstků" />
-        <Stat
-          label="Dní s prací"
-          value={`${activeDays} / 30`}
-          hint={activeDays > 0 ? `nejlepší ${formatTenth(best.gain)} b.` : "zatím nic"}
-        />
-        <Stat
-          label="Série microwinů"
-          value={String(streak.current)}
-          hint={plural(streak.current, "den", "dny", "dní")}
-          icon={Flame}
-        />
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Denní přírůstky</CardTitle>
-          <CardDescription>
-            Kolik procentních bodů celkem přibylo napříč projekty. Klesající dny se nepočítají.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <DailyBarChart
-            points={activity.map((a) => ({ date: a.date, value: a.gain }))}
-            unit=" b."
-          />
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Dnes</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-2">
-          {movers.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Dnes se zatím nic nepohnulo.</p>
-          ) : (
-            movers.map((m) => (
-              <Link
-                key={m.project.id}
-                href={`/projects?id=${m.project.id}`}
-                className="flex items-center gap-3 rounded-md px-1 py-1.5 hover:bg-accent/60"
-              >
-                <EntityIcon icon={m.project.icon} size="lg" />
-                <span className="min-w-0 flex-1 truncate text-sm">{m.project.name}</span>
-                <Badge variant="outline" className="tabular border-progress/40 text-progress">
-                  +{formatTenth(m.delta)} b.
-                </Badge>
-              </Link>
-            ))
-          )}
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
-function Stat({
-  label,
-  value,
-  hint,
-  icon: Icon,
-}: {
-  label: string;
-  value: string;
-  hint: string;
-  icon?: React.ElementType;
-}) {
-  return (
-    <Card className="p-4">
-      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-        {Icon ? <Icon className="size-3.5" /> : null}
-        {label}
-      </div>
-      <p className="tabular mt-1.5 text-xl font-semibold tracking-tight">{value}</p>
-      <p className="mt-0.5 truncate text-xs text-muted-foreground">{hint}</p>
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Dnes</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-2">
+        {movers.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Dnes se zatím nic nepohnulo.</p>
+        ) : (
+          movers.map((m) => (
+            <Link
+              key={m.project.id}
+              href={`/projects?id=${m.project.id}`}
+              className="flex items-center gap-3 rounded-md px-1 py-1.5 hover:bg-accent/60"
+            >
+              <EntityIcon icon={m.project.icon} size="lg" />
+              <span className="min-w-0 flex-1 truncate text-sm">{m.project.name}</span>
+              <Badge variant="outline" className="tabular border-progress/40 text-progress">
+                +{formatTenth(m.delta)} % denní přírůstky
+              </Badge>
+            </Link>
+          ))
+        )}
+      </CardContent>
     </Card>
   );
 }

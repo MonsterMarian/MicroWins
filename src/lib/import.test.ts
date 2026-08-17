@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addCategory, addCheck, addEntry, addMetric } from "./actions";
+import { addCategory, addCheck, addEntry, addMetric, deleteEntry } from "./actions";
 import { countState, hasScope, mergeState } from "./import";
 import { createProject, createTask } from "./project-actions";
 import { addTodo, toggleTodo } from "./todos";
@@ -163,6 +163,28 @@ describe("import jen stromu", () => {
     expect(merged.entries).toHaveLength(1);
     expect(metricIds.has(merged.entries[0].metricId)).toBe(true);
     expect(metricIds.has(merged.microwins[0].metricId)).toBe(true);
+  });
+
+  /* Uzly i microwiny se při `add` přerážejí odjakživa, záznamy se na to
+     zapomnělo. Dvakrát načtená stejná záloha tak vyrobila dva záznamy se
+     stejným id - a `deleteEntry` maže podle id, takže smazání jednoho sebralo
+     i ten druhý. */
+  it("dvojí přidání téže zálohy nevyrobí dva záznamy se stejným id", () => {
+    const once = mergeState(current, current, "tree", "add");
+    const twice = mergeState(once, current, "tree", "add");
+    const ids = twice.entries.map((e) => e.id);
+
+    expect(ids).toHaveLength(3);
+    expect(new Set(ids).size).toBe(3);
+  });
+
+  it("smazání jednoho ze zdvojených záznamů nechá ten druhý být", () => {
+    const merged = mergeState(current, current, "tree", "add");
+    const doomed = merged.entries[0];
+    const after = deleteEntry(merged, doomed.id, TODAY);
+
+    expect(after.entries).toHaveLength(merged.entries.length - 1);
+    expect(after.entries.some((e) => e.id === doomed.id)).toBe(false);
   });
 
   it("hierarchie složek přežije přerazení id", () => {

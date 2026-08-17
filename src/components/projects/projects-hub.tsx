@@ -8,7 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input, Select } from "@/components/ui/input";
 import { SortableItem, SortableList } from "@/components/ui/sortable";
 import { useStore } from "@/components/providers/store-provider";
-import { usePrefs } from "@/components/providers/use-prefs";
+import { usePrefs, setPrefs } from "@/components/providers/use-prefs";
 import { ADDON_TAB, HUB_TABS, type HubTab } from "@/lib/prefs";
 import { Overview } from "./overviews";
 import { ProjectDialog } from "./project-dialog";
@@ -138,23 +138,32 @@ export function ProjectsHub() {
         )}
       </header>
 
-      <div className="flex gap-1 border-b">
+      <SortableList
+        axis="x"
+        ids={tabs.map((t) => t.id)}
+        onReorder={(ids) => {
+          const hidden = tabOrder.filter((id) => !ids.includes(id));
+          setPrefs({ tabOrder: [...ids, ...hidden] as HubTab[] });
+        }}
+        className="flex gap-1 border-b"
+      >
         {tabs.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => setTab(t.id)}
-            className={cn(
-              "-mb-px border-b-2 px-3 py-2 text-sm transition-colors",
-              tab === t.id
-                ? "border-foreground font-medium text-foreground"
-                : "border-transparent text-muted-foreground hover:text-foreground",
-            )}
-          >
-            {t.label}
-          </button>
+          <SortableItem key={t.id} id={t.id} className="-mb-px flex">
+            <button
+              type="button"
+              onClick={() => setTab(t.id)}
+              className={cn(
+                "border-b-2 px-3 py-2 text-sm transition-colors",
+                tab === t.id
+                  ? "border-foreground font-medium text-foreground"
+                  : "border-transparent text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {t.label}
+            </button>
+          </SortableItem>
         ))}
-      </div>
+      </SortableList>
 
       {noProjects ? (
         <Card>

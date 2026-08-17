@@ -87,7 +87,7 @@ export interface Prefs {
 
 export const DEFAULT_PREFS: Prefs = {
   accent: "green",
-  overview: "classic",
+  overview: "pulse",
   headerLogo: false,
   addons: DEFAULT_ADDONS,
   tabOrder: DEFAULT_TAB_ORDER,

@@ -57,7 +57,7 @@ export function ProjectRow({ project }: { project: Project }) {
         <span className="block truncate text-xs text-muted-foreground">
           {formatDate(project.startDate)}
           {project.deadline ? ` - ${formatDate(project.deadline)}` : " -"}
-          {stats.daysLeft !== null
+          {stats.daysLeft !== null && !done
             ? ` · ${stats.daysLeft >= 0 ? `zbývá ${stats.daysLeft} dní` : `${-stats.daysLeft} dní po termínu`}`
             : ""}
         </span>

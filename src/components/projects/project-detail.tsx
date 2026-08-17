@@ -250,7 +250,7 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
               <Clock className="size-4 text-muted-foreground" />
               <dt className="text-muted-foreground">Zbývá dní:</dt>
               <dd className={cn("tabular font-medium", stats.overdue && "text-destructive")}>
-                {stats.daysLeft === null
+                {stats.percent >= 100 || stats.daysLeft === null
                   ? "-"
                   : stats.daysLeft >= 0
                     ? stats.daysLeft
@@ -270,7 +270,9 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
               <CheckSquare className="size-4 text-muted-foreground" />
               <dt className="text-muted-foreground">Uplynulo:</dt>
               <dd className="tabular font-medium">
-                {stats.daysElapsed} {plural(stats.daysElapsed, "den", "dny", "dní")}
+                {stats.percent >= 100
+                  ? "-"
+                  : `${stats.daysElapsed} ${plural(stats.daysElapsed, "den", "dny", "dní")}`}
               </dd>
             </div>
           </dl>

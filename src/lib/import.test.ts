@@ -99,6 +99,52 @@ describe("import jen projektů", () => {
     const merged = mergeState(current, incoming, "projects", "add");
     expect(merged.projects.map((p) => p.order)).toEqual([0, 1]);
   });
+
+  /* Přetažení projektu přepisuje jen `order`, pole zůstává v pořadí vzniku.
+     Kdyby se `order` při načtení počítalo z indexu, přišel by uživatel o ruční
+     uspořádání pokaždé, když si obnoví zálohu. */
+  it("ruční pořadí projektů přežije načtení, i když pole jede jinak", () => {
+    const base = stateWith({ tree: "x", project: "První" });
+    const two = createProject(base, { name: "Druhý" }, TODAY).state;
+    const three = createProject(two, { name: "Třetí" }, TODAY).state;
+
+    // Uživatel přetáhl "Třetí" úplně nahoru - pole se nehnulo, `order` ano.
+    const shuffled: MicroWinsState = {
+      ...three,
+      projects: three.projects.map((p) =>
+        p.name === "Třetí" ? { ...p, order: -1 } : p,
+      ),
+    };
+    const byOrder = (s: MicroWinsState) =>
+      [...s.projects].sort((a, b) => a.order - b.order).map((p) => p.name);
+
+    expect(byOrder(shuffled)).toEqual(["Třetí", "První", "Druhý"]);
+    expect(byOrder(mergeState(EMPTY_STATE, shuffled, "projects", "replace"))).toEqual([
+      "Třetí",
+      "První",
+      "Druhý",
+    ]);
+    expect(byOrder(mergeState(EMPTY_STATE, shuffled, "projects", "add"))).toEqual([
+      "Třetí",
+      "První",
+      "Druhý",
+    ]);
+  });
+
+  it("ruční pořadí ToDo přežije načtení taky", () => {
+    const base = addTodo(addTodo(EMPTY_STATE, "první").state, "druhá").state;
+    const shuffled: MicroWinsState = {
+      ...base,
+      todos: base.todos.map((t) => (t.text === "druhá" ? { ...t, order: -1 } : t)),
+    };
+    const byOrder = (s: MicroWinsState) =>
+      [...s.todos].sort((a, b) => a.order - b.order).map((t) => t.text);
+
+    expect(byOrder(mergeState(EMPTY_STATE, shuffled, "projects", "replace"))).toEqual([
+      "druhá",
+      "první",
+    ]);
+  });
 });
 
 describe("ToDo v záloze", () => {

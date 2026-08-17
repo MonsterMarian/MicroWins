@@ -123,21 +123,45 @@ export function backupFilename(): string {
   return `microwins-${todayISO()}.json`;
 }
 
+/**
+ * Kam má záloha jít.
+ *
+ * - `share`: systémové sdílení - Disk, mail, Messenger, cokoli. Soubor odletí
+ *   z telefonu, ale uživatel musí vybrat cíl.
+ * - `save`: rovnou do Dokumentů. Nic se nikam neposílá, záloha zůstane
+ *   v telefonu - dobré, když člověk jen chce soubor a vyřídí si ho potom.
+ *
+ * Obojí zapisuje ten samý soubor, liší se jen doručení. Volba je na
+ * uživateli, protože každý způsob selhává jinak: sdílení nemusí mít kam,
+ * ukládání může narazit na práva.
+ */
+export type ExportTarget = "share" | "save";
+
 /** Co se stalo s exportem - dialog podle toho napíše, kde soubor hledat. */
 export type ExportOutcome =
   | { kind: "shared" }
-  | { kind: "saved"; path: string }
+  | { kind: "saved"; path: string; name: string }
   | { kind: "downloaded" }
+  /** Uživatel zavřel systémové sdílení - není to chyba, jen se nic nestalo. */
+  | { kind: "cancelled" }
   | { kind: "failed"; message: string };
+
+/** Zavřené sdílení hlásí plugin jako chybu - od skutečné chyby ho odliší text. */
+function isCancelled(e: unknown): boolean {
+  return /cancel/i.test(String(e));
+}
 
 /**
  * Export zálohy.
  *
- * V prohlížeči stáhne soubor odkazem. V nativní appce odkaz nefunguje -
- * soubor se zapíše do úložiště a nabídne přes systémové sdílení, takže se dá
- * poslat na Disk, do mailu nebo kamkoli jinam.
+ * V prohlížeči stáhne soubor odkazem - `target` se tam neuplatní, prohlížeč
+ * jiné doručení nemá. V nativní appce odkaz nefunguje, takže soubor jde buď
+ * do sdílení, nebo do Dokumentů podle toho, co si uživatel vybral.
  */
-export async function exportBackup(state: MicroWinsState): Promise<ExportOutcome> {
+export async function exportBackup(
+  state: MicroWinsState,
+  target: ExportTarget = "share",
+): Promise<ExportOutcome> {
   const json = serializeBackup(state);
   const name = backupFilename();
 
@@ -156,6 +180,23 @@ export async function exportBackup(state: MicroWinsState): Promise<ExportOutcome
     }
   }
 
+  if (target === "save") {
+    try {
+      const saved = await Filesystem.writeFile({
+        path: name,
+        data: json,
+        directory: Directory.Documents,
+        encoding: Encoding.UTF8,
+      });
+      return { kind: "saved", path: saved.uri, name };
+    } catch (e) {
+      return { kind: "failed", message: String(e) };
+    }
+  }
+
+  // Sdílení potřebuje soubor na disku - do Cache, ať se neplete mezi zálohy,
+  // které si uživatel schválně uložil.
+  let uri: string;
   try {
     const written = await Filesystem.writeFile({
       path: name,
@@ -163,26 +204,15 @@ export async function exportBackup(state: MicroWinsState): Promise<ExportOutcome
       directory: Directory.Cache,
       encoding: Encoding.UTF8,
     });
-
-    try {
-      await Share.share({
-        title: "Záloha MicroWins",
-        text: name,
-        url: written.uri,
-      });
-      return { kind: "shared" };
-    } catch {
-      // Sdílení uživatel zavřel nebo na zařízení není - soubor už existuje,
-      // tak aspoň řekneme kde.
-      const saved = await Filesystem.writeFile({
-        path: name,
-        data: json,
-        directory: Directory.Documents,
-        encoding: Encoding.UTF8,
-      });
-      return { kind: "saved", path: saved.uri };
-    }
+    uri = written.uri;
   } catch (e) {
     return { kind: "failed", message: String(e) };
+  }
+
+  try {
+    await Share.share({ title: "Záloha MicroWins", text: name, url: uri });
+    return { kind: "shared" };
+  } catch (e) {
+    return isCancelled(e) ? { kind: "cancelled" } : { kind: "failed", message: String(e) };
   }
 }

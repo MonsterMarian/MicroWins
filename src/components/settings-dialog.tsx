@@ -8,6 +8,8 @@ import {
   Download,
   Moon,
   RefreshCw,
+  Save,
+  Share2,
   Sun,
   Upload,
 } from "lucide-react";
@@ -17,7 +19,7 @@ import { Input, Textarea } from "@/components/ui/input";
 import { useStore } from "@/components/providers/store-provider";
 import { usePrefs, setPrefs } from "@/components/providers/use-prefs";
 import { useToast } from "@/components/providers/toast-provider";
-import { parseBackup } from "@/lib/backup";
+import { parseBackup, type ExportTarget } from "@/lib/backup";
 import { ACCENTS, ADDONS } from "@/lib/prefs";
 import {
   countState,
@@ -138,7 +140,8 @@ function DataSection({ native, onImported }: { native: boolean; onImported: () =
   const { state, exportJson, importJson } = useStore();
   const { toast } = useToast();
   const fileRef = React.useRef<HTMLInputElement>(null);
-  const [busy, setBusy] = React.useState(false);
+  /** Který export zrovna běží - dvě tlačítka nesmí jet naráz. */
+  const [busy, setBusy] = React.useState<ExportTarget | null>(null);
   const [pasteOpen, setPasteOpen] = React.useState(false);
   const [pasted, setPasted] = React.useState("");
   /** Záloha čekající na potvrzení - viz `offerImport`. */
@@ -146,14 +149,18 @@ function DataSection({ native, onImported }: { native: boolean; onImported: () =
 
   const counts = React.useMemo(() => countState(state), [state]);
 
-  const onExport = async () => {
-    setBusy(true);
-    const res = await exportJson();
-    setBusy(false);
+  const onExport = async (target: ExportTarget) => {
+    setBusy(target);
+    const res = await exportJson(target);
+    setBusy(null);
+
     if (res.kind === "failed") {
       toast({ tone: "warn", title: "Export se nepovedl", description: res.message.slice(0, 120) });
       return;
     }
+    // Zavřené sdílení není chyba ani úspěch - uživatel ví, že nic nechtěl.
+    if (res.kind === "cancelled") return;
+
     toast({
       tone: "info",
       title: "Záloha vytvořena",
@@ -161,7 +168,7 @@ function DataSection({ native, onImported }: { native: boolean; onImported: () =
         res.kind === "shared"
           ? "Vyber, kam ji uložit nebo komu poslat."
           : res.kind === "saved"
-            ? `Uloženo do ${res.path}`
+            ? `Dokumenty / ${res.name}`
             : "Soubor je ve složce Stažené.",
     });
   };
@@ -194,9 +201,41 @@ function DataSection({ native, onImported }: { native: boolean; onImported: () =
   return (
     <>
       <Section title="Záloha">
-        <Button variant="outline" className="justify-start" disabled={busy} onClick={onExport}>
-          <Download /> {busy ? "Připravuju zálohu…" : "Exportovat vše"}
-        </Button>
+        {/* V appce má smysl vybrat si doručení, v prohlížeči vede všechno na
+            stažení - jedno tlačítko tam říká pravdu líp než dvě. */}
+        {native ? (
+          <>
+            <Button
+              variant="outline"
+              className="justify-start"
+              disabled={busy !== null}
+              onClick={() => onExport("share")}
+            >
+              <Share2 /> {busy === "share" ? "Připravuju zálohu…" : "Poslat zálohu"}
+            </Button>
+            <Button
+              variant="outline"
+              className="justify-start"
+              disabled={busy !== null}
+              onClick={() => onExport("save")}
+            >
+              <Save /> {busy === "save" ? "Ukládám…" : "Uložit do telefonu"}
+            </Button>
+            <p className="px-1 text-xs text-muted-foreground">
+              Poslat = vybereš appku, kam záloha odletí (Disk, mail). Uložit = soubor zůstane
+              v Dokumentech a vyřídíš si ho potom.
+            </p>
+          </>
+        ) : (
+          <Button
+            variant="outline"
+            className="justify-start"
+            disabled={busy !== null}
+            onClick={() => onExport("share")}
+          >
+            <Download /> {busy ? "Připravuju zálohu…" : "Exportovat vše"}
+          </Button>
+        )}
 
         <Button variant="outline" className="justify-start" onClick={() => fileRef.current?.click()}>
           <Upload /> Obnovit ze souboru

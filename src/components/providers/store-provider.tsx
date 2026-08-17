@@ -3,7 +3,13 @@
 import * as React from "react";
 import * as actions from "@/lib/actions";
 import * as projectActions from "@/lib/project-actions";
-import { applySettings, exportBackup, parseBackup, type ExportOutcome } from "@/lib/backup";
+import {
+  applySettings,
+  exportBackup,
+  parseBackup,
+  type ExportOutcome,
+  type ExportTarget,
+} from "@/lib/backup";
 import { todayISO } from "@/lib/date";
 import { applyDevSeed } from "@/lib/dev-seed";
 import { mergeState, type ImportMode, type ImportScope } from "@/lib/import";
@@ -85,8 +91,11 @@ export interface StoreApi {
    * dají natáhnout projekty odjinud, aniž by se sáhlo na strom winů.
    */
   importJson: (text: string, options?: { scope?: ImportScope; mode?: ImportMode }) => boolean;
-  /** Vyexportuje celou zálohu - sdílením v appce, stažením v prohlížeči. */
-  exportJson: () => Promise<ExportOutcome>;
+  /**
+   * Vyexportuje celou zálohu. V appce podle `target` buď nabídne sdílení,
+   * nebo soubor rovnou uloží do Dokumentů; v prohlížeči vždycky stáhne.
+   */
+  exportJson: (target?: ExportTarget) => Promise<ExportOutcome>;
 }
 
 const StoreContext = React.createContext<StoreApi | null>(null);
@@ -252,7 +261,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         if (scope === "all" && mode === "replace") applySettings(parsed.settings);
         return true;
       },
-      exportJson: () => exportBackup(ref.current),
+      exportJson: (target) => exportBackup(ref.current, target),
     }),
     [state, today, hydrated, commit],
   );

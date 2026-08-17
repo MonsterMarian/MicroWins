@@ -85,10 +85,23 @@ function projectPart(
   const knownTasks = new Set(incoming.tasks.map((t) => t.id));
   const knownMilestones = new Set(incoming.milestones.map((m) => m.id));
 
-  const projects: Project[] = incoming.projects.map((p, i) => ({
+  /*
+   * Pořadí se přečísluje nahusto (0, 1, 2 …), aby přidané projekty navázaly za
+   * stávající a nepřekryly se s nimi. Pořadí se ale musí brát z `order`, ne
+   * z pozice v poli: `reorderProjects` přetažením přepisuje jen `order` a pole
+   * nechává v pořadí, jak projekty vznikaly. Číslovat podle indexu tedy
+   * znamená zahodit ruční uspořádání pokaždé, když si člověk načte zálohu.
+   */
+  const rank = new Map(
+    [...incoming.projects]
+      .sort((a, b) => a.order - b.order || a.createdAt.localeCompare(b.createdAt))
+      .map((p, i) => [p.id, i]),
+  );
+
+  const projects: Project[] = incoming.projects.map((p) => ({
     ...p,
     id: pid(p.id),
-    order: orderOffset + i,
+    order: orderOffset + (rank.get(p.id) ?? 0),
   }));
 
   const tasks: Task[] = incoming.tasks
@@ -206,10 +219,16 @@ export function mergeState(
     const todoOffset = fresh
       ? next.todos.reduce((max, t) => Math.max(max, t.order + 1), 0)
       : 0;
-    const todos: Todo[] = incoming.todos.map((t, i) => ({
+    // Stejně jako u projektů: ruční pořadí žije v `order`, ne v pozici v poli.
+    const todoRank = new Map(
+      [...incoming.todos]
+        .sort((a, b) => a.order - b.order || a.createdAt.localeCompare(b.createdAt))
+        .map((t, i) => [t.id, i]),
+    );
+    const todos: Todo[] = incoming.todos.map((t) => ({
       ...t,
       id: fresh ? createId("imp") : t.id,
-      order: todoOffset + i,
+      order: todoOffset + (todoRank.get(t.id) ?? 0),
     }));
     next = fresh
       ? {

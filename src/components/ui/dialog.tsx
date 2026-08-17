@@ -68,7 +68,7 @@ export function Dialog({
   if (!mounted || !open) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
+    <div className="fixed inset-0 z-50 flex items-start justify-center px-2 pt-[calc(2rem+var(--mw-safe-top))] sm:items-center sm:px-0 sm:pt-0">
       <div
         className="absolute inset-0 bg-black/40"
         onClick={() => onOpenChange(false)}
@@ -80,11 +80,8 @@ export function Dialog({
         aria-modal="true"
         aria-label={title}
         className={cn(
-          "animate-in-up relative z-10 w-full max-w-md rounded-t-xl border bg-card p-5 shadow-lg sm:rounded-xl",
-          // Dlouhý obsah (typicky Nastavení) se musí dát doscrollovat, jinak
-          // konec zůstane pod okrajem obrazovky. Spodní odsazení počítá
-          // s pruhem gest, aby poslední tlačítko nekončilo pod ním.
-          "max-h-[88dvh] overflow-y-auto pb-[calc(2rem+var(--mw-safe-bottom))] sm:max-h-[85dvh] sm:pb-5",
+          "animate-in-up relative z-10 w-full max-w-md rounded-xl border bg-card p-5 shadow-lg",
+          "max-h-[calc(100dvh-4rem-var(--mw-safe-top)-var(--mw-safe-bottom))] overflow-y-auto pb-10 sm:max-h-[85dvh] sm:pb-8",
           className,
         )}
       >

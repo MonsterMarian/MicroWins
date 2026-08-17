@@ -85,6 +85,13 @@ export function SettingsDialog({
 
         {activeTab === "main" ? (
           <div className="flex flex-col gap-5 animate-in-up">
+            <DataSection native={native} onImported={() => onOpenChange(false)} />
+            {native ? (
+              <UpdateSection />
+            ) : null}
+          </div>
+        ) : activeTab === "appearance" ? (
+          <div className="flex flex-col gap-5 animate-in-up">
             <Section title="Vzhled">
               <ThemeChoice />
               <HeaderLogoChoice />
@@ -93,12 +100,6 @@ export function SettingsDialog({
             <Section title="Barva postupu" hint="Jantar u microwinů zůstává v obou případech.">
               <AccentChoice />
             </Section>
-
-            {native ? <UpdateSection /> : null}
-          </div>
-        ) : activeTab === "data" ? (
-          <div className="flex flex-col gap-5 animate-in-up">
-            <DataSection native={native} onImported={() => onOpenChange(false)} />
           </div>
         ) : (
           <div className="flex flex-col gap-5 animate-in-up">
@@ -112,11 +113,11 @@ export function SettingsDialog({
   );
 }
 
-type Tab = "main" | "data" | "addons";
+type Tab = "main" | "appearance" | "addons";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "main", label: "Hlavní" },
-  { id: "data", label: "Data" },
+  { id: "appearance", label: "Vzhled" },
   { id: "addons", label: "Addony" },
 ];
 
@@ -191,27 +192,7 @@ function DataSection({ native, onImported }: { native: boolean; onImported: () =
 
   return (
     <>
-      <Section
-        title="Data"
-        hint={
-          native
-            ? "Vše žije v telefonu. Odinstalace appky data smaže - záloha je na tobě."
-            : "Vše žije v prohlížeči. Záloha je na tobě."
-        }
-      >
-        <dl className="mb-1 grid grid-cols-4 gap-2 rounded-lg border bg-muted/30 p-2.5 text-center">
-          <Stat value={counts.folders} label={plural(counts.folders, "složka", "složky", "složek")} />
-          <Stat value={counts.wins} label={plural(counts.wins, "win", "winy", "winů")} />
-          <Stat
-            value={counts.entries}
-            label={plural(counts.entries, "záznam", "záznamy", "záznamů")}
-          />
-          <Stat
-            value={counts.projects}
-            label={plural(counts.projects, "projekt", "projekty", "projektů")}
-          />
-        </dl>
-
+      <Section title="Záloha">
         <Button variant="outline" className="justify-start" disabled={busy} onClick={onExport}>
           <Download /> {busy ? "Připravuju zálohu…" : "Exportovat vše"}
         </Button>
@@ -226,38 +207,6 @@ function DataSection({ native, onImported }: { native: boolean; onImported: () =
           className="hidden"
           onChange={onFile}
         />
-
-        {pasteOpen ? (
-          <div className="flex flex-col gap-2 rounded-lg border p-3">
-            <Textarea
-              value={pasted}
-              onChange={(e) => setPasted(e.target.value)}
-              placeholder='{"format":"microwins-backup", …}'
-              className="min-h-24 font-mono text-xs"
-            />
-            <div className="flex justify-end gap-2">
-              <Button variant="ghost" size="sm" onClick={() => setPasteOpen(false)}>
-                Zrušit
-              </Button>
-              <Button
-                size="sm"
-                disabled={!pasted.trim()}
-                onClick={() => offerImport(pasted, "vložený text")}
-              >
-                Načíst
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setPasteOpen(true)}
-            className="flex items-center gap-1.5 self-start px-1 py-1 text-xs text-muted-foreground hover:text-foreground"
-          >
-            <ClipboardPaste className="size-3.5" />
-            Nebo vlož zálohu jako text
-          </button>
-        )}
       </Section>
 
       {pending ? (

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { addCategory, addCheck, addMetric, addOnce, toggleCheck } from "./actions";
 import { parseBackup, serializeBackup } from "./backup";
-import { DEFAULT_PREFS } from "./prefs";
+import { DEFAULT_ADDONS, DEFAULT_PREFS } from "./prefs";
 import { createProject, createTask } from "./project-actions";
 import { EMPTY_STATE, STATE_VERSION, type MicroWinsState } from "./types";
 
@@ -106,7 +106,8 @@ describe("záloha", () => {
       ...DEFAULT_PREFS,
       accent: "white",
       overview: "pulse",
-      addons: { todo: false },
+      // Ostatní addony drží výchozí hodnotu - záloha mluví jen o `todo`.
+      addons: { ...DEFAULT_ADDONS, todo: false },
       tabOrder: ["projects", "overview", "todo"],
     });
   });

@@ -75,8 +75,6 @@ export function ProjectRow({ project }: { project: Project }) {
           done ? "text-progress" : "text-progress-muted-foreground",
         )}
       />
-
-      <ChevronRight className="size-4 shrink-0 text-muted-foreground/50 transition-transform group-hover:translate-x-0.5" />
     </Link>
   );
 }

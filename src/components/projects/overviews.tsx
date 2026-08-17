@@ -551,7 +551,7 @@ function PulseOverview() {
               <EntityIcon icon={m.project.icon} size="lg" />
               <span className="min-w-0 flex-1 truncate text-sm">{m.project.name}</span>
               <Badge variant="outline" className="tabular border-progress/40 text-progress">
-                +{formatTenth(m.delta)} % denní přírůstky
+                +{formatTenth(m.delta)} %
               </Badge>
             </Link>
           ))

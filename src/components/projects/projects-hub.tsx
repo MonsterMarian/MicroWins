@@ -118,19 +118,6 @@ export function ProjectsHub() {
 
   return (
     <div className="flex flex-col gap-5">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">
-            {tab === "todo" ? "ToDo" : "Projekty"}
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            {tab === "todo"
-              ? "Krátký seznam na dnešek. Odškrtnuté zmizí samo."
-              : "Velké cíle rozsekané na měřitelné úkoly a denní postup."}
-          </p>
-        </div>
-      </header>
-
       <SortableList
         axis="x"
         ids={tabs.map((t) => t.id)}
@@ -197,14 +184,11 @@ function ProjectsTab({ onNewProject }: { onNewProject: () => void }) {
   const { state, today, reorderProjects } = useStore();
   const [filter, setFilter] = React.useState<ProjectFilter>("all");
   const [sort, setSort] = React.useState<ProjectSort>("custom");
-  const [query, setQuery] = React.useState("");
 
   const rows = React.useMemo(() => {
-    const filtered = filterProjects(state, filter, today).filter((p) =>
-      p.name.toLowerCase().includes(query.trim().toLowerCase()),
-    );
+    const filtered = filterProjects(state, filter, today);
     return sortProjects(state, filtered, sort);
-  }, [state, filter, sort, query, today]);
+  }, [state, filter, sort, today]);
 
   /* Přetahovat jde jen ve vlastním pořadí - v ostatních řazeních by se
      puštěný řádek okamžitě vrátil tam, kam ho posílá abeceda nebo procenta. */
@@ -237,21 +221,12 @@ function ProjectsTab({ onNewProject }: { onNewProject: () => void }) {
             </option>
           ))}
         </Select>
-        <Button size="sm" onClick={onNewProject} className="shrink-0">
+        <Button size="sm" onClick={onNewProject} className="ml-auto shrink-0">
           <Plus /> Nový projekt
         </Button>
-        <div className="relative ml-auto w-full sm:w-56">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Hledat projekt"
-            className="pl-8"
-          />
-        </div>
       </div>
 
-      <Card className="overflow-hidden">
+      <Card className="overflow-hidden -mx-4 rounded-none border-x-0 sm:mx-0 sm:rounded-xl sm:border-x">
         {rows.length === 0 ? (
           <div className="flex flex-col items-center gap-2 py-10 text-center">
             <p className="text-sm text-muted-foreground">Nic neodpovídá filtru.</p>

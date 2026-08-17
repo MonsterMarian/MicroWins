@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_PREFS, parsePrefs, parseAddons, parseTabOrder } from "./prefs";
+import { DEFAULT_ADDONS, DEFAULT_PREFS, parsePrefs, parseAddons, parseTabOrder } from "./prefs";
 
 describe("pořadí záložek", () => {
   it("uložené pořadí projde beze změny", () => {
@@ -28,16 +28,18 @@ describe("pořadí záložek", () => {
   });
 });
 
+/* Očekávání jedou z `DEFAULT_ADDONS`, ne z ručně vypsaného seznamu - další
+   addon v `prefs.ts` jinak shodí testy, které o něm nic nevědí a vědět nemusí. */
 describe("addony", () => {
   it("vypnutý addon se přečte jako vypnutý", () => {
-    expect(parseAddons({ todo: false })).toEqual({ todo: false });
+    expect(parseAddons({ todo: false })).toEqual({ ...DEFAULT_ADDONS, todo: false });
   });
 
   /* Nový addon v appce chybí ve starém uloženém nastavení. Kdyby se bral jako
      vypnutý, přišel by uživatel po aktualizaci o kus appky, o kterém nic neřekl. */
   it("addon, který v uloženém nastavení není, je zapnutý", () => {
-    expect(parseAddons({})).toEqual({ todo: true });
-    expect(parseAddons(null)).toEqual({ todo: true });
+    expect(parseAddons({})).toEqual(DEFAULT_ADDONS);
+    expect(parseAddons(null)).toEqual(DEFAULT_ADDONS);
   });
 });
 

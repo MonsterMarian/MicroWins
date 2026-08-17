@@ -47,9 +47,9 @@ function StreakBadge() {
     <Badge
       variant={info.todayDone ? "win" : "outline"}
       title={info.todayDone ? "Dnešek už máš zapsaný" : "Dnes ještě žádný microwin"}
-      className="tabular"
+      className="tabular px-2.5 py-1 text-sm"
     >
-      <Flame className={cn(info.todayDone ? "text-win" : "text-muted-foreground")} />
+      <Flame className={cn("size-4", info.todayDone ? "text-win" : "text-muted-foreground")} />
       {info.current} {plural(info.current, "den", "dny", "dní")}
     </Badge>
   );
@@ -120,11 +120,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className={cn("flex min-h-screen flex-col", native && "select-none")}>
       <header className="mw-safe-top mw-safe-x sticky top-0 z-40 border-b bg-background/85 backdrop-blur">
-        <div className="mx-auto flex h-14 w-full max-w-4xl items-center gap-2 px-4">
-          <Link href="/" className="mr-2 flex items-center gap-2 font-semibold tracking-tight">
+        <div className="mx-auto flex h-16 w-full max-w-4xl items-center gap-3 px-4">
+          <Link href="/" className="mr-2 flex items-center gap-2.5 text-lg font-semibold tracking-tight">
             {headerLogo ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src="/logo-new.jpg" alt="" className="size-7 rounded-lg object-cover" />
+              <img src="/logo-new.jpg" alt="" className="size-8 rounded-lg object-cover" />
             ) : null}
             MicroWins
           </Link>
@@ -156,8 +156,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               aria-label="Nastavení"
               title="Nastavení"
               onClick={() => setSettingsOpen(true)}
+              className="size-10"
             >
-              <Settings />
+              <Settings className="size-5" />
             </Button>
           </div>
         </div>

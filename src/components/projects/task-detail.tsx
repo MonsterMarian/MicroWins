@@ -151,7 +151,7 @@ export function TaskDetail({ taskId }: { taskId: string }) {
           variant="ghost"
           size="icon"
           aria-label="Smazat"
-          className="text-muted-foreground hover:text-destructive"
+          className="hover:text-destructive"
           onClick={() => setConfirmDelete(true)}
         >
           <Trash2 />

@@ -63,6 +63,7 @@ export function SettingsDialog({
       onOpenChange={onOpenChange}
       title="Nastavení"
       description="Vzhled, data a chování appky."
+      fullScreen
     >
       <div className="flex flex-col gap-5">
         <div className="flex gap-1 border-b">

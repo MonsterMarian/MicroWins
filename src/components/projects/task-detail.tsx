@@ -373,11 +373,6 @@ export function TaskDetail({ taskId }: { taskId: string }) {
         <div className="flex items-center justify-between gap-2 p-5 pb-3">
           <div className="flex items-center gap-2">
             <h2 className="text-sm font-semibold tracking-tight">Podúkoly</h2>
-            {children.length > 0 ? (
-              <Badge variant="outline" className="tabular">
-                {counts.done} z {counts.total}
-              </Badge>
-            ) : null}
           </div>
         </div>
 

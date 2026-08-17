@@ -291,11 +291,6 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
         <CardHeader>
           <div className="flex flex-wrap items-center gap-2">
             <CardTitle className="text-base">Úkoly</CardTitle>
-            {tasks.length > 0 ? (
-              <Badge variant={done ? "solid" : "default"} className="tabular">
-                {stats.tasksDone} z {stats.tasksTotal}
-              </Badge>
-            ) : null}
             <div className="ml-auto flex items-center gap-2">
               <ArrowDownUp className="size-3.5 text-muted-foreground" />
               <Select

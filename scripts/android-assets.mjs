@@ -52,6 +52,14 @@ async function purgeStale() {
       await rm(path.join(RES, dir.name, "ic_launcher_background.png"), { force: true });
     }
   }
+
+  /*
+   * Pozůstatky šablony Android Studio - vektorový Android robot a zelená
+   * mřížka. Na API 24+ má `drawable-v24` vyšší prioritu než `mipmap`,
+   * takže by stará šablona překryla nový PNG foreground.
+   */
+  await rm(path.join(RES, "drawable-v24", "ic_launcher_foreground.xml"), { force: true });
+  await rm(path.join(RES, "drawable", "ic_launcher_background.xml"), { force: true });
 }
 
 const LAUNCHER = { ldpi: 36, mdpi: 48, hdpi: 72, xhdpi: 96, xxhdpi: 144, xxxhdpi: 192 };
@@ -65,8 +73,15 @@ const SPLASH = {
   xxxhdpi: [1280, 1920],
 };
 
-async function processImage(size, radius = 0) {
-    let img = sharp(SOURCE_IMAGE).resize(size, size, { fit: 'cover' });
+async function processImage(size, radius, bg) {
+    /*
+     * Legacy ikona. `contain` zaručí, že se strom vejde celý a nic se neořízne.
+     * Prázdné místo kolem zaplní barva pozadí odečtená z fotky.
+     */
+    let img = sharp(SOURCE_IMAGE).resize(size, size, {
+        fit: 'contain',
+        background: { r: bg.r, g: bg.g, b: bg.b, alpha: 1 },
+    });
     
     if (radius > 0) {
         const roundedRect = Buffer.from(
@@ -82,16 +97,17 @@ async function processImage(size, radius = 0) {
  * Popředí adaptivní ikony.
  *
  * Tvar ikony si kreslí launcher - ořízne plátno svojí maskou (kolečko,
- * čtvereček, squircle) a garantuje jen vnitřních zhruba 66 %. Fotka proto sedí
- * zmenšená uprostřed, ale zůstává **čtvercová**: kdo si v launcheru nastaví
- * čtvereček, dostane čtvereček. Dřív se tu fotka ořezávala natvrdo do kruhu,
- * takže kolečko bylo vidět i na hranatém launcheru - a maska k tomu uřízla
- * poháru podstavec.
+ * čtvereček, squircle) a garantuje jen vnitřních zhruba 66 %. Logo proto sedí
+ * zmenšené uprostřed průhledného plátna. `contain` zaručí, že se strom vejde
+ * celý - žádné ořezávání listů nahoře ani podstavce dole.
  */
 async function processForeground(size) {
     const innerSize = Math.round(size * 0.66);
     const img = await sharp(SOURCE_IMAGE)
-        .resize(innerSize, innerSize, { fit: 'cover' })
+        .resize(innerSize, innerSize, {
+            fit: 'contain',
+            background: { r: 0, g: 0, b: 0, alpha: 0 },
+        })
         .png()
         .toBuffer();
 
@@ -106,16 +122,18 @@ async function processForeground(size) {
 }
 
 async function processSplash(w, h, bg) {
-    // Splash: velké logo doprostřed tmavého plátna.
+    /*
+     * Splash: logo doprostřed tmavého plátna. Bez zakulacování - strom winů
+     * vypadá nejlíp, když ho nic neořezává. `contain` zaručí celý tvar.
+     */
     const mark = Math.round(Math.min(w, h) * 0.26);
-    let img = await sharp(SOURCE_IMAGE)
-        .resize(mark, mark, { fit: 'cover' })
+    const img = await sharp(SOURCE_IMAGE)
+        .resize(mark, mark, {
+            fit: 'contain',
+            background: { r: bg.r, g: bg.g, b: bg.b, alpha: 1 },
+        })
+        .png()
         .toBuffer();
-        
-    const roundedRect = Buffer.from(
-        `<svg><rect x="0" y="0" width="${mark}" height="${mark}" rx="${mark * 0.2}" ry="${mark * 0.2}"/></svg>`
-    );
-    img = await sharp(img).composite([{ input: roundedRect, blend: 'dest-in' }]).png().toBuffer();
     
     return await sharp({
         create: {
@@ -132,13 +150,13 @@ async function generate() {
     await purgeStale();
 
     // Generate rounded icon for general assets
-    const roundedIcon = await processImage(1024, 225);
+    const roundedIcon = await processImage(1024, 225, bg);
     await write("assets/icon.png", roundedIcon);
     await write("assets/splash.png", roundedIcon);
 
     for (const [density, size] of Object.entries(LAUNCHER)) {
-      const icon = await processImage(size, size * 0.22);
-      const iconRound = await processImage(size, size * 0.5); // kruhová
+      const icon = await processImage(size, size * 0.22, bg);
+      const iconRound = await processImage(size, size * 0.5, bg); // kruhová
       await write(path.join(RES, `mipmap-${density}`, "ic_launcher.png"), icon);
       await write(path.join(RES, `mipmap-${density}`, "ic_launcher_round.png"), iconRound);
       

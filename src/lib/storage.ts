@@ -1,3 +1,4 @@
+import { KIND_ORDER } from "./domain";
 import {
   EMPTY_STATE,
   STATE_VERSION,
@@ -57,6 +58,27 @@ function normalizeNode(node: TreeNode): TreeNode {
 }
 
 /**
+ * Verze, od které pořadí ve stromu určuje pořadí v poli `nodes`.
+ *
+ * Do v5 se obsah složky při vykreslení dotřiďoval podle druhu a data vzniku,
+ * takže přetažení sice pole přeuspořádalo, ale na obrazovce se nic nezměnilo.
+ * Řazení při vykreslení je pryč; aby stará data vypadala pořád stejně, srovná
+ * se pole jednou při načtení podle původního pravidla. Novější data se už
+ * nesahá - to by uživateli smazalo jeho ruční pořadí při každém startu.
+ */
+const NODE_ORDER_VERSION = 6;
+
+function sortNodesByLegacyOrder(nodes: TreeNode[]): TreeNode[] {
+  // Stačí globální seřazení: `childrenOf` bere jen sourozence, a jejich
+  // vzájemné pořadí vyjde stejně, jako když se řadila každá složka zvlášť.
+  return [...nodes].sort((a, b) => {
+    const byKind = KIND_ORDER[a.kind] - KIND_ORDER[b.kind];
+    if (byKind !== 0) return byKind;
+    return a.createdAt.localeCompare(b.createdAt);
+  });
+}
+
+/**
  * Položka ToDo z cizího JSONu. Text je jediné, co musí být - bez něj není co
  * ukazovat. Chybějící `doneAt` znamená otevřenou položku, ne vypršelou.
  */
@@ -77,6 +99,10 @@ function normalizeTodos(raw: unknown[]): Todo[] {
   return out;
 }
 
+function migrateNodeOrder(nodes: TreeNode[], version: number): TreeNode[] {
+  return version < NODE_ORDER_VERSION ? sortNodesByLegacyOrder(nodes) : nodes;
+}
+
 /** Tolerantní validace - poškozený nebo cizí JSON raději zahodíme, než abychom spadli. */
 export function parseState(raw: string): MicroWinsState | null {
   try {
@@ -89,7 +115,10 @@ export function parseState(raw: string): MicroWinsState | null {
     // Starší export (v1) neznal projekty - doplní se jako prázdné.
     return {
       version: STATE_VERSION,
-      nodes: (data.nodes as MicroWinsState["nodes"]).map(normalizeNode),
+      nodes: migrateNodeOrder(
+        (data.nodes as MicroWinsState["nodes"]).map(normalizeNode),
+        typeof data.version === "number" ? data.version : 0,
+      ),
       entries: data.entries as MicroWinsState["entries"],
       microwins: arr("microwins"),
       projects: arr("projects"),

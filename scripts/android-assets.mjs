@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { readdir, mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
 
@@ -25,9 +25,39 @@ async function write(file, buffer) {
   await writeFile(file, buffer);
 }
 
-const LAUNCHER = { mdpi: 48, hdpi: 72, xhdpi: 96, xxhdpi: 144, xxxhdpi: 192 };
-const FOREGROUND = { mdpi: 108, hdpi: 162, xhdpi: 216, xxhdpi: 324, xxxhdpi: 432 };
+/**
+ * Úklid před generováním.
+ *
+ * Projekt vznikl zkopírováním jiné appky a v `res` po ní zůstaly obrázky
+ * v hustotách a variantách, které tenhle skript nepsal - hlavně `-night`
+ * a `ldpi`. Android si je vybíral podle tmavého režimu, takže se pod novým
+ * logem schovávalo staré: na tmavém telefonu blikl při startu cizí splash
+ * a nešlo to poznat, protože soubory měly správná jména.
+ *
+ * Proto se všechny splashe (a nepoužité ikonové pozadí) nejdřív smažou
+ * a teprve pak se napíše kompletní sada. Co skript nevygeneruje, v projektu
+ * nezůstane.
+ */
+async function purgeStale() {
+  const dirs = await readdir(RES, { withFileTypes: true });
+  for (const dir of dirs) {
+    if (!dir.isDirectory()) continue;
+    const base = dir.name.split("-")[0];
+    if (base === "drawable") {
+      await rm(path.join(RES, dir.name, "splash.png"), { force: true });
+    }
+    if (base === "mipmap") {
+      // Adaptivní ikona bere pozadí z `@color/ic_launcher_background`,
+      // tyhle PNG nikdo nečte - jen mátly při hledání, odkud se bere logo.
+      await rm(path.join(RES, dir.name, "ic_launcher_background.png"), { force: true });
+    }
+  }
+}
+
+const LAUNCHER = { ldpi: 36, mdpi: 48, hdpi: 72, xhdpi: 96, xxhdpi: 144, xxxhdpi: 192 };
+const FOREGROUND = { ldpi: 81, mdpi: 108, hdpi: 162, xhdpi: 216, xxhdpi: 324, xxxhdpi: 432 };
 const SPLASH = {
+  ldpi: [240, 320],
   mdpi: [320, 480],
   hdpi: [480, 800],
   xhdpi: [720, 1280],
@@ -99,6 +129,7 @@ async function processSplash(w, h, bg) {
 
 async function generate() {
     const bg = await backgroundColor();
+    await purgeStale();
 
     // Generate rounded icon for general assets
     const roundedIcon = await processImage(1024, 225);
@@ -115,11 +146,25 @@ async function generate() {
       await write(path.join(RES, `mipmap-${density}`, "ic_launcher_foreground.png"), fg);
     }
 
+    /*
+     * Tmavá varianta je stejný obrázek jako světlá.
+     *
+     * Splash je tmavý sám o sobě (pozadí se bere z fotky), takže se v nočním
+     * režimu nemá co měnit. Vynechat `-night` ale nejde: Android by pak
+     * v tmavém režimu nesáhl po ničem novém a zůstal by u toho, co v `res`
+     * leží - dřív po předchozí appce. Radši ta samá data dvakrát než cizí logo.
+     */
     for (const [density, [w, h]] of Object.entries(SPLASH)) {
-      await write(path.join(RES, `drawable-port-${density}`, "splash.png"), await processSplash(w, h, bg));
-      await write(path.join(RES, `drawable-land-${density}`, "splash.png"), await processSplash(h, w, bg));
+      const port = await processSplash(w, h, bg);
+      const land = await processSplash(h, w, bg);
+      await write(path.join(RES, `drawable-port-${density}`, "splash.png"), port);
+      await write(path.join(RES, `drawable-land-${density}`, "splash.png"), land);
+      await write(path.join(RES, `drawable-port-night-${density}`, "splash.png"), port);
+      await write(path.join(RES, `drawable-land-night-${density}`, "splash.png"), land);
     }
-    await write(path.join(RES, "drawable", "splash.png"), await processSplash(480, 800, bg));
+    const fallback = await processSplash(480, 800, bg);
+    await write(path.join(RES, "drawable", "splash.png"), fallback);
+    await write(path.join(RES, "drawable-night", "splash.png"), fallback);
 
     await write(
       path.join(RES, "values", "ic_launcher_background.xml"),

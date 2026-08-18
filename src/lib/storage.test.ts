@@ -48,3 +48,42 @@ describe("čtení staršího uloženého stavu", () => {
     expect(JSON.stringify(state)).not.toContain("push");
   });
 });
+
+/**
+ * Do v5 se obsah složky řadil až při vykreslení (druh, pak datum vzniku).
+ * Teď rozhoduje pořadí v poli, takže se stará data musí jednou srovnat -
+ * jinak by se uživateli po aktualizaci strom zamíchal. Novějším datům se
+ * nesahá, jsou v nich ruční přesuny.
+ */
+describe("migrace pořadí uzlů", () => {
+  const node = (id: string, kind: string, createdAt: string) => ({
+    id,
+    parentId: null,
+    kind,
+    name: id,
+    createdAt,
+  });
+
+  // v poli naschvál obráceně, než se to do v5 zobrazovalo
+  const nodes = [
+    node("once", "once", "2026-01-01T00:00:00.000Z"),
+    node("check", "check", "2026-01-02T00:00:00.000Z"),
+    node("metric", "metric", "2026-01-03T00:00:00.000Z"),
+    node("cat", "category", "2026-01-04T00:00:00.000Z"),
+  ];
+
+  const stored = (version: number) =>
+    JSON.stringify({ version, nodes, entries: [], microwins: [], todos: [] });
+
+  it("stará data se srovnají do pořadí, které uživatel viděl", () => {
+    const state = parseState(stored(5));
+
+    expect(state!.nodes.map((n) => n.id)).toEqual(["cat", "metric", "check", "once"]);
+  });
+
+  it("data z nové verze si drží ruční pořadí", () => {
+    const state = parseState(stored(6));
+
+    expect(state!.nodes.map((n) => n.id)).toEqual(["once", "check", "metric", "cat"]);
+  });
+});

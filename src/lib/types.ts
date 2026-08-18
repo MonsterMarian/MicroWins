@@ -206,7 +206,7 @@ export interface MicroWinsState {
   todos: Todo[];
 }
 
-export const STATE_VERSION = 5;
+export const STATE_VERSION = 6;
 
 export const EMPTY_STATE: MicroWinsState = {
   version: STATE_VERSION,

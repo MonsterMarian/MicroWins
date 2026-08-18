@@ -301,10 +301,13 @@ function FolderRow({
               vejde tak sedm znaků a z názvu složky nezbude nic čitelného. */}
           <span className="flex min-w-0 flex-1 flex-col gap-0.5 sm:flex-row sm:items-center sm:gap-2">
             <span className="min-w-0 truncate text-sm font-medium">{node.name}</span>
+            {/* Bez odznaku: rámeček kolem počtu dělal z každé složky vlastní
+                krabičku a řádky se v seznamu ztrácely. Tlumený text sedí -
+                je to údaj k názvu, ne stav, který si žádá pozornost. */}
             {wins > 0 ? (
-              <Badge variant="outline" className="tabular">
+              <span className="tabular shrink-0 text-xs text-muted-foreground">
                 {wins} {plural(wins, "microwin", "microwiny", "microwinů")}
-              </Badge>
+              </span>
             ) : null}
           </span>
 

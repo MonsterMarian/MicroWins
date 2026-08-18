@@ -9,6 +9,7 @@ import {
   deleteNode,
   moveNode,
   moveTargets,
+  reorderNodes,
   toggleCheck,
   updateNode,
   updateOnce,
@@ -334,22 +335,51 @@ describe("jednorázový win (once)", () => {
 });
 
 describe("pořadí ve složce", () => {
-  it("nahoře čísla, pak zaškrtávací, nakonec jednorázové", () => {
+  const folder = () => {
     const cat = addCategory(EMPTY_STATE, null, "Business");
     const parent = cat.node.id;
-
-    // schválně v opačném pořadí, než se má zobrazit
     let s = addOnce(cat.state, parent, { name: "jednorázový" }, TODAY).state;
     s = addCheck(s, parent, "zaškrtávací").state;
     s = addMetric(s, parent, { name: "X čísel" }).state;
     s = addCategory(s, parent, "podsložka").state;
+    return { state: s, parent };
+  };
 
-    expect(childrenOf(s.nodes, parent).map((n) => n.kind)).toEqual([
-      "category",
-      "metric",
-      "check",
+  it("nové položky přibývají na konec, druh do toho nemluví", () => {
+    const { state, parent } = folder();
+
+    expect(childrenOf(state.nodes, parent).map((n) => n.kind)).toEqual([
       "once",
+      "check",
+      "metric",
+      "category",
     ]);
+  });
+
+  it("přetažení pořadí opravdu změní - a vydrží", () => {
+    const { state, parent } = folder();
+    const ids = childrenOf(state.nodes, parent).map((n) => n.id);
+    // složku (poslední) nahoru
+    const moved = [ids[3], ids[0], ids[1], ids[2]];
+
+    const next = reorderNodes(state, moved);
+
+    expect(childrenOf(next.nodes, parent).map((n) => n.id)).toEqual(moved);
+  });
+
+  it("přeuspořádání jedné složky nesahá na sousední", () => {
+    const a = addCategory(EMPTY_STATE, null, "A");
+    const b = addCategory(a.state, null, "B");
+    let s = addMetric(b.state, a.node.id, { name: "a1" }).state;
+    s = addMetric(s, b.node.id, { name: "b1" }).state;
+    s = addMetric(s, a.node.id, { name: "a2" }).state;
+    s = addMetric(s, b.node.id, { name: "b2" }).state;
+
+    const inB = childrenOf(s.nodes, b.node.id).map((n) => n.id);
+    const next = reorderNodes(s, [inB[1], inB[0]]);
+
+    expect(childrenOf(next.nodes, b.node.id).map((n) => n.id)).toEqual([inB[1], inB[0]]);
+    expect(childrenOf(next.nodes, a.node.id).map((n) => n.name)).toEqual(["a1", "a2"]);
   });
 });
 

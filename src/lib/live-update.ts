@@ -28,6 +28,7 @@ const BOOTING_KEY = "microwins:ota:booting";
 export interface BundleFile {
   path: string;
   content: string;
+  encoding?: string;
 }
 
 export interface UpdateManifest {
@@ -339,11 +340,12 @@ export async function checkForUpdate(): Promise<UpdateCheck> {
     }
 
     for (const file of files) {
+      const isBase64 = file.encoding === "base64";
       await Filesystem.writeFile({
         path: `${dir}/${file.path}`,
         data: file.content,
         directory: Directory.Data,
-        encoding: Encoding.UTF8,
+        ...(isBase64 ? {} : { encoding: Encoding.UTF8 }),
         recursive: true,
       });
     }

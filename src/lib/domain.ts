@@ -39,8 +39,12 @@ export function gt(a: number, b: number): boolean {
 // --- strom ------------------------------------------------------------------
 
 /**
- * Pořadí uvnitř složky: podsložky, pak číselné metriky, pak opakované checky
- * a úplně dole jednorázové winy.
+ * Výchozí pořadí uvnitř složky: podsložky, pak číselné metriky, pak opakované
+ * checky a úplně dole jednorázové winy.
+ *
+ * Platí ale jen jednou - při migraci starých dat (viz `lib/storage.ts`), kde
+ * se z něj vyrobí pořadí v poli. Od té chvíle si pořadí drží uživatel
+ * přetažením a tenhle žebříček už do něj nemluví.
  */
 export const KIND_ORDER: Record<NodeKind, number> = {
   category: 0,
@@ -49,14 +53,16 @@ export const KIND_ORDER: Record<NodeKind, number> = {
   once: 3,
 };
 
+/**
+ * Obsah složky v tom pořadí, v jakém uzly leží v poli.
+ *
+ * Žádné dotřiďování podle druhu ani data vzniku: přetažení ve stromu přepisuje
+ * právě pořadí v poli (`reorderNodes`), takže jakékoli řazení tady by ho při
+ * dalším vykreslení přebilo - složka by se po puštění vrátila zpátky.
+ * Nový uzel se přidává na konec pole, tedy na konec své složky.
+ */
 export function childrenOf(nodes: TreeNode[], parentId: string | null): TreeNode[] {
-  return nodes
-    .filter((n) => n.parentId === parentId)
-    .sort((a, b) => {
-      const byKind = KIND_ORDER[a.kind] - KIND_ORDER[b.kind];
-      if (byKind !== 0) return byKind;
-      return a.createdAt.localeCompare(b.createdAt);
-    });
+  return nodes.filter((n) => n.parentId === parentId);
 }
 
 /** Win = list stromu, tedy všechno kromě kategorie. */

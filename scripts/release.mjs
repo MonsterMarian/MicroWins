@@ -42,12 +42,21 @@ async function walk(dir, base = dir) {
   return out;
 }
 
+const isBinary = (filename) => /\.(png|jpe?g|gif|webp|ico|woff2?|ttf|eot)$/i.test(filename);
+
 const files = [];
 let bytes = 0;
 for (const rel of await walk(SRC)) {
-  const content = await readFile(path.join(SRC, rel), "utf8");
-  bytes += Buffer.byteLength(content);
-  files.push({ path: rel, content });
+  const full = path.join(SRC, rel);
+  if (isBinary(rel)) {
+    const content = await readFile(full, "base64");
+    bytes += Buffer.byteLength(content, "base64");
+    files.push({ path: rel, content, encoding: "base64" });
+  } else {
+    const content = await readFile(full, "utf8");
+    bytes += Buffer.byteLength(content, "utf8");
+    files.push({ path: rel, content });
+  }
 }
 
 if (!files.some((f) => f.path === "index.html")) {

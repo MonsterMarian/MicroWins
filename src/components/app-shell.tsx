@@ -16,6 +16,7 @@ import { applyPendingUpdate, checkForUpdate, markBootSucceeded } from "@/lib/liv
 import { hideSplash, isNative, registerBackButton, syncStatusBar } from "@/lib/native";
 import { streaks } from "@/lib/stats";
 import { cn, plural } from "@/lib/utils";
+import { logoImage } from "@/lib/logo-image";
 
 const NAV = [
   { href: "/", label: "Projekty", icon: FolderKanban },
@@ -124,7 +125,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <Link href="/" className="mr-2 flex items-center gap-2.5 text-lg font-semibold tracking-tight">
             {headerLogo ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src="/logo-new.jpg" alt="" className="size-8 rounded-lg object-cover" />
+              <img src={logoImage} alt="" className="size-8 rounded-lg object-cover" />
             ) : null}
             MicroWins
           </Link>

@@ -29,6 +29,7 @@ import {
   type ImportScope,
 } from "@/lib/import";
 import type { MicroWinsState } from "@/lib/types";
+import { logoImage } from "@/lib/logo-image";
 import {
   applyPendingUpdate,
   checkForUpdate,
@@ -707,7 +708,7 @@ function HeaderLogoChoice() {
       </span>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src="/logo-new.jpg"
+        src={logoImage}
         alt=""
         className={cn("size-7 shrink-0 rounded-lg object-cover", !headerLogo && "opacity-40")}
       />

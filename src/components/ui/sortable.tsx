@@ -8,6 +8,7 @@ const HOLD = 420;
 const SLOP = 10;
 
 interface DragState {
+  hoverId?: string | null;
   index: number;
   to: number;
   delta: number;
@@ -30,6 +31,7 @@ interface Session {
   hold: number;
   element: HTMLElement | null;
   detach: () => void;
+  hoverId?: string | null;
 }
 
 interface SortableApi {
@@ -51,6 +53,8 @@ const EDGE_SPEED = 14;
 export function SortableList({
   ids,
   onReorder,
+  onDropInto,
+  isFolder,
   disabled = false,
   axis = "y",
   className,
@@ -58,6 +62,8 @@ export function SortableList({
 }: {
   ids: string[];
   onReorder: (ids: string[]) => void;
+  onDropInto?: (id: string, targetId: string) => void;
+  isFolder?: (id: string) => boolean;
   disabled?: boolean;
   axis?: "x" | "y";
   className?: string;
@@ -69,8 +75,8 @@ export function SortableList({
   const [drag, setDrag] = React.useState<DragState | null>(null);
   const [pressed, setPressed] = React.useState<string | null>(null);
 
-  const latest = React.useRef({ ids, onReorder, axis });
-  latest.current = { ids, onReorder, axis };
+  const latest = React.useRef({ ids, onReorder, onDropInto, isFolder, axis });
+  latest.current = { ids, onReorder, onDropInto, isFolder, axis };
 
   const register = React.useCallback((id: string, el: HTMLElement | null) => {
     if (el) nodes.current.set(id, el);
@@ -92,16 +98,30 @@ export function SortableList({
     const center = row.start + row.size / 2 + delta;
 
     let to = s.index;
+    let hoverId: string | null = null;
     s.rows.forEach((other, i) => {
       if (i === s.index) return;
       const otherCenter = other.start + other.size / 2;
+      
+      if (latest.current.isFolder && latest.current.isFolder(latest.current.ids[i])) {
+        const distance = Math.abs(center - otherCenter);
+        if (distance < other.size * 0.3) {
+          hoverId = latest.current.ids[i];
+        }
+      }
+      
       if (i < s.index && center < otherCenter) to = Math.min(to, i);
       if (i > s.index && center > otherCenter) to = Math.max(to, i);
     });
 
-    if (to !== s.to) void tapFeedback();
+    if (hoverId) {
+      to = s.index;
+    }
+
+    if (to !== s.to || hoverId !== s.hoverId) void tapFeedback();
     s.to = to;
-    setDrag((prev) => (prev && prev.delta === delta && prev.to === to ? prev : prev && { ...prev, delta, to }));
+    s.hoverId = hoverId;
+    setDrag((prev) => (prev && prev.delta === delta && prev.to === to && prev.hoverId === hoverId ? prev : prev && { ...prev, delta, to, hoverId }));
   }, []);
 
   const autoScroll = React.useCallback(() => {
@@ -192,10 +212,16 @@ export function SortableList({
         const s = session.current;
         if (!s || s.pointerId !== e.pointerId) return;
         const wasDragging = s.dragging;
-        const { index, to } = s;
+        const { index, to, hoverId, id } = s;
         cancel();
-        if (!wasDragging || to === index) return;
+        if (!wasDragging) return;
 
+        if (hoverId && latest.current.onDropInto) {
+          latest.current.onDropInto(id, hoverId);
+          return;
+        }
+
+        if (to === index) return;
         const next = [...latest.current.ids];
         const [moved] = next.splice(index, 1);
         next.splice(to, 0, moved);
@@ -300,6 +326,7 @@ export function SortableItem({
   const index = ids.indexOf(id);
   const active = drag !== null && drag.index === index;
   const waiting = pressed === id;
+  const hoverTarget = drag?.hoverId === id;
 
   let shift = 0;
   if (drag && !active) {
@@ -333,6 +360,7 @@ export function SortableItem({
         waiting && !active && "scale-[0.99]",
         (active || waiting) && "select-none [-webkit-touch-callout:none]",
         drag && !active && "z-0",
+        hoverTarget && "ring-2 ring-primary ring-inset bg-primary/10",
         className,
       )}
     >

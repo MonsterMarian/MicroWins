@@ -55,7 +55,7 @@ import { cn, formatNumber, plural } from "@/lib/utils";
  * záznamy), protože ty už další úroveň nemají.
  */
 export function TreeView() {
-  const { state, deleteNode, reorderNodes } = useStore();
+  const { state, deleteNode, reorderNodes, moveNode } = useStore();
   /** Otevřená složka; null = kořen. */
   const [folderId, setFolderId] = React.useState<string | null>(null);
   /** Rozbalené winy (ne složky) - záznamy pod řádkem. */
@@ -106,6 +106,8 @@ export function TreeView() {
           <SortableList
             ids={items.map((i) => i.id)}
             onReorder={reorderNodes}
+            onDropInto={(id, targetId) => moveNode(id, targetId)}
+            isFolder={(id) => nodeById(state.nodes, id)?.kind === "category"}
             className="p-1.5 flex flex-col gap-0.5"
           >
             {items.map((node) => (

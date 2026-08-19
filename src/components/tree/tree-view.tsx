@@ -128,6 +128,7 @@ export function TreeView() {
                     onAddEntry={setEntryFor}
                     onNodeRequest={setNodeRequest}
                     onDelete={setPendingDelete}
+                    onSettings={setSettingsFor}
                   />
                 )}
               </SortableItem>
@@ -342,6 +343,7 @@ function WinRow({
   onAddEntry,
   onNodeRequest,
   onDelete,
+  onSettings,
 }: {
   node: TreeNode;
   open: boolean;
@@ -349,6 +351,7 @@ function WinRow({
   onAddEntry: (metric: TreeNode) => void;
   onNodeRequest: (req: NodeDialogState) => void;
   onDelete: (node: TreeNode) => void;
+  onSettings: (node: TreeNode) => void;
 }) {
   const { state, today, toggleCheck } = useStore();
   const { toast } = useToast();
@@ -402,6 +405,9 @@ function WinRow({
         </button>
 
         <div className="flex shrink-0 items-center gap-0.5">
+          <IconAction label="Nastavení (přesun)" onClick={() => onSettings(node)}>
+            <Settings2 />
+          </IconAction>
           <IconAction
             label="Upravit"
             onClick={() => onNodeRequest({ kind: node.kind, parentId: node.parentId, node })}
@@ -589,7 +595,7 @@ function FolderSettingsDialog({ node, onClose }: { node: TreeNode; onClose: () =
       open
       onOpenChange={(open) => !open && onClose()}
       title={`Nastavení "${node.name}"`}
-      description="Přesun bere celý obsah složky včetně podsložek."
+      description={node.kind === "category" ? "Přesun bere celý obsah složky včetně podsložek." : "Přesun objektu do jiné složky."}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>

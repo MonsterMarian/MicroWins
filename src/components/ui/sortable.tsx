@@ -352,15 +352,15 @@ export function SortableItem({
       }}
       style={{
         transform: offset ? (axis === "x" ? `translateX(${offset}px)` : `translateY(${offset}px)`) : undefined,
-        transition: active ? "none" : "transform 0.16s ease",
+        transition: active ? "none" : "transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)",
       }}
       className={cn(
-        "relative bg-card transition-[box-shadow,transform]",
-        active && "z-20 scale-[1.02] rounded-lg shadow-lg ring-1 ring-border",
+        "relative bg-card transition-all duration-200",
+        active && "z-50 scale-[1.03] rotate-[2deg] rounded-lg shadow-xl ring-2 ring-primary/40 bg-background",
         waiting && !active && "scale-[0.99]",
         (active || waiting) && "select-none [-webkit-touch-callout:none]",
         drag && !active && "z-0",
-        hoverTarget && "ring-2 ring-primary ring-inset bg-primary/10",
+        hoverTarget && "scale-[1.015] ring-2 ring-primary ring-inset bg-primary/15 shadow-md",
         className,
       )}
     >

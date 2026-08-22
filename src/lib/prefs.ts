@@ -82,6 +82,8 @@ export interface Prefs {
   overview: Overview;
   /** Nové logo z fotky v hlavičce místo samotného textu. */
   headerLogo: boolean;
+  /** Ukázat oranžový pohár u složky, když v ní přibyl microwin dnes. */
+  folderTrophy: boolean;
   /** Zapnuté části appky, viz `ADDONS`. */
   addons: Addons;
   /** Pořadí záložek zleva doprava. Vždy obsahuje všechny, jen jinak seřazené. */
@@ -92,6 +94,7 @@ export const DEFAULT_PREFS: Prefs = {
   accent: "green",
   overview: "pulse",
   headerLogo: false,
+  folderTrophy: false,
   addons: DEFAULT_ADDONS,
   tabOrder: DEFAULT_TAB_ORDER,
 };
@@ -150,6 +153,7 @@ export function parsePrefs(raw: unknown): Prefs {
     accent: isAccent(record.accent) ? record.accent : DEFAULT_PREFS.accent,
     overview: isOverview(record.overview) ? record.overview : DEFAULT_PREFS.overview,
     headerLogo: record.headerLogo === true,
+    folderTrophy: record.folderTrophy === true,
     addons: parseAddons(record.addons),
     tabOrder: parseTabOrder(record.tabOrder),
   };

@@ -45,6 +45,8 @@ import {
 } from "@/lib/domain";
 import type { TreeNode } from "@/lib/types";
 import { cn, formatNumber, plural } from "@/lib/utils";
+import { usePrefs } from "@/components/providers/use-prefs";
+import { todayISO } from "@/lib/date";
 
 /**
  * Strom úspěchů.
@@ -287,7 +289,15 @@ function FolderRow({
   onDelete: (node: TreeNode) => void;
 }) {
   const { state } = useStore();
+  const { folderTrophy } = usePrefs();
   const wins = microwinsInSubtree(state, node.id);
+  
+  const today = todayISO();
+  const hasWinToday = React.useMemo(() => {
+    if (!folderTrophy || wins === 0) return false;
+    const ids = new Set(subtreeIds(state.nodes, node.id));
+    return state.microwins.some((m) => ids.has(m.metricId) && m.date === today);
+  }, [state, node.id, folderTrophy, wins, today]);
 
   return (
     <li>
@@ -306,12 +316,18 @@ function FolderRow({
                 krabičku a řádky se v seznamu ztrácely. Tlumený text sedí -
                 je to údaj k názvu, ne stav, který si žádá pozornost. */}
             {wins > 0 ? (
-              <span className="tabular shrink-0 text-xs text-muted-foreground">
-                {wins} {plural(wins, "microwin", "microwiny", "microwinů")}
-              </span>
+              folderTrophy ? (
+                <span className="flex items-center gap-1 shrink-0 text-xs text-muted-foreground">
+                  <span className="tabular">{wins}</span>
+                  <Trophy className={cn("size-3", hasWinToday ? "text-win fill-win/20" : "")} />
+                </span>
+              ) : (
+                <span className="tabular shrink-0 text-xs text-muted-foreground">
+                  {wins} {plural(wins, "microwin", "microwiny", "microwinů")}
+                </span>
+              )
             ) : null}
           </span>
-
         </button>
 
         <div className="flex shrink-0 items-center gap-0.5">

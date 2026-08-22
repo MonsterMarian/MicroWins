@@ -12,6 +12,7 @@ import {
   Share2,
   Sun,
   Upload,
+  Trophy,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
@@ -99,6 +100,7 @@ export function SettingsDialog({
             <Section title="Vzhled">
               <ThemeChoice />
               <HeaderLogoChoice />
+              <FolderTrophyChoice />
             </Section>
 
             <Section title="Barva postupu" hint="Jantar u microwinů zůstává v obou případech.">
@@ -114,6 +116,37 @@ export function SettingsDialog({
         )}
       </div>
     </Dialog>
+  );
+}
+
+function FolderTrophyChoice() {
+  const { folderTrophy } = usePrefs();
+
+  return (
+    <button
+      type="button"
+      onClick={() => setPrefs({ folderTrophy: !folderTrophy })}
+      aria-pressed={folderTrophy}
+      className={cn(
+        "flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors",
+        folderTrophy ? "border-foreground/40 bg-accent" : "hover:bg-accent/50",
+      )}
+    >
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-medium">Poháry u složek</span>
+        <span className="block text-xs text-muted-foreground">
+          Místo slova "microwinů" ukáže ikonu poháru. Oranžově se rozsvítí, pokud v daný den přibyl microwin.
+        </span>
+      </span>
+      <div
+        className={cn(
+          "grid size-8 shrink-0 place-items-center rounded-md border",
+          folderTrophy ? "border-foreground/30 bg-background" : "border-transparent bg-background/50",
+        )}
+      >
+        <Trophy className={cn("size-4", folderTrophy ? "text-win" : "text-muted-foreground")} />
+      </div>
+    </button>
   );
 }
 

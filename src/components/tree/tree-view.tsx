@@ -592,18 +592,12 @@ function FolderSettingsDialog({ node, onClose }: { node: TreeNode; onClose: () =
               : "Složka je prázdná."
           }
         >
-          <Select
-            id="folder-target"
+          <FolderSelectTree
+            nodes={state.nodes}
+            validTargets={new Set(targets.map((t) => t.id))}
             value={target}
-            onChange={(e) => setTarget(e.target.value)}
-          >
-            <option value="">Vše (kořen stromu)</option>
-            {targets.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.label}
-              </option>
-            ))}
-          </Select>
+            onChange={setTarget}
+          />
         </Field>
 
         {targets.length === 0 ? (
@@ -661,5 +655,142 @@ function DeleteDialog({
         </li>
       </ul>
     </Dialog>
+  );
+}
+
+function FolderSelectTree({
+  nodes,
+  validTargets,
+  value,
+  onChange,
+}: {
+  nodes: TreeNode[];
+  validTargets: Set<string>;
+  value: string;
+  onChange: (id: string) => void;
+}) {
+  const [expanded, setExpanded] = React.useState<Set<string>>(new Set());
+  
+  const toggle = (id: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  return (
+    <div className="flex flex-col rounded-md border border-input bg-background overflow-hidden max-h-[40vh] overflow-y-auto">
+      <button
+        type="button"
+        onClick={() => onChange("")}
+        className={cn(
+          "flex items-center gap-2 px-3 py-2 text-sm transition-colors text-left",
+          value === "" ? "bg-accent font-medium text-foreground" : "hover:bg-accent/50"
+        )}
+      >
+        <ListTree className="size-4 shrink-0 text-muted-foreground" />
+        Vše (kořen stromu)
+      </button>
+      <FolderSelectLevel
+        parentId={null}
+        nodes={nodes}
+        validTargets={validTargets}
+        value={value}
+        onChange={onChange}
+        expanded={expanded}
+        onToggle={toggle}
+        depth={0}
+      />
+    </div>
+  );
+}
+
+function FolderSelectLevel({
+  parentId,
+  nodes,
+  validTargets,
+  value,
+  onChange,
+  expanded,
+  onToggle,
+  depth,
+}: {
+  parentId: string | null;
+  nodes: TreeNode[];
+  validTargets: Set<string>;
+  value: string;
+  onChange: (id: string) => void;
+  expanded: Set<string>;
+  onToggle: (id: string) => void;
+  depth: number;
+}) {
+  const children = childrenOf(nodes, parentId)
+    .filter((n) => n.kind === "category" && validTargets.has(n.id));
+
+  if (children.length === 0) return null;
+
+  return (
+    <div className="flex flex-col">
+      {children.map((node) => {
+        const isOpen = expanded.has(node.id);
+        const isSelected = value === node.id;
+        const hasValidChildren = childrenOf(nodes, node.id).some(
+          (c) => c.kind === "category" && validTargets.has(c.id)
+        );
+
+        return (
+          <React.Fragment key={node.id}>
+            <div
+              className={cn(
+                "flex items-center gap-1 px-1 transition-colors text-left",
+                isSelected ? "bg-accent text-foreground" : "hover:bg-accent/50"
+              )}
+            >
+              {hasValidChildren ? (
+                <button
+                  type="button"
+                  onClick={() => onToggle(node.id)}
+                  className="p-1.5 shrink-0 text-muted-foreground hover:text-foreground"
+                >
+                  {isOpen ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
+                </button>
+              ) : (
+                <div className="w-6.5 shrink-0" />
+              )}
+              
+              <button
+                type="button"
+                onClick={() => onChange(node.id)}
+                className={cn(
+                  "flex flex-1 items-center gap-2 py-2 pr-2 text-sm min-w-0",
+                  isSelected && "font-medium"
+                )}
+                style={{ paddingLeft: !hasValidChildren ? "0.375rem" : undefined }}
+              >
+                <FolderIcon node={node} />
+                <span className="truncate">{node.name}</span>
+              </button>
+            </div>
+            
+            {isOpen && hasValidChildren && (
+              <div className="flex flex-col border-l border-border/40" style={{ marginLeft: `${(depth + 1) * 1.5}rem` }}>
+                <FolderSelectLevel
+                  parentId={node.id}
+                  nodes={nodes}
+                  validTargets={validTargets}
+                  value={value}
+                  onChange={onChange}
+                  expanded={expanded}
+                  onToggle={onToggle}
+                  depth={depth + 1}
+                />
+              </div>
+            )}
+          </React.Fragment>
+        );
+      })}
+    </div>
   );
 }

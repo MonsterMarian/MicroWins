@@ -58,13 +58,24 @@ export function ProjectsHub() {
   React.useEffect(() => {
     const saved = sessionStorage.getItem(HUB_SCROLL_KEY);
     if (saved !== null) {
-      sessionStorage.removeItem(HUB_SCROLL_KEY);
-      window.scrollTo(0, Number(saved));
+      // Delay slightly to ensure DOM is ready after React renders the list
+      setTimeout(() => window.scrollTo(0, Number(saved)), 10);
     }
-    return () => {
-      sessionStorage.setItem(HUB_SCROLL_KEY, String(window.scrollY));
+
+    let timeoutId: number;
+    const onScroll = () => {
+      window.clearTimeout(timeoutId);
+      timeoutId = window.setTimeout(() => {
+        sessionStorage.setItem(HUB_SCROLL_KEY, String(window.scrollY));
+      }, 50);
     };
-  }, [pathname]);
+
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      window.clearTimeout(timeoutId);
+    };
+  }, []);
 
   /*
    * Záložka žije v adrese, ne ve stavu komponenty. Jinak by se návrat z detailu

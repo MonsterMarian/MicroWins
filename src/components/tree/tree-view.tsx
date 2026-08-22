@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import {
+  ArrowLeft,
   Check,
   ChevronDown,
   ChevronRight,
@@ -48,30 +49,31 @@ import { cn, formatNumber, plural } from "@/lib/utils";
 /**
  * Strom úspěchů.
  *
- * Složky se rozbalují na místě chevronem ▶ / ▼. Na začátku jsou vidět jen
- * root uzly; uživatel si rozbalí, co potřebuje. Přetahování mění jen pořadí
- * sourozenců ve stejné složce - přesuny mezi složkami jdou přes dialog ⚙️.
+ * Do složek se vchází, nerozbalují se - jinak se v tom s pár desítkami winů
+ * nedá vyznat. Vidět je vždy jen obsah jedné složky; co je pod podsložkami,
+ * je vidět až po vstupu do nich. Rozbalují se jen samotné winy (jejich
+ * záznamy), protože ty už další úroveň nemají.
  */
 export function TreeView() {
-  const { state, deleteNode } = useStore();
-  /** Rozbalené složky (jejich ID). */
-  const [expandedFolders, setExpandedFolders] = React.useState<Set<string>>(new Set());
-  /** Rozbalené winy (záznamy pod řádkem). */
+  const { state, deleteNode, reorderNodes, moveNode } = useStore();
+  /** Otevřená složka; null = kořen. */
+  const [folderId, setFolderId] = React.useState<string | null>(null);
+  /** Rozbalené winy (ne složky) - záznamy pod řádkem. */
   const [expanded, setExpanded] = React.useState<Set<string>>(new Set());
   const [entryFor, setEntryFor] = React.useState<TreeNode | null>(null);
   const [nodeRequest, setNodeRequest] = React.useState<NodeDialogState | null>(null);
   const [pendingDelete, setPendingDelete] = React.useState<TreeNode | null>(null);
   const [settingsFor, setSettingsFor] = React.useState<TreeNode | null>(null);
 
-  const toggleFolder = (id: string) =>
-    setExpandedFolders((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+  const trail = folderId ? pathOf(state.nodes, folderId) : [];
 
-  const toggleWin = (id: string) =>
+  // Otevřenou složku mohl smazat dialog uvnitř ní - pak by obrazovka zůstala
+  // v neexistující cestě.
+  React.useEffect(() => {
+    if (folderId && !nodeById(state.nodes, folderId)) setFolderId(null);
+  }, [folderId, state.nodes]);
+
+  const toggle = (id: string) =>
     setExpanded((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -79,44 +81,57 @@ export function TreeView() {
       return next;
     });
 
-  const rootItems = childrenOf(state.nodes, null);
+  const items = childrenOf(state.nodes, folderId);
+  const isRoot = folderId === null;
 
   return (
     <section className="flex flex-col gap-3">
       <h2 className="text-sm font-semibold tracking-tight">Strom úspěchů</h2>
 
       <Card className="overflow-hidden p-0">
-        <div className="flex items-center gap-1 border-b bg-muted/30 px-1.5 py-1.5">
-          <span className="grid size-7 shrink-0 place-items-center text-muted-foreground">
-            <ListTree className="size-4" />
-          </span>
-          <span className="flex-1 text-sm font-medium">Vše</span>
-          <IconAction label="Nová složka" onClick={() => setNodeRequest({ kind: "category", parentId: null })}>
-            <FolderPlus />
-          </IconAction>
-          <Button size="icon-sm" aria-label="Nový win" title="Nový win" onClick={() => setNodeRequest({ kind: "metric", parentId: null })}>
-            <Plus />
-          </Button>
-        </div>
+        <FolderBar
+          trail={trail}
+          onOpen={setFolderId}
+          onAddFolder={() => setNodeRequest({ kind: "category", parentId: folderId })}
+          onAddWin={() => setNodeRequest({ kind: "metric", parentId: folderId })}
+        />
 
-        {rootItems.length === 0 ? (
+        {items.length === 0 ? (
           <EmptyFolder
-            onAddFolder={() => setNodeRequest({ kind: "category", parentId: null })}
-            onAddWin={() => setNodeRequest({ kind: "metric", parentId: null })}
+            isRoot={isRoot}
+            onAddFolder={() => setNodeRequest({ kind: "category", parentId: folderId })}
+            onAddWin={() => setNodeRequest({ kind: "metric", parentId: folderId })}
           />
         ) : (
-          <TreeLevel
-            parentId={null}
-            depth={0}
-            expandedFolders={expandedFolders}
-            expandedWins={expanded}
-            onToggleFolder={toggleFolder}
-            onToggleWin={toggleWin}
-            onAddEntry={setEntryFor}
-            onNodeRequest={setNodeRequest}
-            onDelete={setPendingDelete}
-            onSettings={setSettingsFor}
-          />
+          <SortableList
+            ids={items.map((i) => i.id)}
+            onReorder={reorderNodes}
+            className="p-1.5 flex flex-col gap-0.5"
+          >
+            {items.map((node) => (
+              <SortableItem key={node.id} id={node.id}>
+                {node.kind === "category" ? (
+                  <FolderRow
+                    node={node}
+                    onOpen={setFolderId}
+                    onSettings={setSettingsFor}
+                    onNodeRequest={setNodeRequest}
+                    onDelete={setPendingDelete}
+                  />
+                ) : (
+                  <WinRow
+                    node={node}
+                    open={expanded.has(node.id)}
+                    onToggle={toggle}
+                    onAddEntry={setEntryFor}
+                    onNodeRequest={setNodeRequest}
+                    onDelete={setPendingDelete}
+                    onSettings={setSettingsFor}
+                  />
+                )}
+              </SortableItem>
+            ))}
+          </SortableList>
         )}
       </Card>
 
@@ -146,99 +161,100 @@ export function TreeView() {
 }
 
 /**
- * Jedna úroveň stromu: sortable seznam sourozenců s odsazením podle hloubky.
- * Složky se rozbalují na místě, winy ukazují záznamy.
+ * Lišta složky: cesta zpět a obě zakládací tlačítka. Je v každé složce, takže
+ * se nová složka i nový win dají založit rovnou tam, kde stojím.
  */
-function TreeLevel({
-  parentId,
-  depth,
-  expandedFolders,
-  expandedWins,
-  onToggleFolder,
-  onToggleWin,
-  onAddEntry,
-  onNodeRequest,
-  onDelete,
-  onSettings,
+function FolderBar({
+  trail,
+  onOpen,
+  onAddFolder,
+  onAddWin,
 }: {
-  parentId: string | null;
-  depth: number;
-  expandedFolders: Set<string>;
-  expandedWins: Set<string>;
-  onToggleFolder: (id: string) => void;
-  onToggleWin: (id: string) => void;
-  onAddEntry: (metric: TreeNode) => void;
-  onNodeRequest: (req: NodeDialogState) => void;
-  onDelete: (node: TreeNode) => void;
-  onSettings: (node: TreeNode) => void;
+  trail: TreeNode[];
+  onOpen: (id: string | null) => void;
+  onAddFolder: () => void;
+  onAddWin: () => void;
 }) {
-  const { state, reorderNodes } = useStore();
-  const items = childrenOf(state.nodes, parentId);
-
-  if (items.length === 0) return null;
+  const parent = trail.length > 1 ? trail[trail.length - 2].id : null;
 
   return (
-    <SortableList
-      ids={items.map((i) => i.id)}
-      onReorder={reorderNodes}
-      className="p-1.5 flex flex-col gap-0.5"
-    >
-      {items.map((node) => (
-        <SortableItem key={node.id} id={node.id}>
-          {node.kind === "category" ? (
-            <>
-              <FolderRow
-                node={node}
-                open={expandedFolders.has(node.id)}
-                onToggle={onToggleFolder}
-                onSettings={onSettings}
-                onNodeRequest={onNodeRequest}
-                onDelete={onDelete}
-              />
-              {expandedFolders.has(node.id) ? (
-                <div className="ml-4 border-l border-border/40">
-                  <TreeLevel
-                    parentId={node.id}
-                    depth={depth + 1}
-                    expandedFolders={expandedFolders}
-                    expandedWins={expandedWins}
-                    onToggleFolder={onToggleFolder}
-                    onToggleWin={onToggleWin}
-                    onAddEntry={onAddEntry}
-                    onNodeRequest={onNodeRequest}
-                    onDelete={onDelete}
-                    onSettings={onSettings}
-                  />
-                </div>
-              ) : null}
-            </>
-          ) : (
-            <WinRow
-              node={node}
-              open={expandedWins.has(node.id)}
-              onToggle={onToggleWin}
-              onAddEntry={onAddEntry}
-              onNodeRequest={onNodeRequest}
-              onDelete={onDelete}
-              onSettings={onSettings}
+    <div className="flex items-center gap-1 border-b bg-muted/30 px-1.5 py-1.5">
+      {trail.length > 0 ? (
+        <IconAction label="O úroveň výš" onClick={() => onOpen(parent)}>
+          <ArrowLeft />
+        </IconAction>
+      ) : (
+        <span className="grid size-7 shrink-0 place-items-center text-muted-foreground">
+          <ListTree className="size-4" />
+        </span>
+      )}
+
+      {/* Dlouhá cesta se v úzkém okně odscrolluje, nesmí rozhodit lištu. */}
+      <nav
+        aria-label="Cesta ve stromu"
+        className="scroll-quiet flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto whitespace-nowrap text-sm"
+      >
+        <Crumb label="Vše" active={trail.length === 0} onClick={() => onOpen(null)} />
+        {trail.map((node, i) => (
+          <React.Fragment key={node.id}>
+            <ChevronRight className="size-3 shrink-0 text-muted-foreground/60" />
+            <Crumb
+              label={node.name}
+              active={i === trail.length - 1}
+              onClick={() => onOpen(node.id)}
             />
-          )}
-        </SortableItem>
-      ))}
-    </SortableList>
+          </React.Fragment>
+        ))}
+      </nav>
+
+      <IconAction label="Nová složka" onClick={onAddFolder}>
+        <FolderPlus />
+      </IconAction>
+      <Button size="icon-sm" aria-label="Nový win" title="Nový win" onClick={onAddWin}>
+        <Plus />
+      </Button>
+    </div>
+  );
+}
+
+function Crumb({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        "shrink-0 rounded px-1.5 py-0.5 transition-colors",
+        active
+          ? "font-medium text-foreground"
+          : "text-muted-foreground hover:bg-accent hover:text-foreground",
+      )}
+    >
+      {label}
+    </button>
   );
 }
 
 function EmptyFolder({
+  isRoot,
   onAddFolder,
   onAddWin,
 }: {
+  isRoot: boolean;
   onAddFolder: () => void;
   onAddWin: () => void;
 }) {
   return (
     <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
-      <p className="text-sm font-medium">Zatím prázdno</p>
+      <p className="text-sm font-medium">{isRoot ? "Zatím prázdno" : "Ve složce nic není"}</p>
       <p className="max-w-sm text-sm text-muted-foreground">
         Založ složku (Business, Fitness) a pod ni win: číselný (
         <span className="font-mono text-xs">X cold calls za den</span>), zaškrtávací (Ranní
@@ -256,18 +272,16 @@ function EmptyFolder({
   );
 }
 
-/** Řádek složky: klik rozbalí/sbalí, chevron ukazuje stav. */
+/** Řádek složky: levá část se dá klepnout a vejde se dovnitř. */
 function FolderRow({
   node,
-  open,
-  onToggle,
+  onOpen,
   onSettings,
   onNodeRequest,
   onDelete,
 }: {
   node: TreeNode;
-  open: boolean;
-  onToggle: (id: string) => void;
+  onOpen: (id: string) => void;
   onSettings: (node: TreeNode) => void;
   onNodeRequest: (req: NodeDialogState) => void;
   onDelete: (node: TreeNode) => void;
@@ -280,24 +294,24 @@ function FolderRow({
       <div className="flex items-center gap-1 overflow-hidden rounded-md pr-1.5 transition-colors hover:bg-accent/60">
         <button
           type="button"
-          onClick={() => onToggle(node.id)}
-          aria-expanded={open}
+          onClick={() => onOpen(node.id)}
           className="flex min-w-0 flex-1 items-center gap-2 rounded-md py-2 pl-2 text-left"
         >
-          {open ? (
-            <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
-          ) : (
-            <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
-          )}
           <FolderIcon node={node} />
+          {/* Na telefonu jde popis pod název - na jeden řádek se vedle tlačítek
+              vejde tak sedm znaků a z názvu složky nezbude nic čitelného. */}
           <span className="flex min-w-0 flex-1 flex-col gap-0.5 sm:flex-row sm:items-center sm:gap-2">
             <span className="min-w-0 truncate text-sm font-medium">{node.name}</span>
+            {/* Bez odznaku: rámeček kolem počtu dělal z každé složky vlastní
+                krabičku a řádky se v seznamu ztrácely. Tlumený text sedí -
+                je to údaj k názvu, ne stav, který si žádá pozornost. */}
             {wins > 0 ? (
               <span className="tabular shrink-0 text-xs text-muted-foreground">
                 {wins} {plural(wins, "microwin", "microwiny", "microwinů")}
               </span>
             ) : null}
           </span>
+
         </button>
 
         <div className="flex shrink-0 items-center gap-0.5">
@@ -354,6 +368,10 @@ function WinRow({
   return (
     <li>
       <div className="flex items-center gap-1 overflow-hidden rounded-md pr-1.5 transition-colors hover:bg-accent/60">
+        {/* Stejná stavba jako u složky: celá levá část je jedno tlačítko
+            a šipka sedí na jeho konci. Rozdíl je jen v tom, co šipka dělá -
+            u složky se jde dovnitř, tady se řádek rozbalí, což prozradí
+            otočení o 90°. */}
         <button
           type="button"
           onClick={() => onToggle(node.id)}
@@ -362,6 +380,8 @@ function WinRow({
         >
           <KindIcon node={node} />
 
+          {/* Stejně jako u složek: na úzkém displeji patří odznaky pod název,
+              jinak by z názvu winu zbylo pár písmen. */}
           <span className="flex min-w-0 flex-1 flex-col gap-0.5 sm:flex-row sm:items-center sm:gap-1.5">
             <span className="min-w-0 truncate text-sm" title={node.name}>
               {node.name}
@@ -372,6 +392,9 @@ function WinRow({
             {node.kind === "once" ? <OnceBadge node={node} /> : null}
           </span>
 
+          {/* Otočená šipka místo přeškálované: `rotate-90` se na ikoně
+              neprojeví (spočtená rotace zůstane 0°), takže rozbalený stav
+              kreslí rovnou druhá ikona. */}
           {open ? (
             <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
           ) : (

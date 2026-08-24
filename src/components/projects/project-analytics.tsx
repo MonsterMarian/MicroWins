@@ -130,7 +130,7 @@ export function ProjectAnalytics({ projectId }: { projectId: string }) {
               <CardTitle>Deník změn</CardTitle>
               <CardDescription>
                 {changes.length} {plural(changes.length, "změna", "změny", "změn")}
-                {best > 0 ? ` · nejlepší den +${formatTenth(best)} b.` : ""}
+                {best > 0 ? ` · nejlepší den +${formatTenth(best)} %` : ""}
               </CardDescription>
             </div>
           </div>

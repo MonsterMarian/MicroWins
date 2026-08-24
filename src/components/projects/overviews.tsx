@@ -109,7 +109,7 @@ function ClassicOverview({ onNewProject }: { onNewProject: () => void }) {
       icon: TrendingUp,
       label: "Průměrný postup",
       value: `${displayPercent(p.avgPercent)} %`,
-      hint: p.todayDelta > 0 ? `dnes +${formatTenth(p.todayDelta)} b.` : "dnes beze změny",
+      hint: p.todayDelta > 0 ? `dnes +${formatTenth(p.todayDelta)} %` : "dnes beze změny",
       accent: p.todayDelta > 0,
     },
     {
@@ -165,7 +165,7 @@ function ClassicOverview({ onNewProject }: { onNewProject: () => void }) {
                     {displayPercent(m.percent)} %
                   </span>
                   <Badge variant="outline" className="tabular border-progress/40 text-progress">
-                    +{formatTenth(m.delta)} b.
+                    +{formatTenth(m.delta)} %
                   </Badge>
                 </Link>
               ))
@@ -376,7 +376,7 @@ function BoardOverview() {
                 )}
               >
                 {stats.deltaToday > 0.05
-                  ? `+${formatTenth(stats.deltaToday)} b. dnes`
+                  ? `+${formatTenth(stats.deltaToday)} % dnes`
                   : stats.daysLeft !== null
                     ? stats.daysLeft >= 0
                       ? `zbývá ${stats.daysLeft} dní`

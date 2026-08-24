@@ -21,6 +21,7 @@ import {
   pace,
   portfolioStats,
   progressSeries,
+  projectMovements,
   projectPercent,
   projectStats,
   sortProjects,
@@ -466,5 +467,72 @@ describe("souhrn napříč projekty", () => {
     expect(p.tasksTotal).toBe(1);
     expect(p.avgPercent).toBe(80);
     expect(p.todayDelta).toBe(30);
+  });
+});
+
+describe("posun projektů za období", () => {
+  it("vrátí jen projekty, kde se za období něco změnilo", () => {
+    let s: MicroWinsState = EMPTY_STATE;
+    const a = createProject(s, { name: "hýbe se", startDate: "2026-06-01" }, "2026-06-01");
+    s = createTask(a.state, a.project.id, { name: "x", target: 10, current: 2 }, "2026-06-01").state;
+    // Postup před týdnem, pak ještě jednou dnes.
+    s = setTaskCurrent(s, s.tasks[0].id, 4, "2026-07-20");
+    s = setTaskCurrent(s, s.tasks[0].id, 7, TODAY);
+
+    const b = createProject(s, { name: "stojí", startDate: "2026-06-01" }, "2026-06-01");
+    s = createTask(b.state, b.project.id, { name: "y", target: 10, current: 5 }, "2026-06-01").state;
+
+    const week = projectMovements(s, "week", TODAY);
+    expect(week.map((m) => m.project.name)).toEqual(["hýbe se"]);
+    // Za týden se hnulo jen z 40 % na 70 %.
+    expect(week[0].from).toBe(40);
+    expect(week[0].to).toBe(70);
+    expect(week[0].delta).toBe(30);
+  });
+
+  it("delší období bere postup od svého začátku", () => {
+    let s: MicroWinsState = EMPTY_STATE;
+    const a = createProject(s, { name: "A", startDate: "2026-06-01" }, "2026-06-01");
+    s = createTask(a.state, a.project.id, { name: "x", target: 10, current: 2 }, "2026-06-01").state;
+    s = setTaskCurrent(s, s.tasks[0].id, 4, "2026-07-20");
+    s = setTaskCurrent(s, s.tasks[0].id, 7, TODAY);
+
+    // Měsíc zpět (2026-07-07) byl projekt pořád na 20 %, čtvrtletí zpět neexistoval.
+    expect(projectMovements(s, "month", TODAY)[0]).toMatchObject({ from: 20, to: 70, delta: 50 });
+    expect(projectMovements(s, "quarter", TODAY)[0]).toMatchObject({ from: 0, to: 70, delta: 70 });
+  });
+
+  it("řadí od největšího posunu a archivované vynechá", () => {
+    let s: MicroWinsState = EMPTY_STATE;
+    const a = createProject(s, { name: "malý", startDate: "2026-08-01" }, "2026-08-01");
+    s = createTask(a.state, a.project.id, { name: "x", target: 10, current: 0 }, "2026-08-01").state;
+    const b = createProject(s, { name: "velký", startDate: "2026-08-01" }, "2026-08-01");
+    s = createTask(b.state, b.project.id, { name: "y", target: 10, current: 0 }, "2026-08-01").state;
+
+    s = setTaskCurrent(s, s.tasks[0].id, 2, TODAY);
+    s = setTaskCurrent(s, s.tasks[1].id, 9, TODAY);
+
+    expect(projectMovements(s, "week", TODAY).map((m) => m.project.name)).toEqual([
+      "velký",
+      "malý",
+    ]);
+
+    const archived = {
+      ...s,
+      projects: s.projects.map((p) =>
+        p.name === "velký" ? { ...p, archivedAt: `${TODAY}T10:00:00.000Z` } : p,
+      ),
+    };
+    expect(projectMovements(archived, "week", TODAY).map((m) => m.project.name)).toEqual(["malý"]);
+  });
+
+  it("pokles hlásí jako záporný posun", () => {
+    let s: MicroWinsState = EMPTY_STATE;
+    const a = createProject(s, { name: "A", startDate: "2026-07-01" }, "2026-07-01");
+    s = createTask(a.state, a.project.id, { name: "x", target: 10, current: 8 }, "2026-07-01").state;
+    s = setTaskCurrent(s, s.tasks[0].id, 3, TODAY);
+
+    const [m] = projectMovements(s, "week", TODAY);
+    expect(m.delta).toBe(-50);
   });
 });

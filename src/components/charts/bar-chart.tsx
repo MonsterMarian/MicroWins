@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { formatDate } from "@/lib/date";
-import { cn } from "@/lib/utils";
+import { cn, formatTenth } from "@/lib/utils";
 
 export interface BarPoint {
   date: string;
@@ -10,7 +10,7 @@ export interface BarPoint {
 }
 
 /**
- * Denní sloupce jedné veličiny (přírůstek procentních bodů).
+ * Denní sloupce jedné veličiny (přírůstek postupu v procentech).
  * Jedna řada = bez legendy; hodnota se ukazuje na hover.
  */
 export function DailyBarChart({
@@ -42,7 +42,7 @@ export function DailyBarChart({
               onMouseLeave={() => setHover(null)}
               onFocus={() => setHover(i)}
               onBlur={() => setHover(null)}
-              aria-label={`${formatDate(p.date)}: ${p.value}${unit}`}
+              aria-label={`${formatDate(p.date)}: ${formatTenth(p.value)}${unit}`}
               className="group relative flex-1 rounded-t-[3px] transition-colors"
               style={{ height: h, minWidth: 4 }}
             >
@@ -62,8 +62,8 @@ export function DailyBarChart({
         <span>{formatDate(points[0].date)}</span>
         <span className="tabular">
           {hover !== null
-            ? `${formatDate(points[hover].date)} · ${points[hover].value}${unit}`
-            : `max ${Math.round(max * 10) / 10}${unit}`}
+            ? `${formatDate(points[hover].date)} · ${formatTenth(points[hover].value)}${unit}`
+            : `max ${formatTenth(max)}${unit}`}
         </span>
         <span>{formatDate(points[points.length - 1].date)}</span>
       </div>

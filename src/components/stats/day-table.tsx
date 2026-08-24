@@ -2,9 +2,9 @@
 
 import * as React from "react";
 import { useStore } from "@/components/providers/store-provider";
-import { dayOfMonth, dayShort, formatDate, monthDays, monthLabel } from "@/lib/date";
+import { dayOfMonth, dayShort, formatDate, monthDays, monthName } from "@/lib/date";
 import { dayRows } from "@/lib/stats";
-import { cn, plural } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 
 /**
  * Pruh dnů aktuálního měsíce.
@@ -39,20 +39,11 @@ export function MonthStrip() {
     });
   }, [today, days.length]);
 
-  const done = days.filter((d) => d.count > 0).length;
-  const total = days.reduce((sum, d) => sum + d.count, 0);
-
   return (
     <section className="flex flex-col gap-2">
-      <div className="flex items-baseline gap-2">
-        <h2 className="text-xs font-medium text-muted-foreground">
-          Tento měsíc · {monthLabel(today)}
-        </h2>
-        <span className="tabular ml-auto text-xs text-muted-foreground">
-          {done} {plural(done, "aktivní den", "aktivní dny", "aktivních dnů")} · {total}{" "}
-          {plural(total, "microwin", "microwiny", "microwinů")}
-        </span>
-      </div>
+      {/* Souhrn měsíce (aktivní dny, microwiny) tady byl dvakrát - stejná čísla
+          drží karty nad pruhem. Zůstal holý název měsíce jako popiska. */}
+      <h2 className="text-xs font-medium text-muted-foreground">{monthName(today)}</h2>
 
       <div ref={scroller} className="scroll-quiet flex gap-1 overflow-x-auto pb-1">
         {days.map((d) => (

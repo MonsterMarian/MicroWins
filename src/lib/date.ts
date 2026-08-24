@@ -114,6 +114,12 @@ export function monthLabel(iso: ISODate): string {
   return `${MONTH_NAMES[d.getMonth()]} ${d.getFullYear()}`;
 }
 
+/** "Srpen" - samotný měsíc s velkým písmenem, na nadpis nad pruhem dnů. */
+export function monthName(iso: ISODate): string {
+  const name = MONTH_NAMES[fromISODate(iso).getMonth()];
+  return name[0].toUpperCase() + name.slice(1);
+}
+
 export function yearOf(iso: ISODate): number {
   return Number(iso.slice(0, 4));
 }

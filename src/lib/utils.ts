@@ -19,7 +19,7 @@ export function formatNumber(n: number): string {
   return new Intl.NumberFormat("cs-CZ", { maximumFractionDigits: 4 }).format(rounded);
 }
 
-/** Jedno desetinné místo - pro přírůstky a tempo ("+3,3 b.", "2,8 % / den"). */
+/** Jedno desetinné místo - pro přírůstky a tempo ("+3,3 %", "2,8 % / den"). */
 export function formatTenth(n: number): string {
   return new Intl.NumberFormat("cs-CZ", { maximumFractionDigits: 1 }).format(
     Math.round(n * 10) / 10,

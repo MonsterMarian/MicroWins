@@ -544,6 +544,68 @@ export function portfolioActivity(
   });
 }
 
+// --- posun za období --------------------------------------------------------
+
+export type MovementPeriod = "week" | "month" | "quarter";
+
+export const MOVEMENT_PERIODS: MovementPeriod[] = ["week", "month", "quarter"];
+
+export const MOVEMENT_PERIOD_DAYS: Record<MovementPeriod, number> = {
+  week: 7,
+  month: 30,
+  quarter: 90,
+};
+
+export const MOVEMENT_PERIOD_LABEL: Record<MovementPeriod, string> = {
+  week: "Týden",
+  month: "Měsíc",
+  quarter: "Čtvrtletí",
+};
+
+/** "za poslední týden" - do popisků a prázdných stavů. */
+export const MOVEMENT_PERIOD_PHRASE: Record<MovementPeriod, string> = {
+  week: "za poslední týden",
+  month: "za poslední měsíc",
+  quarter: "za poslední čtvrtletí",
+};
+
+export interface ProjectMovement {
+  project: Project;
+  /** Postup na začátku období. */
+  from: number;
+  /** Postup dnes. */
+  to: number;
+  /** Rozdíl v procentech (to - from). Záporný = hodnota se opravovala dolů. */
+  delta: number;
+}
+
+/**
+ * O kolik procent se který projekt za období pohnul.
+ *
+ * Vrací **jen projekty, kde se něco změnilo** - seznam má odpovídat na
+ * "co se hýbe", ne vypisovat portfolio. Řadí se od největšího posunu.
+ *
+ * Základ je poslední otisk ke dni před obdobím. Když žádný není, projekt
+ * uvnitř období teprve vznikl (`addProject` píše nulový otisk na den startu),
+ * takže rostl od nuly.
+ */
+export function projectMovements(
+  state: MicroWinsState,
+  period: MovementPeriod,
+  today: ISODate = todayISO(),
+): ProjectMovement[] {
+  const since = addDays(today, -MOVEMENT_PERIOD_DAYS[period]);
+  return state.projects
+    .filter((p) => p.archivedAt === null)
+    .map((project) => {
+      const to = projectPercent(state, project.id);
+      const from = percentAt(state, project.id, since) ?? 0;
+      return { project, from, to, delta: to - from };
+    })
+    .filter((m) => Math.abs(m.delta) >= 0.05)
+    .sort((a, b) => b.delta - a.delta);
+}
+
 /** Dnešní přírůstky napříč projekty - podklad pro sekci "Dnes". */
 export function todayMovers(
   state: MicroWinsState,

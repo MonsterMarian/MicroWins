@@ -11,7 +11,7 @@
  * Cesta k JDK se čte z gradle.properties, aby byla v projektu na jednom místě.
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 const ANDROID = "android";
@@ -46,10 +46,44 @@ const [command, commandArgs] =
     ? ["cmd.exe", ["/c", path.resolve(wrapper), ...args]]
     : [path.resolve(wrapper), args];
 
+/**
+ * Obchází chybu na tomhle stroji, není to ladění výkonu.
+ *
+ * Java si na Windows pro každý `Selector.open()` zakládá vnitřní self-pipe
+ * přes unixový socket a soubor pro něj dává do složky z `jdk.net.unixdomain
+ * .tmpdir` - výchozí je %LOCALAPPDATA%\Temp. Tam ale bezpečnostní filtr
+ * (Sophos Connect a jeho WFP ovladače) `connect` na unixové sockety zahazuje:
+ * `bind` projde, `connect` spadne na „Invalid argument". Ověřeno tím, že
+ * tytéž sockety ve stejnou chvíli fungují v C:\Android i v domovské složce
+ * a selhávají výhradně v Temp.
+ *
+ * Gradle na selektorech stojí celý, takže build vůbec nezačal a hlásil
+ * „Unable to establish loopback connection". To svádí na síť, ale s TCP
+ * nemá společného nic - spojení na 127.0.0.1 se navazuje v pořádku a padá
+ * až self-pipe uvnitř selektoru.
+ *
+ * Musí to jít přes `JAVA_TOOL_OPTIONS`, ne přes `org.gradle.jvmargs`:
+ * z jvmargs si Gradle systémové property vytáhne a nastaví je až uvnitř
+ * démona, jenže `sun.nio.ch.UnixDomainSockets` si cestu přečte při zavádění
+ * třídy a tou dobou je pozdě. `JAVA_TOOL_OPTIONS` čte JVM při startu a dědí
+ * ho i démon, kterého si klient odvětví - proto stačí nastavit tady.
+ *
+ * Až filtr přestane vadit, může celé tohle zmizet.
+ */
+const UNIX_SOCKET_TMPDIR = "C:/Android/gradle-tmp";
+mkdirSync(UNIX_SOCKET_TMPDIR, { recursive: true });
+const javaToolOptions = [process.env.JAVA_TOOL_OPTIONS, `-Djdk.net.unixdomain.tmpdir=${UNIX_SOCKET_TMPDIR}`]
+  .filter(Boolean)
+  .join(" ");
+
 const result = spawnSync(command, commandArgs, {
   cwd: ANDROID,
   stdio: "inherit",
-  env: { ...process.env, JAVA_HOME: javaHome ?? process.env.JAVA_HOME },
+  env: {
+    ...process.env,
+    JAVA_HOME: javaHome ?? process.env.JAVA_HOME,
+    JAVA_TOOL_OPTIONS: javaToolOptions,
+  },
 });
 
 if (result.error) {

@@ -42,6 +42,8 @@ export interface StoreApi {
   updateOnce: (id: string, patch: actions.OncePatch) => void;
   /** Přesune uzel s celým podstromem pod jinou složku; null = kořen. */
   moveNode: (id: string, targetId: string | null) => void;
+  /** Odloží uzel do archivu (zmizí ze stromu, data zůstanou), nebo ho vrátí. */
+  setNodeArchived: (id: string, archived: boolean) => void;
   /** Změní pořadí uzlů v dané složce. */
   reorderNodes: (ids: string[]) => void;
   deleteNode: (id: string) => void;
@@ -182,6 +184,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       updateNode: (id, patch) => commit(actions.updateNode(ref.current, id, patch, todayISO())),
       updateOnce: (id, patch) => commit(actions.updateOnce(ref.current, id, patch, todayISO())),
       moveNode: (id, targetId) => commit(actions.moveNode(ref.current, id, targetId)),
+      setNodeArchived: (id, archived) =>
+        commit(actions.setNodeArchived(ref.current, id, archived)),
       reorderNodes: (ids) => commit(actions.reorderNodes(ref.current, ids)),
       deleteNode: (id) => commit(actions.deleteNode(ref.current, id)),
       addEntry: (input) => {

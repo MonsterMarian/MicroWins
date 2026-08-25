@@ -1,6 +1,7 @@
 import { todayISO } from "./date";
 import {
   aggregationOf,
+  archivedIds,
   dayTotal,
   entriesOfMetric,
   evaluate,
@@ -183,6 +184,9 @@ export function moveNode(
     // Cílem může být jen složka - winy jsou listy stromu.
     if (!target || target.kind !== "category") return state;
     if (subtreeIds(state.nodes, id).includes(targetId)) return state;
+    // Archivovaná složka cílem není: uzel by tím zmizel ze stromu, aniž by ho
+    // kdokoli archivoval.
+    if (archivedIds(state.nodes).has(targetId)) return state;
   }
 
   return {
@@ -194,7 +198,37 @@ export function moveNode(
 /** Složky, do kterých se uzel smí přesunout (bez sebe a svých potomků). */
 export function moveTargets(state: MicroWinsState, id: string): TreeNode[] {
   const blocked = new Set(subtreeIds(state.nodes, id));
-  return state.nodes.filter((n) => n.kind === "category" && !blocked.has(n.id));
+  const archived = archivedIds(state.nodes);
+  // Do archivované složky se nepřesouvá - uzel by tím ze stromu zmizel, aniž by
+  // ho kdokoli archivoval, a hledal by se pak v archivu cizí složky.
+  return state.nodes.filter(
+    (n) => n.kind === "category" && !blocked.has(n.id) && !archived.has(n.id),
+  );
+}
+
+/**
+ * Odloží uzel do archivu, nebo ho vrátí zpátky.
+ *
+ * Razítko dostane jen ten uzel, na kterém akce padla - podstrom se schová sám
+ * tím, že se do archivované složky nedá vejít. Kdyby se razítkovaly i děti,
+ * po vrácení složky by se vrátilo i to, co v ní bylo odložené zvlášť.
+ *
+ * Záznamy ani microwiny se nemažou: archivace je jen o stromu, statistiky
+ * počítají dál. Tím se liší od `deleteNode`.
+ */
+export function setNodeArchived(
+  state: MicroWinsState,
+  id: string,
+  archived: boolean,
+): MicroWinsState {
+  const node = nodeById(state.nodes, id);
+  if (!node || Boolean(node.archivedAt) === archived) return state;
+  return {
+    ...state,
+    nodes: state.nodes.map((n) =>
+      n.id === id ? { ...n, archivedAt: archived ? new Date().toISOString() : null } : n,
+    ),
+  };
 }
 
 /** Přeuspořádá uzly ve stavu podle zadaného pořadí jejich ID. Ostatních uzlů se nedotkne. */

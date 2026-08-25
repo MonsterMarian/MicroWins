@@ -54,6 +54,15 @@ export interface TreeNode {
   /** Jen pro metriku. */
   aggregation?: Aggregation;
   createdAt: string;
+  /**
+   * Kdy byl uzel odložen do archivu (ISO); chybí nebo null = běžný uzel.
+   *
+   * Archivovaný uzel zmizí ze stromu i s celým podstromem - nezakládá se do
+   * něj a nic se do něj nezapisuje. Data ale zůstávají: microwiny, záznamy
+   * i rekordy se dál počítají do statistik, jinak by archivace vypadala jako
+   * mazání s jiným názvem.
+   */
+  archivedAt?: string | null;
 }
 
 export interface Entry {

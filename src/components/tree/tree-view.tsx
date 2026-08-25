@@ -2,6 +2,8 @@
 
 import * as React from "react";
 import {
+  Archive,
+  ArchiveRestore,
   ArrowLeft,
   Check,
   ChevronDown,
@@ -35,6 +37,7 @@ import { formatDate } from "@/lib/date";
 import { tapFeedback, winFeedback } from "@/lib/native";
 import {
   childrenOf,
+  liveChildrenOf,
   microwinsInSubtree,
   nodeById,
   onceEntry,
@@ -66,6 +69,8 @@ export function TreeView() {
   const [nodeRequest, setNodeRequest] = React.useState<NodeDialogState | null>(null);
   const [pendingDelete, setPendingDelete] = React.useState<TreeNode | null>(null);
   const [settingsFor, setSettingsFor] = React.useState<TreeNode | null>(null);
+  /** Archiv se ukazuje pod obsahem složky, a jen když si o něj člověk řekne. */
+  const [showArchived, setShowArchived] = React.useState(false);
 
   const trail = folderId ? pathOf(state.nodes, folderId) : [];
 
@@ -83,8 +88,15 @@ export function TreeView() {
       return next;
     });
 
-  const items = childrenOf(state.nodes, folderId);
+  const items = liveChildrenOf(state.nodes, folderId);
+  const archived = childrenOf(state.nodes, folderId).filter((n) => n.archivedAt);
   const isRoot = folderId === null;
+
+  // Prázdný archiv nemá co ukazovat - po vrácení poslední položky se panel
+  // zavře sám, ať po sobě nezůstane prázdná lišta.
+  React.useEffect(() => {
+    if (archived.length === 0 && showArchived) setShowArchived(false);
+  }, [archived.length, showArchived]);
 
   return (
     <section className="flex flex-col gap-3">
@@ -93,6 +105,9 @@ export function TreeView() {
       <Card className="overflow-hidden p-0">
         <FolderBar
           trail={trail}
+          archivedCount={archived.length}
+          showArchived={showArchived}
+          onToggleArchived={() => setShowArchived((v) => !v)}
           onOpen={setFolderId}
           onAddFolder={() => setNodeRequest({ kind: "category", parentId: folderId })}
           onAddWin={() => setNodeRequest({ kind: "metric", parentId: folderId })}
@@ -135,6 +150,10 @@ export function TreeView() {
             ))}
           </SortableList>
         )}
+
+        {showArchived && archived.length > 0 ? (
+          <ArchivedSection nodes={archived} onDelete={setPendingDelete} />
+        ) : null}
       </Card>
 
       <EntryDialog
@@ -168,11 +187,17 @@ export function TreeView() {
  */
 function FolderBar({
   trail,
+  archivedCount,
+  showArchived,
+  onToggleArchived,
   onOpen,
   onAddFolder,
   onAddWin,
 }: {
   trail: TreeNode[];
+  archivedCount: number;
+  showArchived: boolean;
+  onToggleArchived: () => void;
   onOpen: (id: string | null) => void;
   onAddFolder: () => void;
   onAddWin: () => void;
@@ -208,6 +233,27 @@ function FolderBar({
           </React.Fragment>
         ))}
       </nav>
+
+      {/* Ve složce bez archivu tlačítko není: prázdný přepínač by jen mátl
+          a lišta je na telefonu úzká. */}
+      {archivedCount > 0 ? (
+        <button
+          type="button"
+          onClick={onToggleArchived}
+          aria-pressed={showArchived}
+          aria-label={showArchived ? "Skrýt archiv" : `Ukázat archiv (${archivedCount})`}
+          title={showArchived ? "Skrýt archiv" : "Ukázat archiv"}
+          className={cn(
+            "flex h-7 shrink-0 items-center gap-1 rounded-md px-1.5 text-xs transition-colors",
+            showArchived
+              ? "bg-accent text-foreground"
+              : "text-muted-foreground hover:bg-accent hover:text-foreground",
+          )}
+        >
+          <Archive className="size-4" />
+          <span className="tabular">{archivedCount}</span>
+        </button>
+      ) : null}
 
       <IconAction label="Nová složka" onClick={onAddFolder}>
         <FolderPlus />
@@ -270,6 +316,76 @@ function EmptyFolder({
           <Plus /> Nový win
         </Button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Archiv složky: co je odložené, ale nesmazané.
+ *
+ * Řádky jsou schválně hluché - nedá se do nich vejít, rozbalit je ani do nich
+ * zapsat. Archivovaná věc má právě dvě budoucnosti: vrátit se, nebo zmizet.
+ * Data z ní zůstávají ve statistikách tak jako tak.
+ */
+function ArchivedSection({
+  nodes,
+  onDelete,
+}: {
+  nodes: TreeNode[];
+  onDelete: (node: TreeNode) => void;
+}) {
+  const { state, setNodeArchived } = useStore();
+  const { toast } = useToast();
+
+  return (
+    <div className="border-t bg-muted/30 p-1.5">
+      <p className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium text-muted-foreground">
+        <Archive className="size-3.5" />
+        Archiv · {nodes.length} {plural(nodes.length, "položka", "položky", "položek")}
+      </p>
+
+      <ul className="flex flex-col gap-0.5">
+        {nodes.map((node) => {
+          const wins = microwinsInSubtree(state, node.id);
+          return (
+            <li key={node.id}>
+              <div className="flex items-center gap-2 rounded-md py-2 pl-2 pr-1.5">
+                <span className="opacity-60">
+                  {node.kind === "category" ? <FolderIcon node={node} /> : <KindIcon node={node} />}
+                </span>
+
+                <span className="flex min-w-0 flex-1 flex-col gap-0.5 sm:flex-row sm:items-center sm:gap-2">
+                  <span className="min-w-0 truncate text-sm text-muted-foreground" title={node.name}>
+                    {node.name}
+                  </span>
+                  {wins > 0 ? (
+                    <span className="tabular shrink-0 text-xs text-muted-foreground/80">
+                      {wins} {plural(wins, "microwin", "microwiny", "microwinů")} ve statistikách
+                    </span>
+                  ) : null}
+                </span>
+
+                <IconAction
+                  label="Vrátit z archivu"
+                  onClick={() => {
+                    setNodeArchived(node.id, false);
+                    toast({
+                      tone: "info",
+                      title: `Vráceno z archivu: ${node.name}`,
+                      description: "Zase je ve stromu, kde bylo.",
+                    });
+                  }}
+                >
+                  <ArchiveRestore />
+                </IconAction>
+                <IconAction label="Smazat" onClick={() => onDelete(node)} destructive>
+                  <Trash2 />
+                </IconAction>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }
@@ -578,7 +694,7 @@ function IconAction({
  * se strom zacyklil.
  */
 function FolderSettingsDialog({ node, onClose }: { node: TreeNode; onClose: () => void }) {
-  const { state, moveNode } = useStore();
+  const { state, moveNode, setNodeArchived } = useStore();
   const { toast } = useToast();
   const [target, setTarget] = React.useState(node.parentId ?? "");
 
@@ -645,6 +761,32 @@ function FolderSettingsDialog({ node, onClose }: { node: TreeNode; onClose: () =
             nemůžou být.
           </p>
         ) : null}
+
+        {/* Archivace vedle přesunu: obojí je "kam s tím", jen archiv je pryč
+            ze stromu. Mazání zůstává v koši na řádku - to je nevratné. */}
+        <div className="flex flex-col gap-2 rounded-lg border bg-muted/40 p-3">
+          <p className="text-xs text-muted-foreground">
+            {node.kind === "category"
+              ? "Archivace schová složku i s obsahem. Záznamy a microwiny zůstanou ve statistikách - jen se s nimi přestane pracovat."
+              : "Archivovaný win zmizí ze stromu a nedá se do něj zapisovat. Jeho záznamy a microwiny se dál počítají do statistik."}
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            className="self-start"
+            onClick={() => {
+              setNodeArchived(node.id, true);
+              toast({
+                tone: "info",
+                title: `Archivováno: ${node.name}`,
+                description: "Ze stromu je pryč, data zůstala ve statistikách.",
+              });
+              onClose();
+            }}
+          >
+            <Archive /> Archivovat
+          </Button>
+        </div>
       </div>
     </Dialog>
   );

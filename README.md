@@ -8,6 +8,10 @@
    - **Zaškrtávací** (udělal/neudělal, pro budování návyků)
    - **Jednorázové** (významné milníky, které se staly jednou)
 
+Co ze stromu vypadlo z hlavy, ale ne z historie, se dá **archivovat** - složka
+i win zmizí ze stromu, jejich microwiny a rekordy ale zůstanou ve statistikách.
+Archiv se otevírá v liště složky a vrátit se z něj dá jedním klepnutím.
+
 Díky propracované **analýze** můžeš sledovat své "streaky" (série dnů bez přerušení), prohlížet si úspěchy v kalendáři a vidět rozložení podle kategorií.
 
 Všechna data zůstávají u tebe – aplikace funguje čistě nad `localStorage`, je plně offline a nepotřebuješ žádný účet. O svá data nepřijdeš, protože si je můžeš kdykoliv exportovat i importovat.

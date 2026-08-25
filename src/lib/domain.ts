@@ -65,6 +65,36 @@ export function childrenOf(nodes: TreeNode[], parentId: string | null): TreeNode
   return nodes.filter((n) => n.parentId === parentId);
 }
 
+/**
+ * Archivovaný uzel: buď je odložený sám, nebo je pod odloženou složkou.
+ *
+ * Dědičnost se počítá po rodičích, ne razítkem na potomcích - jinak by se po
+ * vrácení složky z archivu nedalo poznat, co v ní bylo odložené zvlášť
+ * a mělo tam zůstat.
+ */
+export function isArchived(nodes: TreeNode[], id: string): boolean {
+  return pathOf(nodes, id).some((n) => Boolean(n.archivedAt));
+}
+
+/** Uzly, které se ve stromu nemají ukazovat (odložené i jejich podstromy). */
+export function archivedIds(nodes: TreeNode[]): Set<string> {
+  const ids = new Set<string>();
+  for (const node of nodes) {
+    if (node.archivedAt) for (const id of subtreeIds(nodes, node.id)) ids.add(id);
+  }
+  return ids;
+}
+
+/**
+ * Obsah složky bez archivovaných uzlů - to, co se kreslí ve stromu.
+ *
+ * Filtruje se jen podle razítka na samotném uzlu: do archivované složky se
+ * stejně nedá vejít, takže její obsah nemá kde vykouknout.
+ */
+export function liveChildrenOf(nodes: TreeNode[], parentId: string | null): TreeNode[] {
+  return childrenOf(nodes, parentId).filter((n) => !n.archivedAt);
+}
+
 /** Win = list stromu, tedy všechno kromě kategorie. */
 export function isWinNode(node: TreeNode | undefined): boolean {
   return node !== undefined && node.kind !== "category";

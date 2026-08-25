@@ -10,13 +10,17 @@ import {
   moveNode,
   moveTargets,
   reorderNodes,
+  setNodeArchived,
   toggleCheck,
   updateNode,
   updateOnce,
 } from "./actions";
 import {
+  archivedIds,
   breadcrumb,
   childrenOf,
+  isArchived,
+  liveChildrenOf,
   formatMetricLabel,
   nodeById,
   recordOf,
@@ -686,5 +690,87 @@ describe("pruh měsíce", () => {
     expect(days[0]).toBe("2026-08-01");
     expect(days.at(-1)).toBe("2026-08-31");
     expect(days).toContain(TODAY);
+  });
+});
+
+describe("archivace ve stromu", () => {
+  /** Business > cold calls > metrika, vedle toho Fitness. */
+  function tree() {
+    const a = addCategory(EMPTY_STATE, null, "Business");
+    const b = addCategory(a.state, a.node.id, "cold calls");
+    const c = addMetric(b.state, b.node.id, { name: "X cold calls za den" });
+    const d = addCategory(c.state, null, "Fitness");
+    return {
+      state: d.state,
+      business: a.node.id,
+      coldCalls: b.node.id,
+      metric: c.node.id,
+      fitness: d.node.id,
+    };
+  }
+
+  it("archivovaný uzel zmizí z obsahu složky, ale ve stavu zůstane", () => {
+    const t = tree();
+    const s = setNodeArchived(t.state, t.coldCalls, true);
+
+    expect(liveChildrenOf(s.nodes, t.business)).toEqual([]);
+    expect(childrenOf(s.nodes, t.business).map((n) => n.id)).toEqual([t.coldCalls]);
+    expect(nodeById(s.nodes, t.coldCalls)?.archivedAt).toBeTruthy();
+  });
+
+  it("archivace bere podstrom s sebou (dědí se po rodičích)", () => {
+    const t = tree();
+    const s = setNodeArchived(t.state, t.business, true);
+
+    expect(isArchived(s.nodes, t.metric)).toBe(true);
+    expect(archivedIds(s.nodes)).toEqual(new Set([t.business, t.coldCalls, t.metric]));
+    // Fitness je vedle, archivace do něj nemluví
+    expect(isArchived(s.nodes, t.fitness)).toBe(false);
+  });
+
+  it("záznamy ani microwiny se archivací neztrácejí", () => {
+    const t = tree();
+    const withEntry = addEntry(t.state, { metricId: t.metric, value: 4 }, TODAY);
+    expect(withEntry.state.microwins).toHaveLength(1);
+
+    const s = setNodeArchived(withEntry.state, t.coldCalls, true);
+    expect(s.entries).toHaveLength(1);
+    expect(s.microwins).toHaveLength(1);
+    expect(totals(s, TODAY).allTime).toBe(1);
+    expect(totals(s, TODAY).today).toBe(1);
+    expect(winOverview(s, TODAY).find((w) => w.node.id === t.metric)?.microwinCount).toBe(1);
+  });
+
+  it("odarchivace vrátí uzel zpátky na jeho místo", () => {
+    const t = tree();
+    const archived = setNodeArchived(t.state, t.coldCalls, true);
+    const s = setNodeArchived(archived, t.coldCalls, false);
+
+    expect(nodeById(s.nodes, t.coldCalls)?.archivedAt).toBeNull();
+    expect(liveChildrenOf(s.nodes, t.business).map((n) => n.id)).toEqual([t.coldCalls]);
+  });
+
+  it("vrácení složky nevrátí to, co v ní bylo archivované zvlášť", () => {
+    const t = tree();
+    let s = setNodeArchived(t.state, t.metric, true);
+    s = setNodeArchived(s, t.coldCalls, true);
+    s = setNodeArchived(s, t.coldCalls, false);
+
+    expect(liveChildrenOf(s.nodes, t.coldCalls)).toEqual([]);
+    expect(isArchived(s.nodes, t.metric)).toBe(true);
+  });
+
+  it("stejný stav archivu nic nepřepisuje", () => {
+    const t = tree();
+    expect(setNodeArchived(t.state, t.coldCalls, false)).toBe(t.state);
+    expect(setNodeArchived(t.state, "neexistuje", true)).toBe(t.state);
+  });
+
+  it("do archivované složky se nedá přesouvat", () => {
+    const t = tree();
+    const s = setNodeArchived(t.state, t.fitness, true);
+
+    expect(moveTargets(s, t.coldCalls).map((n) => n.id)).not.toContain(t.fitness);
+    expect(moveNode(s, t.coldCalls, t.fitness)).toBe(s);
   });
 });

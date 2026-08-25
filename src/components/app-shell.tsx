@@ -125,7 +125,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <Link href="/" className="mr-2 flex items-center gap-2.5 text-lg font-semibold tracking-tight">
             {headerLogo ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={logoImage} alt="" className="size-8 rounded-lg object-cover" />
+              <img src={logoImage} alt="" className="size-8 object-contain" />
             ) : null}
             MicroWins
           </Link>

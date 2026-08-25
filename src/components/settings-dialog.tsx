@@ -743,7 +743,7 @@ function HeaderLogoChoice() {
       <img
         src={logoImage}
         alt=""
-        className={cn("size-7 shrink-0 rounded-lg object-cover", !headerLogo && "opacity-40")}
+        className={cn("size-7 shrink-0 object-contain", !headerLogo && "opacity-40")}
       />
     </button>
   );

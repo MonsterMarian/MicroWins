@@ -11,7 +11,7 @@ hardwarové tlačítko Zpět a vibrace.
 | `capacitor.config.ts` | ID appky, jméno, barvy, chování splash screenu a lišt |
 | `android/` | nativní projekt (Gradle). Generuje ho Capacitor, ruční úpravy přežijí |
 | `android/app/src/main/res/` | ikony, splash, barvy a témata |
-| `scripts/android-assets.mjs` | generátor ikon a splashe z jednoho SVG |
+| `scripts/android-assets.mjs` | generátor ikon, splashe a loga v appce z `assets/logo_mark.png` |
 | `src/lib/native.ts` | most do nativní vrstvy (haptika, lišta, splash, tlačítko Zpět) |
 | `out/` | statický export webu, který se do APK kopíruje |
 
@@ -111,14 +111,33 @@ maže je jen odinstalace.
 
 ## Změna ikony nebo splashe
 
-Uprav SVG v `scripts/android-assets.mjs` a spusť:
+Zdroj je jediný soubor: `assets/logo_mark.png` — značka na **průhledném**
+pozadí. Po jeho výměně stačí:
 
 ```bash
 npm run android:assets
 ```
 
-Barvy tam odpovídají tokenům z `src/app/globals.css` (`--background`, `--win`
-v tmavém režimu). Když se změní paleta appky, změň je i tam a přegeneruj.
+Vygeneruje se z něj celá sada: ikony pro launcher (včetně adaptivní
+a monochromatické vrstvy pro tématické ikony na Androidu 13+), splash ve všech
+hustotách a logo pro hlavičku appky (`src/lib/logo-image.ts` — generovaný
+soubor, needitovat ručně).
+
+Barvy pozadí jsou dvě konstanty na začátku skriptu:
+
+| Konstanta | Kde se projeví | Proč zrovna tahle |
+| --- | --- | --- |
+| `BRAND_NAVY` | pozadí ikony v launcheru | trofej je na tuhle modrou nakreslená |
+| `APP_BACKGROUND` | splash | musí sedět s `--background` v `globals.css` a s `capacitor.config.ts`, jinak mezi splashem a appkou blikne |
+
+**Značka musí být průhledná.** Když se do `logo_mark.png` dá obrázek
+s vlastním pozadím, launcher pod něj podloží ještě `BRAND_NAVY` a v ikoně je
+vidět čtvereček na jinak barevném podkladu — dvě pozadí přes sebe. Vygenerované
+předlohy tohle mívají zapečené v pixelech; ořízne je:
+
+```bash
+python scripts/extract-logo-mark.py assets/logo_source.jpeg
+```
 
 ## Podpisový klíč
 

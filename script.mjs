@@ -1,1 +1,0 @@
-import fs from 'fs'; const b64 = fs.readFileSync('public/logo-new.jpg', 'base64'); const str = 'data:image/jpeg;base64,' + b64; fs.writeFileSync('src/lib/logo-image.ts', 'export const logoImage = ' + JSON.stringify(str) + ';\n');

@@ -22,7 +22,7 @@ import { useStore } from "@/components/providers/store-provider";
 import { useToast } from "@/components/providers/toast-provider";
 import { addDays, dayShort, formatDate } from "@/lib/date";
 import { tapFeedback } from "@/lib/native";
-import { projectById } from "@/lib/projects";
+import { projectById, taskById } from "@/lib/projects";
 import {
   blockEnd,
   blocksOfDay,
@@ -45,7 +45,7 @@ import {
   unplannedTodos,
 } from "@/lib/timeblocks";
 import { formatTodoDue, isTodoOverdue } from "@/lib/todos";
-import type { ISODate, Task, TimeBlock, Todo } from "@/lib/types";
+import type { ISODate, MicroWinsState, Task, TimeBlock, Todo } from "@/lib/types";
 import { cn, plural } from "@/lib/utils";
 
 /**
@@ -395,7 +395,7 @@ function TodoChip({ todo, onPick }: { todo: Todo; onPick: () => void }) {
 
 function TaskChip({ task, onPick }: { task: Task; onPick: () => void }) {
   const { state } = useStore();
-  const project = projectById(state, task.projectId);
+  const where = taskOrigin(state, task);
 
   return (
     <button
@@ -405,11 +405,24 @@ function TaskChip({ task, onPick }: { task: Task; onPick: () => void }) {
     >
       <EntityIcon icon={task.icon} size="sm" />
       <span className="max-w-[11rem] truncate">{task.name}</span>
-      {project ? (
-        <span className="max-w-[6rem] shrink-0 truncate text-muted-foreground">{project.name}</span>
+      {where ? (
+        <span className="max-w-[7rem] shrink-0 truncate text-muted-foreground">{where}</span>
       ) : null}
     </button>
   );
+}
+
+/**
+ * Odkud úkol je. U podúkolu se ukazuje **rodič**, ne projekt: "Kniha 3" se
+ * v projektu opakuje v každém čtvrtletí a dva stejné štítky vedle sebe se
+ * nedají rozeznat, kdežto "Kniha 3 · 3. čtvrtletí" ano.
+ */
+function taskOrigin(state: MicroWinsState, task: Task): string {
+  if (task.parentId) {
+    const parent = taskById(state, task.parentId);
+    if (parent) return parent.name;
+  }
+  return projectById(state, task.projectId)?.name ?? "";
 }
 
 // --- mřížka -----------------------------------------------------------------
@@ -943,7 +956,7 @@ function BlockDialog({
                 <PickRow
                   key={task.id}
                   label={task.name}
-                  hint={projectById(state, task.projectId)?.name ?? "úkol"}
+                  hint={taskOrigin(state, task) || "úkol"}
                   icon={task.icon}
                   onClick={() => pick({ title: task.name, taskId: task.id })}
                 />

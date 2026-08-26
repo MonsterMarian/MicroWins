@@ -4,7 +4,6 @@ import {
   addTodo,
   countTodos,
   deleteTodo,
-  dueSuggestions,
   formatDuration,
   formatRemaining,
   formatTodoDue,
@@ -320,12 +319,6 @@ describe("termín", () => {
     ).toBe(false);
   });
 
-  it("nabídky termínů míří dopředu a mají den", () => {
-    for (const s of dueSuggestions(NOON)) {
-      expect(s.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-      expect(s.label.length).toBeGreaterThan(0);
-    }
-  });
 });
 
 describe("nastavitelné mizení", () => {

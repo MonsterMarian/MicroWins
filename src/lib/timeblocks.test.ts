@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { createProject, createTask, setTaskCurrent } from "./project-actions";
-import { addTodo, toggleTodo } from "./todos";
+import { addTodo, setTodoDue, toggleTodo } from "./todos";
 import {
   addBlock,
   blocksOfDay,
+  daySummary,
   blockTitle,
   DAY_MINUTES,
   deleteBlock,
@@ -15,6 +16,7 @@ import {
   moveBlockToDay,
   nextFreeSlot,
   parseMinutes,
+  pinsOfDay,
   plannedMinutes,
   resizeBlock,
   restoreBlock,
@@ -22,6 +24,8 @@ import {
   unplannedTasks,
   unplannedTodos,
   updateBlock,
+  weekDays,
+  weekStart,
 } from "./timeblocks";
 import { EMPTY_STATE, type MicroWinsState, type TimeBlock } from "./types";
 
@@ -367,5 +371,115 @@ describe("co ještě není v plánu", () => {
       "později",
       "bez termínu",
     ]);
+  });
+});
+
+describe("propojení s termínem v ToDo", () => {
+  function withTodoBlock(start = 540) {
+    const added = addTodo(EMPTY_STATE, "zavolat doktorovi", NOON);
+    const todo = added.todo!;
+    const res = addBlock(
+      added.state,
+      { date: DAY, start, duration: 30, title: todo.text, todoId: todo.id },
+      NOON,
+    );
+    return { state: res.state, block: res.block, todoId: todo.id };
+  }
+
+  const dueOf = (state: MicroWinsState, id: string) => {
+    const todo = state.todos.find((t) => t.id === id)!;
+    return `${todo.dueDate} ${todo.dueTime}`;
+  };
+
+  /* Blok a termín jsou jedna informace ze dvou stran. Dvě čísla, která si
+     můžou odporovat, by byla horší než žádné. */
+  it("naplánováním položky vznikne i její termín", () => {
+    const { state, todoId } = withTodoBlock(540);
+
+    expect(dueOf(state, todoId)).toBe(`${DAY} 09:00`);
+  });
+
+  it("posun bloku posune i termín", () => {
+    const { state, block, todoId } = withTodoBlock(540);
+
+    expect(dueOf(moveBlock(state, block.id, 615), todoId)).toBe(`${DAY} 10:15`);
+  });
+
+  it("přesun na jiný den přepíše i den termínu", () => {
+    const { state, block, todoId } = withTodoBlock(540);
+
+    expect(dueOf(moveBlockToDay(state, block.id, OTHER_DAY), todoId)).toBe(`${OTHER_DAY} 09:00`);
+  });
+
+  it("natažení bloku termín nehýbe - začátek zůstal", () => {
+    const { state, block, todoId } = withTodoBlock(540);
+
+    expect(dueOf(resizeBlock(state, block.id, 120), todoId)).toBe(`${DAY} 09:00`);
+  });
+
+  it("blok bez položky do ToDo nesahá", () => {
+    const added = addTodo(EMPTY_STATE, "bez bloku", NOON);
+    const res = addBlock(added.state, { date: DAY, start: 540, title: "ruční" }, NOON);
+
+    expect(res.state.todos[0].dueDate).toBeNull();
+  });
+
+  it("termín s hodinou se v plánu ukáže jako stopa", () => {
+    const added = addTodo(EMPTY_STATE, "zavolat", NOON);
+    const state = setTodoDue(added.state, added.todo!.id, DAY, "14:30");
+    const [pin] = pinsOfDay(state, DAY);
+
+    expect(pin.start).toBe(870);
+    expect(pin.todo.text).toBe("zavolat");
+    expect(pinsOfDay(state, OTHER_DAY)).toHaveLength(0);
+  });
+
+  it("den bez hodiny stopu nedělá - není na čem stát", () => {
+    const added = addTodo(EMPTY_STATE, "někdy dnes", NOON);
+    const state = setTodoDue(added.state, added.todo!.id, DAY, null);
+
+    expect(pinsOfDay(state, DAY)).toHaveLength(0);
+  });
+
+  it("odškrtnutá položka ani položka s blokem stopu nedělá", () => {
+    const added = addTodo(EMPTY_STATE, "zavolat", NOON);
+    const id = added.todo!.id;
+    const withDue = setTodoDue(added.state, id, DAY, "14:30");
+
+    expect(pinsOfDay(toggleTodo(withDue, id, NOON), DAY)).toHaveLength(0);
+
+    const planned = addBlock(
+      withDue,
+      { date: DAY, start: 870, duration: 30, title: "zavolat", todoId: id },
+      NOON,
+    ).state;
+    expect(pinsOfDay(planned, DAY)).toHaveLength(0);
+  });
+});
+
+describe("týden", () => {
+  it("začíná v pondělí a má sedm dnů", () => {
+    // 13. 8. 2026 je čtvrtek.
+    expect(weekStart("2026-08-13")).toBe("2026-08-10");
+    expect(weekDays("2026-08-13")).toEqual([
+      "2026-08-10",
+      "2026-08-11",
+      "2026-08-12",
+      "2026-08-13",
+      "2026-08-14",
+      "2026-08-15",
+      "2026-08-16",
+    ]);
+  });
+
+  it("neděle patří k týdnu, který začal v pondělí", () => {
+    expect(weekStart("2026-08-16")).toBe("2026-08-10");
+  });
+
+  it("souhrn dne počítá bloky, minuty i stopy", () => {
+    const added = addTodo(withBlocks([540, 60], [660, 30]), "zavolat", NOON);
+    const state = setTodoDue(added.state, added.todo!.id, DAY, "14:30");
+
+    expect(daySummary(state, DAY)).toEqual({ blocks: 2, minutes: 90, done: 0, pins: 1 });
   });
 });

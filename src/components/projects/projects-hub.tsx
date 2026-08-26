@@ -12,7 +12,7 @@ import { useStore } from "@/components/providers/store-provider";
 import { usePrefs, setPrefs } from "@/components/providers/use-prefs";
 import { ADDON_TAB, HUB_TABS, type HubTab } from "@/lib/prefs";
 import { Overview } from "./overviews";
-import { PlanPanel } from "./plan-panel";
+import { PlanPanel } from "@/components/plan/plan-panel";
 import { ProjectDialog } from "./project-dialog";
 import { ProjectRow } from "./project-row";
 import { TodoPanel } from "./todo-panel";

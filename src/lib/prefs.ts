@@ -7,6 +7,8 @@
  * potřebuje pár komponent naráz. `useSyncExternalStore` si na něj sedne bez
  * dalšího providera.
  */
+import { DEFAULT_DUE_RULES, parseDueRules, type DueRule } from "./due-rules";
+
 /**
  * Barva postupu. Zelená je výchozí - postup je druhá polovina appky a zaslouží
  * si vlastní hlas. Bílá zůstává na výběr pro toho, komu vedle jantaru microwinů
@@ -35,6 +37,17 @@ export const OVERVIEWS: { id: Overview; label: string; hint: string }[] = [
   { id: "timeline", label: "Osa", hint: "termíny a milníky v pořadí, jak přijdou" },
   { id: "pulse", label: "Tep", hint: "graf denních přírůstků a série" },
   { id: "table", label: "Tabulka", hint: "hustý výpis všech čísel pod sebou" },
+];
+
+/**
+ * Podoba plánu dne. Obě verze pracují se stejnými bloky, jen se ptají jinak:
+ * osa na „jak vypadá dnešek", týden na „kdy v tom týdnu na to bude čas".
+ */
+export type PlanView = "day" | "week";
+
+export const PLAN_VIEWS: { id: PlanView; label: string; hint: string }[] = [
+  { id: "day", label: "Osa dne", hint: "jeden den odshora dolů, bloky se tahají po čtvrthodinách" },
+  { id: "week", label: "Týden", hint: "sedm sloupců vedle sebe, blok jde přehodit i na jiný den" },
 ];
 
 /**
@@ -100,6 +113,10 @@ export interface Prefs {
   todoExpire: boolean;
   /** Za jak dlouho odškrtnutá položka zmizí, v minutách. */
   todoTtlMinutes: number;
+  /** Podoba plánu dne, viz `PLAN_VIEWS`. */
+  plan: PlanView;
+  /** Tlačítka rychlých termínů v ToDo, viz `lib/due-rules.ts`. */
+  dueRules: DueRule[];
 }
 
 /** Doby, ze kterých se v Nastavení vybírá. Víc voleb by z toho udělalo formulář. */
@@ -116,6 +133,8 @@ export const DEFAULT_PREFS: Prefs = {
   tabOrder: DEFAULT_TAB_ORDER,
   todoExpire: true,
   todoTtlMinutes: DEFAULT_TODO_TTL_MINUTES,
+  plan: "day",
+  dueRules: DEFAULT_DUE_RULES,
 };
 
 export const PREFS_KEY = "microwins:prefs";
@@ -126,6 +145,10 @@ function isAccent(value: unknown): value is Accent {
 
 function isOverview(value: unknown): value is Overview {
   return OVERVIEWS.some((o) => o.id === value);
+}
+
+function isPlanView(value: unknown): value is PlanView {
+  return PLAN_VIEWS.some((v) => v.id === value);
 }
 
 /**
@@ -178,6 +201,8 @@ export function parsePrefs(raw: unknown): Prefs {
     // Chybějící volba = mizení zapnuté, jako to bylo napevno předtím.
     todoExpire: record.todoExpire !== false,
     todoTtlMinutes: parseTtlMinutes(record.todoTtlMinutes),
+    plan: isPlanView(record.plan) ? record.plan : DEFAULT_PREFS.plan,
+    dueRules: parseDueRules(record.dueRules),
   };
 }
 

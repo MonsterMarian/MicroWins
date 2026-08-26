@@ -21,7 +21,8 @@ import { useStore } from "@/components/providers/store-provider";
 import { usePrefs, setPrefs } from "@/components/providers/use-prefs";
 import { useToast } from "@/components/providers/toast-provider";
 import { parseBackup, type ExportTarget } from "@/lib/backup";
-import { ACCENTS, ADDONS, TODO_TTL_CHOICES } from "@/lib/prefs";
+import { ACCENTS, ADDONS, PLAN_VIEWS, TODO_TTL_CHOICES } from "@/lib/prefs";
+import { DueRulesSection } from "./settings/due-rules-section";
 import { formatDuration } from "@/lib/todos";
 import {
   countState,
@@ -107,6 +108,8 @@ export function SettingsDialog({
             <Section title="Barva postupu" hint="Jantar u microwinů zůstává v obou případech.">
               <AccentChoice />
             </Section>
+
+            <PlanChoice />
           </div>
         ) : (
           <div className="flex flex-col gap-5 animate-in-up">
@@ -118,6 +121,7 @@ export function SettingsDialog({
             </Section>
 
             <TodoExpirySection />
+            <TodoDueSection />
           </div>
         )}
       </div>
@@ -766,6 +770,83 @@ function TodoExpirySection() {
       ) : null}
     </Section>
   );
+}
+
+/**
+ * Podoba plánu dne. Obě verze umí totéž a pracují se stejnými bloky, jen se
+ * ptají jinak - proto volba, ne dvě obrazovky vedle sebe.
+ */
+function PlanChoice() {
+  const { addons, plan } = usePrefs();
+  if (!addons.plan) return null;
+
+  return (
+    <Section title="Plán dne">
+      <div className="flex flex-col gap-2">
+        {PLAN_VIEWS.map((view) => {
+          const active = plan === view.id;
+          return (
+            <button
+              key={view.id}
+              type="button"
+              onClick={() => setPrefs({ plan: view.id })}
+              aria-pressed={active}
+              className={cn(
+                "flex items-start gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors",
+                active ? "border-foreground/40 bg-accent" : "hover:bg-accent/50",
+              )}
+            >
+              <PlanPreview view={view.id} active={active} />
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center gap-2 text-sm font-medium">
+                  {view.label}
+                  {active ? <Check className="ml-auto size-3.5 opacity-60" /> : null}
+                </span>
+                <span className="block text-xs text-muted-foreground">{view.hint}</span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </Section>
+  );
+}
+
+/** Drobná kresba místo screenshotu - rozdíl mezi verzemi je v rozvržení. */
+function PlanPreview({ view, active }: { view: string; active: boolean }) {
+  const bar = cn("rounded-[2px]", active ? "bg-foreground/70" : "bg-muted-foreground/40");
+  return (
+    <span
+      className={cn(
+        "grid h-10 w-10 shrink-0 gap-[3px] rounded-md border p-1.5",
+        view === "week" ? "grid-cols-4 grid-rows-3" : "grid-cols-1 grid-rows-3",
+      )}
+      aria-hidden
+    >
+      {view === "week" ? (
+        <>
+          <span className={cn(bar, "row-span-2")} />
+          <span className={bar} />
+          <span className={cn(bar, "row-span-3 self-start h-full")} />
+          <span className={bar} />
+          <span className={cn(bar, "col-start-2 row-start-3")} />
+        </>
+      ) : (
+        <>
+          <span className={bar} />
+          <span className={cn(bar, "opacity-40")} />
+          <span className={bar} />
+        </>
+      )}
+    </span>
+  );
+}
+
+/** Rychlé termíny mají smysl jen tam, kde je ToDo zapnuté. */
+function TodoDueSection() {
+  const { addons } = usePrefs();
+  if (!addons.todo) return null;
+  return <DueRulesSection />;
 }
 
 function AccentChoice() {

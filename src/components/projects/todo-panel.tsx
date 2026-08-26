@@ -12,9 +12,10 @@ import { usePrefs } from "@/components/providers/use-prefs";
 import { useToast } from "@/components/providers/toast-provider";
 import { tapFeedback } from "@/lib/native";
 import { todoTtlMs } from "@/lib/prefs";
+import { resolveDueRule } from "@/lib/due-rules";
 import {
   countTodos,
-  dueSuggestions,
+  formatDue,
   formatDuration,
   formatRemaining,
   formatTodoDue,
@@ -332,8 +333,16 @@ function DueButton({ todo, onOpen }: { todo: Todo; onOpen: () => void }) {
 }
 
 /**
- * Nastavení termínu. Čtyři nabídky na jedno ťuknutí pokryjou skoro všechno,
- * co se do seznamu na dnešek píše; pod nimi jsou pole pro zbytek.
+ * Nastavení termínu.
+ *
+ * Nahoře je den a hodina, dole rychlá volba - a v tomhle pořadí schválně:
+ * kdo otevře dialog, ví, co chce nastavit, a nabídky pod poli fungují jako
+ * zkratka, ne jako první, přes co se musí přečíst. Na tlačítku je velké to,
+ * co se dá vyslovit („Zítra ráno"), a hodina jen drobně pod tím - ta je
+ * důsledek volby, ne volba sama.
+ *
+ * Co která nabídka znamená, se dá přenastavit a přidat další - viz
+ * `lib/due-rules.ts` a Nastavení.
  */
 function DueDialog({
   todo,
@@ -345,6 +354,7 @@ function DueDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const { setTodoDue } = useStore();
+  const { dueRules } = usePrefs();
   const [date, setDate] = React.useState("");
   const [time, setTime] = React.useState("");
 
@@ -354,7 +364,10 @@ function DueDialog({
     setTime(todo.dueTime ?? "");
   }, [open, todo.dueDate, todo.dueTime]);
 
-  const suggestions = React.useMemo(() => (open ? dueSuggestions() : []), [open]);
+  /* Pravidla se přepočítají při otevření, ne při každém renderu: "za hodinu"
+     se musí počítat od chvíle, kdy se člověk dívá, ale nesmí se pod rukama
+     posouvat, dokud se rozmýšlí. */
+  const now = React.useMemo(() => new Date(), [open]);
 
   const pick = (nextDate: string, nextTime: string | null) => {
     setTodoDue(todo.id, nextDate, nextTime);
@@ -392,19 +405,6 @@ function DueDialog({
       }
     >
       <div className="flex flex-col gap-4">
-        <div className="grid grid-cols-2 gap-2">
-          {suggestions.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              onClick={() => pick(s.date, s.time)}
-              className="rounded-lg border px-3 py-2.5 text-left text-sm transition-colors hover:bg-accent/60 active:bg-accent"
-            >
-              {s.label}
-            </button>
-          ))}
-        </div>
-
         <div className="grid grid-cols-2 gap-3">
           <Field label="Den" htmlFor="todo-due-date">
             <Input
@@ -423,6 +423,28 @@ function DueDialog({
               onChange={(e) => setTime(e.target.value)}
             />
           </Field>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <p className="text-xs font-medium text-muted-foreground">Rychle</p>
+          <div className="grid grid-cols-2 gap-2">
+            {dueRules.map((rule) => {
+              const at = resolveDueRule(rule, now);
+              return (
+                <button
+                  key={rule.id}
+                  type="button"
+                  onClick={() => pick(at.date, at.time)}
+                  className="flex flex-col gap-0.5 rounded-lg border px-3 py-2 text-left transition-colors hover:bg-accent/60 active:bg-accent"
+                >
+                  <span className="truncate text-sm">{rule.label}</span>
+                  <span className="tabular truncate text-[11px] text-muted-foreground/70">
+                    {formatDue(at.date, at.time, now)}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
     </Dialog>

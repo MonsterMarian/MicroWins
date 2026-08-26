@@ -1,6 +1,6 @@
-import { todayISO } from "./date";
+import { addDays, todayISO, weekdayMondayFirst } from "./date";
 import { isTaskDone, taskById } from "./projects";
-import { toggleTodo } from "./todos";
+import { setTodoDue, toggleTodo } from "./todos";
 import type { ISODate, MicroWinsState, Task, TimeBlock, Todo } from "./types";
 import { createId } from "./utils";
 
@@ -180,6 +180,26 @@ export interface BlockInput {
   taskId?: string | null;
 }
 
+/**
+ * Termín položky ToDo srovnaný podle bloku.
+ *
+ * Blok a termín jsou **jedna informace ze dvou stran**: „kdy to udělám" a
+ * „kdy to má být hotové". Držet je zvlášť by znamenalo, že po přesunutí bloku
+ * na odpoledne zůstane v ToDo svítit ranní termín a člověk neví, čemu věřit.
+ * Proto každá změna času bloku přepíše termín položky, ze které blok vznikl -
+ * a naopak termín položky bez bloku se v plánu ukáže jako `DuePin`.
+ */
+function syncTodoDue(state: MicroWinsState, block: TimeBlock): MicroWinsState {
+  if (!block.todoId) return state;
+  return setTodoDue(state, block.todoId, block.date, padMinutes(block.start));
+}
+
+/** Minuty od půlnoci jako "09:15" - v tomhle tvaru se ukládá termín položky. */
+function padMinutes(minutes: number): string {
+  const total = Math.max(0, Math.min(DAY_MINUTES - 1, Math.round(minutes)));
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+}
+
 export function addBlock(
   state: MicroWinsState,
   input: BlockInput,
@@ -200,7 +220,8 @@ export function addBlock(
     createdAt: now.toISOString(),
     doneAt: null,
   };
-  return { state: { ...state, timeBlocks: [...state.timeBlocks, block] }, block };
+  const next = syncTodoDue({ ...state, timeBlocks: [...state.timeBlocks, block] }, block);
+  return { state: next, block };
 }
 
 function patchBlock(
@@ -220,7 +241,10 @@ function patchBlock(
   ) {
     return state;
   }
-  return { ...state, timeBlocks: state.timeBlocks.map((b) => (b.id === id ? next : b)) };
+  return syncTodoDue(
+    { ...state, timeBlocks: state.timeBlocks.map((b) => (b.id === id ? next : b)) },
+    next,
+  );
 }
 
 /** Posun v rámci dne. Délka se drží, blok se jen nepustí přes půlnoc. */
@@ -360,6 +384,76 @@ export function blockTitle(state: MicroWinsState, block: TimeBlock): string {
     if (task) return task.name;
   }
   return block.title || "Blok";
+}
+
+// --- termíny z ToDo v plánu -------------------------------------------------
+
+/**
+ * Termín z ToDo, který v plánu ještě nemá blok.
+ *
+ * Kreslí se do mřížky jako lehčí, čárkovaná stopa - „tady něco visí". Blok se
+ * z něj nedělá sám: plán by si sám od sebe zaplňoval den a bloky, které nikdo
+ * nevytvořil, by nešlo rozumně mazat (smazaný by se hned vrátil). Ťuknutím se
+ * z něj blok stane, a od té chvíle to je obyčejný blok.
+ *
+ * Termín bez hodiny se do plánu nedostane - „někdy dnes" není čas, na který
+ * jde zabrat místo v mřížce.
+ */
+export interface DuePin {
+  todo: Todo;
+  start: number;
+  duration: number;
+}
+
+export function pinsOfDay(
+  state: MicroWinsState,
+  date: ISODate,
+  duration: number = DEFAULT_DURATION,
+): DuePin[] {
+  const planned = new Set(
+    state.timeBlocks.filter((b) => b.date === date && b.todoId).map((b) => b.todoId),
+  );
+  return state.todos
+    .filter(
+      (t) => !t.doneAt && t.dueDate === date && t.dueTime !== null && !planned.has(t.id),
+    )
+    .map((todo) => {
+      const [h, m] = (todo.dueTime as string).split(":").map(Number);
+      const start = clampStart(h * 60 + m, duration);
+      return { todo, start, duration: clampDuration(duration, start) };
+    })
+    .sort((a, b) => a.start - b.start);
+}
+
+// --- týden ------------------------------------------------------------------
+
+/** Pondělí toho týdne, do kterého den spadá. */
+export function weekStart(date: ISODate): ISODate {
+  return addDays(date, -weekdayMondayFirst(date));
+}
+
+/** Sedm dnů od pondělí. */
+export function weekDays(date: ISODate): ISODate[] {
+  const start = weekStart(date);
+  return Array.from({ length: 7 }, (_, i) => addDays(start, i));
+}
+
+/** Kolik je v daném dni práce - podklad pro pruh dnů nad plánem. */
+export interface DaySummary {
+  blocks: number;
+  minutes: number;
+  done: number;
+  pins: number;
+}
+
+export function daySummary(state: MicroWinsState, date: ISODate): DaySummary {
+  const blocks = blocksOfDay(state, date);
+  return {
+    blocks: blocks.length,
+    minutes: plannedMinutes(blocks),
+    done: blocks.filter((b) => b.doneAt !== null).length,
+    pins: pinsOfDay(state, date).length,
+  };
 }
 
 // --- co ještě není v plánu --------------------------------------------------

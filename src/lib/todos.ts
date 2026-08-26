@@ -1,4 +1,4 @@
-import { fromISODate, todayISO, toISODate } from "./date";
+import { DAY_SHORT, fromISODate, todayISO, toISODate } from "./date";
 import { TODO_TTL_MS, type ISODate, type MicroWinsState, type Todo } from "./types";
 import { createId } from "./utils";
 
@@ -168,17 +168,22 @@ export function isTodoDueSoon(todo: Todo, now: Date = new Date()): boolean {
   return left >= 0 && left <= 60 * 60 * 1000;
 }
 
-const DAY_SHORT = ["ne", "po", "út", "st", "čt", "pá", "so"];
-
 /**
- * Krátký popisek termínu do řádku: "dnes 14:00", "zítra", "pá 9:00", "3. 9.".
- * Bez roku a bez slova "termín" - v řádku je na to místo tak akorát a hodinky
- * vedle napoví zbytek.
+ * Krátký popisek termínu: "dnes 14:00", "zítra", "pá 9:00", "3. 9.". Bez roku
+ * a bez slova "termín" - v řádku je na to místo tak akorát a hodinky vedle
+ * napoví zbytek.
+ *
+ * Bere den a hodinu zvlášť, ne celou položku: stejný popisek se kreslí
+ * i u rychlých termínů v dialogu, kde ještě žádná položka není.
  */
-export function formatTodoDue(todo: Todo, now: Date = new Date()): string {
-  if (!todo.dueDate) return "";
+export function formatDue(
+  dueDate: ISODate | null,
+  dueTime: string | null,
+  now: Date = new Date(),
+): string {
+  if (!dueDate) return "";
   const today = toISODate(now);
-  const day = fromISODate(todo.dueDate);
+  const day = fromISODate(dueDate);
   const diff = Math.round((day.getTime() - fromISODate(today).getTime()) / 86_400_000);
 
   let label: string;
@@ -188,36 +193,15 @@ export function formatTodoDue(todo: Todo, now: Date = new Date()): string {
   else if (diff > 1 && diff < 7) label = DAY_SHORT[day.getDay()];
   else label = `${day.getDate()}. ${day.getMonth() + 1}.`;
 
-  return todo.dueTime ? `${label} ${stripLeadingZero(todo.dueTime)}` : label;
+  return dueTime ? `${label} ${stripLeadingZero(dueTime)}` : label;
+}
+
+export function formatTodoDue(todo: Todo, now: Date = new Date()): string {
+  return formatDue(todo.dueDate, todo.dueTime, now);
 }
 
 function stripLeadingZero(time: string): string {
   return time.startsWith("0") ? time.slice(1) : time;
-}
-
-/**
- * Nabídka termínů na jedno ťuknutí. Pokrývá to, co se do seznamu na dnešek
- * píše nejčastěji; cokoliv jiného se doťuká v polích pod nimi.
- */
-export interface DueSuggestion {
-  id: string;
-  label: string;
-  date: ISODate;
-  time: string | null;
-}
-
-export function dueSuggestions(now: Date = new Date()): DueSuggestion[] {
-  const today = toISODate(now);
-  const tomorrow = toISODate(new Date(now.getTime() + 86_400_000));
-  const inHour = new Date(now.getTime() + 60 * 60 * 1000);
-  const hourLabel = `${inHour.getHours()}:${String(inHour.getMinutes()).padStart(2, "0")}`;
-
-  return [
-    { id: "hour", label: `Za hodinu · ${hourLabel}`, date: toISODate(inHour), time: hourLabel },
-    { id: "evening", label: "Dnes večer · 18:00", date: today, time: "18:00" },
-    { id: "tomorrow", label: "Zítra ráno · 9:00", date: tomorrow, time: "09:00" },
-    { id: "today", label: "Dnes, bez hodiny", date: today, time: null },
-  ];
 }
 
 /** Otevřené položky s termínem, nejbližší první - podklad pro plán dne. */

@@ -37,8 +37,9 @@ export function isValidISODate(value: string): boolean {
   return toISODate(d) === value;
 }
 
-const DAY_NAMES = ["neděle", "pondělí", "úterý", "středa", "čtvrtek", "pátek", "sobota"];
-const DAY_SHORT = ["ne", "po", "út", "st", "čt", "pá", "so"];
+/** Názvy dnů v týdnu, index = `Date.getDay()` (0 = neděle). */
+export const DAY_NAMES = ["neděle", "pondělí", "úterý", "středa", "čtvrtek", "pátek", "sobota"];
+export const DAY_SHORT = ["ne", "po", "út", "st", "čt", "pá", "so"];
 
 export function dayName(iso: ISODate): string {
   return DAY_NAMES[fromISODate(iso).getDay()];
@@ -107,6 +108,26 @@ const MONTH_NAMES = [
   "listopad",
   "prosinec",
 ];
+
+/** Druhý pád pro datumové rozsahy: "24. - 30. srpna". */
+const MONTH_GENITIVE = [
+  "ledna",
+  "února",
+  "března",
+  "dubna",
+  "května",
+  "června",
+  "července",
+  "srpna",
+  "září",
+  "října",
+  "listopadu",
+  "prosince",
+];
+
+export function monthGenitive(iso: ISODate): string {
+  return MONTH_GENITIVE[fromISODate(iso).getMonth()];
+}
 
 /** "srpen 2026" */
 export function monthLabel(iso: ISODate): string {

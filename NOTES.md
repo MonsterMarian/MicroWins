@@ -27,7 +27,7 @@ Aplikace **MicroWins** ve dvou částech:
 | Strom | `/tree` | dnešek + procházení složek s winy a jejich záznamy |
 | Analýza | `/stats` | série, pruh měsíce, kalendář roku, přehled winů, tempo projektů |
 
-Stack: Next.js 15 (App Router, vše klientské) · React 19 · TypeScript strict · Tailwind 4 · Vitest. Data v `localStorage`, export/import JSON. Grafy jsou vlastní SVG bez knihoven. 242 testů nad doménovou logikou.
+Stack: Next.js 15 (App Router, vše klientské) · React 19 · TypeScript strict · Tailwind 4 · Vitest. Data v `localStorage`, export/import JSON. Grafy jsou vlastní SVG bez knihoven. 274 testů nad doménovou logikou.
 
 ---
 
@@ -62,8 +62,15 @@ Věci, které ze zadání jednoznačně nevyplývaly a musely se dořešit:
 | **Odškrtnutá položka se maže sama, výchozí je 6 h** | Hned by nešla vrátit omylem odškrtnutá věc a odpoledne by nebylo vidět, co za den odpadlo. Později by z toho byl druhý archiv - na to jsou projekty. Do té doby leží pod otevřenými, nejnovější první, takže postupně klesá a zmizí odspodu. Doba se dá v Nastavení přehodit (15 min až den) nebo mizení úplně vypnout; napevno v kódu bylo šest hodin dřív a nešlo s tím nic dělat. |
 | **Vypnuté mizení je nula, ne druhý přepínač** | Funkce v `todos.ts` berou dobu v milisekundách a `0` znamená „nemaže se". Kdyby se vedle doby tahal ještě `enabled`, musela by na něj myslet každá z nich zvlášť - a stačí, aby ho jedna přehlédla, a položka zmizí, i když mizet neměla. V nastavení jsou volby dvě (vypínač + doba), protože vypnutí si má pamatovat, co bylo nastavené. |
 | **Indikátor času je vlasový pruh a jedna tichá věta** | Šedý pruh, 2 px, a vedle něj „zmizí za 5 h" - obojí se přepočítává po minutě. Hodiny se nedrobí na minuty schválně: u pěti hodin nikoho nezajímá, jestli je jich 5:12 nebo 5:47, a přesné číslo by z poznámky udělalo odpočet. |
-| **Termín u ToDo je nepovinný a přidává se až potom** | Pole nahoře zůstalo jedno: seznam na dnešek se píše Enterem za Enterem a políčko s datem by ten rytmus rozbilo. Termín se navěsí ťuknutím na hodinky v řádku - čtyři nabídky na jedno ťuknutí, pod nimi den a hodina. Pořadím termín nehýbe (seznam si člověk skládá prstem), hlásí se barvou: propadlý červeně, do hodiny tmavě. |
+| **Termín u ToDo je nepovinný a přidává se až potom** | Pole nahoře zůstalo jedno: seznam na dnešek se píše Enterem za Enterem a políčko s datem by ten rytmus rozbilo. Termín se navěsí ťuknutím na hodinky v řádku. Pořadím nehýbe (seznam si člověk skládá prstem), hlásí se barvou: propadlý červeně, do hodiny tmavě. |
+| **V dialogu termínu je nahoře den, dole rychlá volba** | Kdo dialog otevře, ví, co chce nastavit - pole tedy patří nahoru a nabídky pod ně jako zkratka, ne jako první, přes co se musí přečíst. Na tlačítku je velké to, co se dá vyslovit („Zítra ráno"), a spočítaná hodina jen drobně pod tím: ta je důsledek volby, ne volba sama. |
+| **Rychlé termíny jsou pravidla, ne texty** | „Zítra ráno" se musí dát přenastavit na šestou a musí jít přidat vlastní tlačítko, takže se nabídka neukládá jako hotový text, ale jako pravidlo, které se přepočítá až při otevření. Druhy jsou tři a pokrývají všechno: `offset` (za N minut), `day` (za N dní v HH:MM), `weekday` (nejbližší den v týdnu). Viz `lib/due-rules.ts`. |
+| **„Nejbližší sobota" počítá i dnešek - do zadané hodiny** | V sobotu v sedm ráno je nejbližší sobota dnešek, v devět už sobota za týden. Kdyby se dnešek nepočítal nikdy, byla by nabídka k ničemu právě v den, kdy se hodí nejvíc; kdyby se počítal vždycky, vyrobila by termín v minulosti. Den bez hodiny platí celý den. |
 | **Appka se otevírá na první záložce zleva** | Dřív o tom rozhodoval obsah - něco k odškrtnutí = ToDo, jinak Přehled - jenže appka pak startovala pokaždé jinde a přeskládané pořadí záložek nic neznamenalo. Teď platí jednoduché pravidlo: co si člověk přetáhne doleva, to uvidí po spuštění. |
+| **Plán má dvě podoby, ne jednu** | Osa dne odpovídá na „jak vypadá dnešek", týden na „kdy v tom týdnu na to bude čas". Je to jiná otázka, ne jiný vkus, a odpovědět na obě jednou obrazovkou znamená odpovědět na obě špatně. Data i tažení jsou pod obojím stejná, přepíná se v Nastavení → Vzhled. |
+| **Termín v ToDo a blok v plánu jsou jedna věc ze dvou stran** | Položka s hodinou se v mřížce ukáže jako čárkovaná stopa a ťuknutím se z ní stane blok; posunutí bloku naopak přepíše termín položky. Dvě čísla, která si můžou odporovat, jsou horší než jedno: jinak by po přesunu bloku na odpoledne zůstal v ToDo svítit ranní termín a nikdo neví, čemu věřit. |
+| **Stopa se na blok mění ťuknutím, ne sama** | Kdyby si termíny zakládaly bloky samy, plán by se zaplňoval bez zásahu a smazaný blok by se hned vrátil (termín ho vyrobí znovu). Čárkovaná stopa proto zůstane stopou, dokud na ni někdo neťukne. |
+| **V týdnu mění vodorovný tah den** | Sedm sloupců vedle sebe má tu výhodu, že „přehodit to na čtvrtek" je jeden pohyb prstem. Svisle se mění čas, vodorovně den; tažený blok se přitom kreslí ve sloupci, nad kterým visí, ne v tom, odkud šel. |
 | **Plán dne je hloupý schválně** | Blok ví jen kdy začíná, jak dlouho trvá a co se v něm dělá. Žádná procenta ani cíle - ty už mají svoje místo v úkolech. Plán odpovídá na jinou otázku: *kdy* na to bude čas. Odškrtnutí bloku z položky ToDo odškrtne i tu položku (jedna věc ze dvou stran), úkolu projektu se ale nesahá - nastavit ho na sto procent za odsezenou hodinu by lhalo o postupu. |
 | **Bloky se smějí překrývat** | Ubránit se překryvu by znamenalo bloky odstrkávat nebo puštění zakazovat. Dvě věci vedle sebe jsou lepší: je z nich na první pohled vidět, že si to člověk naplánoval přes sebe. Šířku počítá `layoutDay` ze sloupců celého shluku, aby na sebe sousední bloky navazovaly. |
 | **Do plánu se hází z pásu na jedno ťuknutí** | Nahoře leží otevřené ToDo a nedokončené úkoly; ťuknutí posadí věc do nejbližšího volna a řekne hláškou kam. Kdyby se pás ptal na čas, přestala by to být cesta na jedno ťuknutí - a člověk by radši neplánoval nic. Přesný čas se doladí tahem, ťuknutím do mřížky nebo v editoru. |
@@ -85,6 +92,7 @@ Věci, které ze zadání jednoznačně nevyplývaly a musely se dořešit:
 - **Historie postupu se nedá zpětně opravit** — otisk vzniká v den změny.
 - **Termíny ani plán dne nic nepřipomínají** — appka neposílá notifikace, takže propadlý termín je vidět jen uvnitř ní.
 - **Plán dne se neopakuje** — blok platí pro jeden den; „každé úterý v 9" se musí naklikat znovu (dá se přesunout na jiný den, ne rozkopírovat).
+- **Týden na telefonu je jen přehled** — sedm sloupců na 375 px dá bloku ~45 px šířky, takže z názvu zbyde pár znaků. Na čtení je osa dne, týden je na rozvržení.
 - Grafy nemají textovou alternativu (tabulku hodnot) pro čtečky, jen `aria-label`.
 
 ---
@@ -193,7 +201,8 @@ src/lib/
   project-actions.ts  CRUD projektů a úkolů (+ snapshotProject)
   stats.ts            série, kalendář roku, přehled winů
   todos.ts            jednoduchý seznam (přidat, odškrtnout, termín, mizení)
-  timeblocks.ts       plán dne (bloky, překryvy, hledání volna, popisky)
+  timeblocks.ts       plán dne (bloky, překryvy, hledání volna, stopy z ToDo)
+  due-rules.ts        rychlé termíny jako pravidla (za hodinu, nejbližší sobota)
   storage.ts          localStorage + export/import  ← jediné místo k výměně za DB
   backup.ts           záloha celé appky (stav + nastavení), sdílení souboru
   prefs.ts            nastavení zobrazení mimo hlavní stav

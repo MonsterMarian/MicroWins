@@ -21,7 +21,8 @@ import { useStore } from "@/components/providers/store-provider";
 import { usePrefs, setPrefs } from "@/components/providers/use-prefs";
 import { useToast } from "@/components/providers/toast-provider";
 import { parseBackup, type ExportTarget } from "@/lib/backup";
-import { ACCENTS, ADDONS } from "@/lib/prefs";
+import { ACCENTS, ADDONS, TODO_TTL_CHOICES } from "@/lib/prefs";
+import { formatDuration } from "@/lib/todos";
 import {
   countState,
   hasScope,
@@ -109,9 +110,14 @@ export function SettingsDialog({
           </div>
         ) : (
           <div className="flex flex-col gap-5 animate-in-up">
-            <Section title="Addony" hint="Vypnutá část zmizí i se svou záložkou; data zůstanou.">
+            <Section
+              title="Addony"
+              hint="Vypnutá část zmizí i se svou záložkou; data zůstanou. Appka se otevírá na první záložce zleva - pořadí si přetáhneš přímo v liště nad projekty."
+            >
               <AddonChoice />
             </Section>
+
+            <TodoExpirySection />
           </div>
         )}
       </div>
@@ -403,6 +409,7 @@ function ImportDialog({
           />
           <Change label="Úkoly" from={before.tasks} to={after.tasks} touched={touchesProjects} />
           <Change label="ToDo" from={before.todos} to={after.todos} touched={touchesProjects} />
+          <Change label="Plán dne" from={before.blocks} to={after.blocks} touched={touchesProjects} />
           <Change label="Složky" from={before.folders} to={after.folders} touched={touchesTree} />
           <Change label="Winy" from={before.wins} to={after.wins} touched={touchesTree} />
           <Change
@@ -679,6 +686,85 @@ function AddonChoice() {
         );
       })}
     </div>
+  );
+}
+
+/**
+ * Mizení odškrtnutých položek ToDo.
+ *
+ * Šest hodin bylo do téhle chvíle napevno v kódu a nešlo s tím nic dělat -
+ * komu položky mizely moc brzy (nebo pozdě), neměl kam sáhnout. Vypínač je
+ * schválně nad dobou: zvolená doba se drží i po vypnutí, takže zpětné zapnutí
+ * vrátí přesně to, co si člověk nastavil.
+ *
+ * Sekce zmizí spolu s vypnutým addonem ToDo - nastavovat něco, co není vidět,
+ * je jen matoucí.
+ */
+function TodoExpirySection() {
+  const { addons, todoExpire, todoTtlMinutes } = usePrefs();
+  if (!addons.todo) return null;
+
+  return (
+    <Section
+      title="Mizení v ToDo"
+      hint="Odškrtnutá položka zůstane dole pod otevřenými a pak se smaže sama. Do té doby jde vrátit zpět."
+    >
+      <button
+        type="button"
+        onClick={() => setPrefs({ todoExpire: !todoExpire })}
+        aria-pressed={todoExpire}
+        className={cn(
+          "flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors",
+          todoExpire ? "border-foreground/40 bg-accent" : "hover:bg-accent/50",
+        )}
+      >
+        <span className="min-w-0">
+          <span className="block text-sm font-medium">Mazat odškrtnuté</span>
+          <span className="block text-xs text-muted-foreground">
+            {todoExpire
+              ? `Zmizí za ${formatDuration(todoTtlMinutes * 60_000)}.`
+              : "Nic nemizí, mažeš si sám."}
+          </span>
+        </span>
+        <span
+          className={cn(
+            "relative h-6 w-11 shrink-0 rounded-full transition-colors",
+            todoExpire ? "bg-progress" : "bg-muted-foreground/30",
+          )}
+        >
+          <span
+            className={cn(
+              "absolute top-1 size-4 rounded-full bg-card shadow transition-[left] duration-200",
+              todoExpire ? "left-6" : "left-1",
+            )}
+          />
+        </span>
+      </button>
+
+      {todoExpire ? (
+        <div className="flex flex-wrap gap-1.5">
+          {TODO_TTL_CHOICES.map((minutes) => {
+            const active = todoTtlMinutes === minutes;
+            return (
+              <button
+                key={minutes}
+                type="button"
+                onClick={() => setPrefs({ todoTtlMinutes: minutes })}
+                aria-pressed={active}
+                className={cn(
+                  "tabular rounded-md border px-3 py-1.5 text-xs transition-colors",
+                  active
+                    ? "border-foreground/40 bg-accent font-medium"
+                    : "text-muted-foreground hover:bg-accent/50",
+                )}
+              >
+                {formatDuration(minutes * 60_000)}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+    </Section>
   );
 }
 

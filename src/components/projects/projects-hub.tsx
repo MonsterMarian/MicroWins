@@ -12,10 +12,10 @@ import { useStore } from "@/components/providers/store-provider";
 import { usePrefs, setPrefs } from "@/components/providers/use-prefs";
 import { ADDON_TAB, HUB_TABS, type HubTab } from "@/lib/prefs";
 import { Overview } from "./overviews";
+import { PlanPanel } from "./plan-panel";
 import { ProjectDialog } from "./project-dialog";
 import { ProjectRow } from "./project-row";
 import { TodoPanel } from "./todo-panel";
-import { countTodos } from "@/lib/todos";
 import {
   filterProjects,
   sortProjects,
@@ -27,11 +27,13 @@ import {
 import { cn } from "@/lib/utils";
 
 /*
- * Tři záložky. „Úkoly" a „Dnes" ukazovaly stejná data potřetí a počtvrté
- * - úkoly jsou v projektu, dnešek v přehledu - a zmizely.
+ * Záložky nad projekty. „Úkoly" a „Dnes" ukazovaly stejná data potřetí
+ * a počtvrté - úkoly jsou v projektu, dnešek v přehledu - a zmizely.
  *
  * Seznam i výchozí pořadí bydlí v `lib/prefs.ts`: uživatel si je přeskládá
- * v Nastavení a ToDo se dá celé vypnout jako addon.
+ * přímo tady tažením a ToDo i Plán se dají vypnout jako addony. První záložka
+ * zleva je zároveň ta, na které se appka otevírá - proto se pořadí vyplatí
+ * brát vážně.
  */
 type Tab = HubTab;
 
@@ -104,20 +106,12 @@ export function ProjectsHub() {
   );
 
   /*
-   * Bez `?tab=` v adrese (studený start appky, klik na logo, spodní lišta)
-   * rozhoduje seznam: je-li co odškrtnout, otevře se ToDo, jinak první záložka
-   * v pořadí.
-   *
-   * Spočítá se **jednou při otevření** a dál se drží. Kdyby se to přepočítávalo
-   * při každém renderu, odškrtnutí poslední položky by uživateli pod rukama
-   * přehodilo záložku jinam - přesně ve chvíli, kdy si chce prohlédnout,
-   * co dodělal.
+   * Bez `?tab=` v adrese (studený start appky, klik na logo, spodní lišta) se
+   * otevře **první záložka zleva**, tedy ta, kterou si uživatel přetáhl na
+   * začátek. Dřív o tom rozhodoval obsah (něco k odškrtnutí = ToDo), jenže
+   * appka pak startovala pokaždé jinde a pořadí záložek nic neznamenalo.
    */
-  const [openedOn] = React.useState<Tab>(() =>
-    todoOn && countTodos(state.todos).open > 0 ? "todo" : "overview",
-  );
-
-  const requested = isTab(params.get("tab")) ? (params.get("tab") as Tab) : openedOn;
+  const requested = isTab(params.get("tab")) ? (params.get("tab") as Tab) : (tabs[0]?.id ?? "overview");
   /* Adresa může ukazovat na záložku, která už není vidět (vypnutý addon,
      odkaz z dřívějška). Místo prázdné obrazovky se spadne na první viditelnou. */
   const tab: Tab = tabs.some((t) => t.id === requested)
@@ -125,8 +119,9 @@ export function ProjectsHub() {
     : (tabs[0]?.id ?? "overview");
 
   /* Prázdná výzva k založení projektu platí jen tam, kde jsou projekty vidět.
-     Na ToDo by zakryla seznam, se kterým projekty nemají nic společného. */
-  const noProjects = state.projects.length === 0 && tab !== "todo";
+     Na ToDo ani v plánu dne by zakryla obrazovku, se kterou projekty nemají
+     nic společného. */
+  const noProjects = state.projects.length === 0 && tab !== "todo" && tab !== "plan";
 
   return (
     <div className="flex flex-col gap-5">
@@ -179,6 +174,8 @@ export function ProjectsHub() {
         </Card>
       ) : tab === "todo" ? (
         <TodoPanel />
+      ) : tab === "plan" ? (
+        <PlanPanel />
       ) : tab === "overview" ? (
         <Overview onNewProject={() => setDialogOpen(true)} />
       ) : (

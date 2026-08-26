@@ -42,26 +42,28 @@ export const OVERVIEWS: { id: Overview; label: string; hint: string }[] = [
  * v Nastavení, takže seznam nemůže bydlet v komponentě, která je kreslí -
  * nastavení by na něj muselo sáhnout skrz.
  */
-export type HubTab = "overview" | "todo" | "projects";
+export type HubTab = "overview" | "todo" | "plan" | "projects";
 
 export const HUB_TABS: { id: HubTab; label: string }[] = [
   { id: "overview", label: "Přehled" },
   { id: "todo", label: "ToDo" },
+  { id: "plan", label: "Plán" },
   { id: "projects", label: "Projekty" },
 ];
 
-export const DEFAULT_TAB_ORDER: HubTab[] = ["overview", "todo", "projects"];
+export const DEFAULT_TAB_ORDER: HubTab[] = ["overview", "todo", "plan", "projects"];
 
 /**
  * Vypínatelné části appky. Přidání dalšího addonu je jeden řádek v `ADDONS`
  * a jedna položka v `DEFAULT_ADDONS` - všechno ostatní (obrazovka v Nastavení,
  * načítání i ukládání) jede z tohohle seznamu.
  */
-export type AddonId = "overview" | "todo";
+export type AddonId = "overview" | "todo" | "plan";
 
 export const ADDONS: { id: AddonId; label: string; hint: string }[] = [
   { id: "overview", label: "Přehled", hint: "úvodní obrazovka s celkovou statistikou" },
   { id: "todo", label: "ToDo", hint: "krátký seznam na dnešek vedle projektů" },
+  { id: "plan", label: "Plán dne", hint: "časové bloky - kdy na co bude čas" },
 ];
 
 export type Addons = Record<AddonId, boolean>;
@@ -69,12 +71,14 @@ export type Addons = Record<AddonId, boolean>;
 export const DEFAULT_ADDONS: Addons = {
   overview: true,
   todo: true,
+  plan: true,
 };
 
 /** Záložka, kterou vypnutý addon schová. Addon bez záložky sem nepatří. */
 export const ADDON_TAB: Partial<Record<AddonId, HubTab>> = {
   overview: "overview",
   todo: "todo",
+  plan: "plan",
 };
 
 export interface Prefs {
@@ -88,7 +92,20 @@ export interface Prefs {
   addons: Addons;
   /** Pořadí záložek zleva doprava. Vždy obsahuje všechny, jen jinak seřazené. */
   tabOrder: HubTab[];
+  /**
+   * Mizí odškrtnuté položky ToDo samy? Vypnuté mizení si dobu pamatuje, takže
+   * zpětné zapnutí vrátí to, co si člověk nastavil - proto dvě volby, ne jedna
+   * s nulou.
+   */
+  todoExpire: boolean;
+  /** Za jak dlouho odškrtnutá položka zmizí, v minutách. */
+  todoTtlMinutes: number;
 }
+
+/** Doby, ze kterých se v Nastavení vybírá. Víc voleb by z toho udělalo formulář. */
+export const TODO_TTL_CHOICES = [15, 60, 180, 360, 720, 1440] as const;
+
+export const DEFAULT_TODO_TTL_MINUTES = 360;
 
 export const DEFAULT_PREFS: Prefs = {
   accent: "green",
@@ -97,6 +114,8 @@ export const DEFAULT_PREFS: Prefs = {
   folderTrophy: false,
   addons: DEFAULT_ADDONS,
   tabOrder: DEFAULT_TAB_ORDER,
+  todoExpire: true,
+  todoTtlMinutes: DEFAULT_TODO_TTL_MINUTES,
 };
 
 export const PREFS_KEY = "microwins:prefs";
@@ -156,7 +175,25 @@ export function parsePrefs(raw: unknown): Prefs {
     folderTrophy: record.folderTrophy === true,
     addons: parseAddons(record.addons),
     tabOrder: parseTabOrder(record.tabOrder),
+    // Chybějící volba = mizení zapnuté, jako to bylo napevno předtím.
+    todoExpire: record.todoExpire !== false,
+    todoTtlMinutes: parseTtlMinutes(record.todoTtlMinutes),
   };
+}
+
+/** Doba mimo rozsah by znamenala buď mizení "hned", nebo nikdy - obojí omylem. */
+function parseTtlMinutes(raw: unknown): number {
+  if (typeof raw !== "number" || !Number.isFinite(raw)) return DEFAULT_TODO_TTL_MINUTES;
+  return Math.min(7 * 24 * 60, Math.max(1, Math.round(raw)));
+}
+
+/**
+ * Doba do smazání v milisekundách, jak ji chtějí funkce v `lib/todos.ts`.
+ * Vypnuté mizení je nula - jedno číslo se protáhne všemi výpočty líp než
+ * dvojice hodnota + vypínač.
+ */
+export function todoTtlMs(prefs: Prefs): number {
+  return prefs.todoExpire ? prefs.todoTtlMinutes * 60_000 : 0;
 }
 
 /**

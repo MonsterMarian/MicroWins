@@ -20,14 +20,14 @@ Aplikace **MicroWins** ve dvou částech:
 
 | Sekce | Route | Obsah |
 |---|---|---|
-| Projekty | `/` | záložky Přehled / ToDo / Projekty, filtry, řazení, hledání; mezi sekcemi se dá přejet prstem |
+| Projekty | `/` | záložky Přehled / ToDo / Plán / Projekty, filtry, řazení, hledání; mezi sekcemi se dá přejet prstem |
 | Detail projektu | `/projects/[id]` | %, delta dne, start–deadline, zbývá dní, tempo %/den, popis, úkoly, milníky, archiv |
 | Statistiky projektu | `/projects/[id]/stats` | prstence (Postup / Dny / Hotové úkoly), plošný graf, deník změn |
 | Detail úkolu | `/tasks/[id]` | %, `630 / 2 000`, posuvník, −/+ s krokem, nastavení, podúkoly (cíl 1 = jen zaškrtnout) |
 | Strom | `/tree` | dnešek + procházení složek s winy a jejich záznamy |
 | Analýza | `/stats` | série, pruh měsíce, kalendář roku, přehled winů, tempo projektů |
 
-Stack: Next.js 15 (App Router, vše klientské) · React 19 · TypeScript strict · Tailwind 4 · Vitest. Data v `localStorage`, export/import JSON. Grafy jsou vlastní SVG bez knihoven. 112 testů nad doménovou logikou.
+Stack: Next.js 15 (App Router, vše klientské) · React 19 · TypeScript strict · Tailwind 4 · Vitest. Data v `localStorage`, export/import JSON. Grafy jsou vlastní SVG bez knihoven. 242 testů nad doménovou logikou.
 
 ---
 
@@ -58,10 +58,17 @@ Věci, které ze zadání jednoznačně nevyplývaly a musely se dořešit:
 | **Import po částech, ne všechno naráz** | Appka má dvě nezávislé poloviny (strom a projekty). Kdo si tahá projekty odjinud, nesmí tím smazat strom, co si vede měsíce. Proto se u zálohy vybírá rozsah a jestli se přidává nebo nahrazuje — a napřed se ukáže náhled se skutečnými počty "po načtení". |
 | **Ikona jako string s předponou** | Emoji se ukládá rovnou, kreslená ikona jako `lucide:Dumbbell`. Stará data zůstala platná a nic se nemigrovalo. Komponenty se importují jmenovitě, aby v balíku neskončilo všech 1500 ikon knihovny. |
 | **Ikonu má jen složka, ne win** | Winy poznává oko podle druhu (měrák / fajfka / hvězda) a vlastní ikona by ten rozdíl zakryla. Složka bez vybrané ikony zůstává kresleným `Folder`, takže strom bez jediné ikony vypadá jako dřív a nic se nemigrovalo. |
-| **ToDo je samostatný seznam, ne třetí pohled na projekty** | Kdo si chce odškrtnout, co má koupit, nemá kvůli tomu zakládat projekt s procenty a deadlinem. Položka umí čtyři věci - napsat, odškrtnout, přepsat, smazat - a nic víc: kdyby si žádala nastavení, byl by to úkol a ten už v appce je. |
-| **Odškrtnutá položka se maže sama po 6 h** | Hned by nešla vrátit omylem odškrtnutá věc a odpoledne by nebylo vidět, co za den odpadlo. Později by z toho byl druhý archiv - na to jsou projekty. Do té doby leží pod otevřenými, nejnovější první, takže postupně klesá a zmizí odspodu. |
-| **Indikátor času je vlasový pruh bez čísla** | Šedý, 2 px, přepočet po minutě. Číslo ani barva se schválně nekreslí: pruh nemá říkat, kolik zbývá, jen že se s tím něco děje. Kdo to nechce vidět, nevidí to. |
-| **Appka se otevírá na ToDo, když je co odškrtnout** | Bez `?tab=` v adrese rozhoduje seznam - něco otevřeného = ToDo, prázdno = Přehled. Rozhodne se **jednou při otevření** a dál se drží: kdyby se to počítalo při každém renderu, odškrtnutí poslední položky by pod rukama přehodilo záložku na Přehled právě ve chvíli, kdy si chce člověk prohlédnout, co dodělal. |
+| **ToDo je samostatný seznam, ne třetí pohled na projekty** | Kdo si chce odškrtnout, co má koupit, nemá kvůli tomu zakládat projekt s procenty a deadlinem. Položka umí napsat, odškrtnout, přepsat a smazat; jediné nepovinné navíc je termín, a i ten se přidává až dodatečně. Žádná procenta, cíle ani jednotky - to už je úkol a ten v appce je. |
+| **Odškrtnutá položka se maže sama, výchozí je 6 h** | Hned by nešla vrátit omylem odškrtnutá věc a odpoledne by nebylo vidět, co za den odpadlo. Později by z toho byl druhý archiv - na to jsou projekty. Do té doby leží pod otevřenými, nejnovější první, takže postupně klesá a zmizí odspodu. Doba se dá v Nastavení přehodit (15 min až den) nebo mizení úplně vypnout; napevno v kódu bylo šest hodin dřív a nešlo s tím nic dělat. |
+| **Vypnuté mizení je nula, ne druhý přepínač** | Funkce v `todos.ts` berou dobu v milisekundách a `0` znamená „nemaže se". Kdyby se vedle doby tahal ještě `enabled`, musela by na něj myslet každá z nich zvlášť - a stačí, aby ho jedna přehlédla, a položka zmizí, i když mizet neměla. V nastavení jsou volby dvě (vypínač + doba), protože vypnutí si má pamatovat, co bylo nastavené. |
+| **Indikátor času je vlasový pruh a jedna tichá věta** | Šedý pruh, 2 px, a vedle něj „zmizí za 5 h" - obojí se přepočítává po minutě. Hodiny se nedrobí na minuty schválně: u pěti hodin nikoho nezajímá, jestli je jich 5:12 nebo 5:47, a přesné číslo by z poznámky udělalo odpočet. |
+| **Termín u ToDo je nepovinný a přidává se až potom** | Pole nahoře zůstalo jedno: seznam na dnešek se píše Enterem za Enterem a políčko s datem by ten rytmus rozbilo. Termín se navěsí ťuknutím na hodinky v řádku - čtyři nabídky na jedno ťuknutí, pod nimi den a hodina. Pořadím termín nehýbe (seznam si člověk skládá prstem), hlásí se barvou: propadlý červeně, do hodiny tmavě. |
+| **Appka se otevírá na první záložce zleva** | Dřív o tom rozhodoval obsah - něco k odškrtnutí = ToDo, jinak Přehled - jenže appka pak startovala pokaždé jinde a přeskládané pořadí záložek nic neznamenalo. Teď platí jednoduché pravidlo: co si člověk přetáhne doleva, to uvidí po spuštění. |
+| **Plán dne je hloupý schválně** | Blok ví jen kdy začíná, jak dlouho trvá a co se v něm dělá. Žádná procenta ani cíle - ty už mají svoje místo v úkolech. Plán odpovídá na jinou otázku: *kdy* na to bude čas. Odškrtnutí bloku z položky ToDo odškrtne i tu položku (jedna věc ze dvou stran), úkolu projektu se ale nesahá - nastavit ho na sto procent za odsezenou hodinu by lhalo o postupu. |
+| **Bloky se smějí překrývat** | Ubránit se překryvu by znamenalo bloky odstrkávat nebo puštění zakazovat. Dvě věci vedle sebe jsou lepší: je z nich na první pohled vidět, že si to člověk naplánoval přes sebe. Šířku počítá `layoutDay` ze sloupců celého shluku, aby na sebe sousední bloky navazovaly. |
+| **Do plánu se hází z pásu na jedno ťuknutí** | Nahoře leží otevřené ToDo a nedokončené úkoly; ťuknutí posadí věc do nejbližšího volna a řekne hláškou kam. Kdyby se pás ptal na čas, přestala by to být cesta na jedno ťuknutí - a člověk by radši neplánoval nic. Přesný čas se doladí tahem, ťuknutím do mřížky nebo v editoru. |
+| **Blok se zvedá až po podržení prstu** | Mřížka je plná bloků a stránka se musí dát pořád normálně scrollovat, takže okamžitý tah nejde. Stejné pravidlo (a stejných ~350 ms) jako u přetahování v seznamech. Za spodní hranu se blok chytá hned - úchyt je malý a na scrollování si ho nikdo neplete. |
+| **Čas v plánu je minuta od půlnoci, ne `Date`** | Plán je vlastnost dne, ne okamžiku. S čísly se počítá bez pastí na letní čas a den se ukládá stejně jako všude jinde v appce - `YYYY-MM-DD` v lokálním čase. |
 | **Přejetí prstem mezi sekcemi** | Tři sekce vedle sebe (Projekty - Strom - Analýza), doleva dál, doprava zpět. Necyklí se: "swipe mě vrátil na začátek" je nepříjemné překvapení a člověk pak neví, kde v řadě stojí. V detailech neplatí - odvedlo by od rozdělané práce a v úkolu si vodorovný tah bere posuvník. |
 | **Gesto se pozná až po puštění** | Přejetí musí vyhrát nad scrolováním a to se dá rozhodnout jedině z celého tvaru pohybu: 64 px do strany, nejmíň 1,6× víc než nahoru/dolů, do 700 ms. Uvnitř vodorovného scrolleru (kalendář roku, cesta ve stromu, široká tabulka) patří gesto jemu - ale jen dokud tam je kam posouvat, doscrollovaná tabulka prst nepotřebuje. Myš ne: tahem myši se vybírá text. |
 
@@ -76,6 +83,8 @@ Věci, které ze zadání jednoznačně nevyplývaly a musely se dořešit:
 - **Ploché „Úkoly" napříč projekty se přetahovat nedají** — míchají rodiče i podúkoly do jednoho seznamu, takže pořadí v nich nemá kam se uložit.
 - **Přílohy u úkolů nejsou** (referenční aplikace je má).
 - **Historie postupu se nedá zpětně opravit** — otisk vzniká v den změny.
+- **Termíny ani plán dne nic nepřipomínají** — appka neposílá notifikace, takže propadlý termín je vidět jen uvnitř ní.
+- **Plán dne se neopakuje** — blok platí pro jeden den; „každé úterý v 9" se musí naklikat znovu (dá se přesunout na jiný den, ne rozkopírovat).
 - Grafy nemají textovou alternativu (tabulku hodnot) pro čtečky, jen `aria-label`.
 
 ---
@@ -183,7 +192,8 @@ src/lib/
   projects.ts         výpočty postupu, řady pro graf, filtry
   project-actions.ts  CRUD projektů a úkolů (+ snapshotProject)
   stats.ts            série, kalendář roku, přehled winů
-  todos.ts            jednoduchý seznam (přidat, odškrtnout, mazání po 6 h)
+  todos.ts            jednoduchý seznam (přidat, odškrtnout, termín, mizení)
+  timeblocks.ts       plán dne (bloky, překryvy, hledání volna, popisky)
   storage.ts          localStorage + export/import  ← jediné místo k výměně za DB
   backup.ts           záloha celé appky (stav + nastavení), sdílení souboru
   prefs.ts            nastavení zobrazení mimo hlavní stav

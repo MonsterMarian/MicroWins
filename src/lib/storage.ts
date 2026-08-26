@@ -1,9 +1,13 @@
+import { isValidISODate } from "./date";
 import { KIND_ORDER } from "./domain";
+import { DAY_MINUTES, MIN_DURATION } from "./timeblocks";
+import { isValidTime } from "./todos";
 import {
   EMPTY_STATE,
   STATE_VERSION,
   type MicroWinsState,
   type Task,
+  type TimeBlock,
   type Todo,
   type TreeNode,
 } from "./types";
@@ -80,7 +84,8 @@ function sortNodesByLegacyOrder(nodes: TreeNode[]): TreeNode[] {
 
 /**
  * Položka ToDo z cizího JSONu. Text je jediné, co musí být - bez něj není co
- * ukazovat. Chybějící `doneAt` znamená otevřenou položku, ne vypršelou.
+ * ukazovat. Chybějící `doneAt` znamená otevřenou položku, ne vypršelou,
+ * a chybějící termín položku bez termínu (data z verzí před v7).
  */
 function normalizeTodos(raw: unknown[]): Todo[] {
   const out: Todo[] = [];
@@ -88,12 +93,49 @@ function normalizeTodos(raw: unknown[]): Todo[] {
     if (!isRecord(item)) return;
     const text = typeof item.text === "string" ? item.text.trim() : "";
     if (!text) return;
+    const dueDate =
+      typeof item.dueDate === "string" && isValidISODate(item.dueDate) ? item.dueDate : null;
     out.push({
       id: typeof item.id === "string" && item.id ? item.id : `tdo_${index}`,
       text,
       createdAt: typeof item.createdAt === "string" ? item.createdAt : new Date().toISOString(),
       doneAt: typeof item.doneAt === "string" ? item.doneAt : null,
       order: typeof item.order === "number" && Number.isFinite(item.order) ? item.order : index,
+      dueDate,
+      // Hodina bez dne nedává smysl - stejné pravidlo jako v `setTodoDue`.
+      dueTime:
+        dueDate && typeof item.dueTime === "string" && isValidTime(item.dueTime)
+          ? item.dueTime
+          : null,
+    });
+  });
+  return out;
+}
+
+/**
+ * Časový blok z cizího JSONu. Bez dne a rozumného času není co kreslit, takže
+ * takový záznam padá pod stůl; zbytek se srovná do mezí (0-1440 minut).
+ */
+function normalizeTimeBlocks(raw: unknown[]): TimeBlock[] {
+  const out: TimeBlock[] = [];
+  raw.forEach((item, index) => {
+    if (!isRecord(item)) return;
+    if (typeof item.date !== "string" || !isValidISODate(item.date)) return;
+    const start = typeof item.start === "number" && Number.isFinite(item.start) ? item.start : -1;
+    if (start < 0 || start >= DAY_MINUTES) return;
+    const duration =
+      typeof item.duration === "number" && Number.isFinite(item.duration) ? item.duration : 0;
+
+    out.push({
+      id: typeof item.id === "string" && item.id ? item.id : `blk_${index}`,
+      date: item.date,
+      start: Math.round(start),
+      duration: Math.min(Math.max(MIN_DURATION, Math.round(duration)), DAY_MINUTES - Math.round(start)),
+      title: typeof item.title === "string" ? item.title.slice(0, 120) : "",
+      todoId: typeof item.todoId === "string" && item.todoId ? item.todoId : null,
+      taskId: typeof item.taskId === "string" && item.taskId ? item.taskId : null,
+      createdAt: typeof item.createdAt === "string" ? item.createdAt : new Date().toISOString(),
+      doneAt: typeof item.doneAt === "string" ? item.doneAt : null,
     });
   });
   return out;
@@ -129,6 +171,8 @@ export function parseState(raw: string): MicroWinsState | null {
       taskSnapshots: arr("taskSnapshots"),
       // ToDo přišlo až v v5 - starší zálohy ho neznají a začnou s prázdným.
       todos: normalizeTodos(Array.isArray(data.todos) ? data.todos : []),
+      // Plán dne až v v7 - totéž.
+      timeBlocks: normalizeTimeBlocks(Array.isArray(data.timeBlocks) ? data.timeBlocks : []),
     };
   } catch {
     return null;

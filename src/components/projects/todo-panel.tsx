@@ -1,33 +1,50 @@
 "use client";
 
 import * as React from "react";
-import { Check, Pencil, Plus, Trash2 } from "lucide-react";
+import { Check, Clock3, Pencil, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { Field, Input } from "@/components/ui/input";
+import { Dialog } from "@/components/ui/dialog";
 import { SortableItem, SortableList } from "@/components/ui/sortable";
 import { useStore } from "@/components/providers/store-provider";
+import { usePrefs } from "@/components/providers/use-prefs";
 import { useToast } from "@/components/providers/toast-provider";
 import { tapFeedback } from "@/lib/native";
-import { countTodos, sortedTodos, todoRemaining, TODO_MAX_LENGTH } from "@/lib/todos";
+import { todoTtlMs } from "@/lib/prefs";
+import {
+  countTodos,
+  dueSuggestions,
+  formatDuration,
+  formatRemaining,
+  formatTodoDue,
+  isTodoDueSoon,
+  isTodoOverdue,
+  sortedTodos,
+  todoRemaining,
+  todoRemainingMs,
+  TODO_MAX_LENGTH,
+} from "@/lib/todos";
 import type { Todo } from "@/lib/types";
 import { cn, plural } from "@/lib/utils";
 
 /**
  * ToDo - jeden seznam a nic víc.
  *
- * Celá obrazovka umí čtyři věci: napsat, odškrtnout, přepsat, smazat. Žádný
- * dialog, žádné datum, žádná procenta - kdo potřebuje cíl a postup, má na to
- * projekty vedle. Tady je hodnota v tom, že se položka založí jedním psaním
- * a Enterem.
+ * Obrazovka umí pět věcí: napsat, odškrtnout, přepsat, smazat a - když je to
+ * potřeba - přidat termín. Termín je schválně **až šestý krok**: v poli nahoře
+ * není, protože seznam na dnešek se píše Enterem za Enterem a políčko s datem
+ * by ten rytmus rozbilo. Kdo termín chce, ťukne na hodinky v řádku hotové
+ * položky.
  *
- * Odškrtnutá položka klesne pod otevřené a šest hodin jí pod textem ubývá
- * vlasový pruh. Je to schválně jediný signál a bez čísla: kdo chce vědět,
- * jak dlouho tam ještě bude, se nedozví nic, protože to není potřeba vědět -
- * pruh říká jen "tohle za chvíli zmizí samo".
+ * Odškrtnutá položka klesne pod otevřené a pod textem jí ubývá vlasový pruh.
+ * Vedle něj stojí tichá poznámka "zmizí za 5 h" - jedna věta bez odpočtu a bez
+ * barvy. Doba i samotné mizení se dají přenastavit v Nastavení.
  */
 export function TodoPanel() {
   const { state, addTodo } = useStore();
+  const prefs = usePrefs();
+  const ttlMs = todoTtlMs(prefs);
   const [text, setText] = React.useState("");
   const inputRef = React.useRef<HTMLInputElement>(null);
 
@@ -72,13 +89,15 @@ export function TodoPanel() {
         <Card className="flex flex-col items-center gap-2 py-10 text-center">
           <p className="text-sm font-medium">Seznam je prázdný</p>
           <p className="max-w-sm text-sm text-muted-foreground">
-            Napiš, co je potřeba udělat, a přidej to Enterem. Odškrtnutá položka spadne dolů
-            a po šesti hodinách zmizí sama.
+            Napiš, co je potřeba udělat, a přidej to Enterem.{" "}
+            {ttlMs > 0
+              ? `Odškrtnutá položka spadne dolů a po ${formatDuration(ttlMs)} zmizí sama.`
+              : "Odškrtnutá položka spadne dolů a zůstane, dokud ji nesmažeš."}
           </p>
         </Card>
       ) : (
         <Card className="overflow-hidden p-0">
-          <TodoRows rows={rows} openIds={openIds} />
+          <TodoRows rows={rows} openIds={openIds} ttlMs={ttlMs} />
         </Card>
       )}
 
@@ -88,7 +107,9 @@ export function TodoPanel() {
             ? `Zbývá ${counts.open} ${plural(counts.open, "položka", "položky", "položek")}`
             : "Hotovo, nic nezbývá"}
           {counts.done > 0
-            ? ` · ${counts.done} ${plural(counts.done, "hotová", "hotové", "hotových")} zmizí do šesti hodin`
+            ? ttlMs > 0
+              ? ` · ${counts.done} ${plural(counts.done, "hotová", "hotové", "hotových")} zmizí do ${formatDuration(ttlMs)}`
+              : " · hotové nemizí samy"
             : openIds.length > 1
               ? " · podrž prst na položce a přetáhni ji"
               : ""}
@@ -103,7 +124,7 @@ export function TodoPanel() {
  * odškrtnutí a puštěný řádek by hned odskočil zpátky. Proto jsou to dva
  * seznamy pod sebou, ne jeden s vypnutou polovinou.
  */
-function TodoRows({ rows, openIds }: { rows: Todo[]; openIds: string[] }) {
+function TodoRows({ rows, openIds, ttlMs }: { rows: Todo[]; openIds: string[]; ttlMs: number }) {
   const { reorderTodos } = useStore();
   const open = rows.filter((t) => !t.doneAt);
   const done = rows.filter((t) => t.doneAt);
@@ -118,7 +139,7 @@ function TodoRows({ rows, openIds }: { rows: Todo[]; openIds: string[] }) {
       >
         {open.map((todo) => (
           <SortableItem key={todo.id} id={todo.id}>
-            <TodoRow todo={todo} />
+            <TodoRow todo={todo} ttlMs={ttlMs} />
           </SortableItem>
         ))}
       </SortableList>
@@ -126,7 +147,7 @@ function TodoRows({ rows, openIds }: { rows: Todo[]; openIds: string[] }) {
       {done.length > 0 ? (
         <div className={cn("divide-y", open.length > 0 && "border-t")}>
           {done.map((todo) => (
-            <TodoRow key={todo.id} todo={todo} />
+            <TodoRow key={todo.id} todo={todo} ttlMs={ttlMs} />
           ))}
         </div>
       ) : null}
@@ -134,12 +155,13 @@ function TodoRows({ rows, openIds }: { rows: Todo[]; openIds: string[] }) {
   );
 }
 
-function TodoRow({ todo }: { todo: Todo }) {
+function TodoRow({ todo, ttlMs }: { todo: Todo; ttlMs: number }) {
   const { toggleTodo, deleteTodo, restoreTodo, renameTodo } = useStore();
   const { toast } = useToast();
   const done = todo.doneAt !== null;
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState(todo.text);
+  const [dueOpen, setDueOpen] = React.useState(false);
 
   const commit = () => {
     setEditing(false);
@@ -169,7 +191,7 @@ function TodoRow({ todo }: { todo: Todo }) {
   };
 
   return (
-    <div className="relative flex items-center gap-2 px-2 py-1.5 transition-colors hover:bg-accent/50">
+    <div className="relative flex items-center gap-1.5 px-2 py-1.5 transition-colors hover:bg-accent/50">
       {/* Celý levý blok je zaškrtávátko a text v jednom tlačítku: na telefonu
           se míří prstem a políčko 16 px vedle textu je zbytečně malý terč. */}
       <button
@@ -218,7 +240,13 @@ function TodoRow({ todo }: { todo: Todo }) {
           aria-label="Text položky"
           className="h-8"
         />
-      ) : (
+      ) : null}
+
+      {/* Termín má smysl jen u toho, co ještě čeká; u hotové položky sedí na
+          jeho místě poznámka o mazání. */}
+      {done ? <ExpiryNote todo={todo} ttlMs={ttlMs} /> : <DueButton todo={todo} onOpen={() => setDueOpen(true)} />}
+
+      {editing ? null : (
         <Button
           variant="ghost"
           size="icon-sm"
@@ -245,26 +273,203 @@ function TodoRow({ todo }: { todo: Todo }) {
         <Trash2 />
       </Button>
 
-      {done ? <ExpiryBar todo={todo} /> : null}
+      {done ? <ExpiryBar todo={todo} ttlMs={ttlMs} /> : null}
+
+      <DueDialog todo={todo} open={dueOpen} onOpenChange={setDueOpen} />
     </div>
+  );
+}
+
+/**
+ * Hodinky v řádku. Bez termínu jsou to jen šedé hodinky, které jde přehlédnout;
+ * s termínem se z nich stane štítek "dnes 14:00". Propadlý termín zčervená,
+ * termín do hodiny ztmavne - a nic víc se neděje, žádné vykřičníky.
+ */
+function DueButton({ todo, onOpen }: { todo: Todo; onOpen: () => void }) {
+  const [now, setNow] = React.useState(() => new Date());
+
+  React.useEffect(() => {
+    if (!todo.dueDate) return;
+    const id = window.setInterval(() => setNow(new Date()), 60_000);
+    return () => window.clearInterval(id);
+  }, [todo.dueDate]);
+
+  if (!todo.dueDate) {
+    return (
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        aria-label="Přidat termín"
+        title="Přidat termín"
+        className="shrink-0 text-muted-foreground/50 hover:text-foreground"
+        onClick={onOpen}
+      >
+        <Clock3 />
+      </Button>
+    );
+  }
+
+  const overdue = isTodoOverdue(todo, now);
+  const soon = isTodoDueSoon(todo, now);
+
+  /* Nastavený termín ztratí hodinky: štítek s časem si ikonu vedle sebe
+     nepotřebuje sáhnout a v úzkém řádku je každých šestnáct pixelů znát
+     na textu položky. */
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-label={`Termín: ${formatTodoDue(todo, now)}`}
+      className={cn(
+        "tabular shrink-0 rounded-full px-2 py-1 text-[11px] transition-colors",
+        "bg-muted/60 hover:bg-accent",
+        overdue ? "text-destructive" : soon ? "text-foreground" : "text-muted-foreground",
+      )}
+    >
+      {formatTodoDue(todo, now)}
+    </button>
+  );
+}
+
+/**
+ * Nastavení termínu. Čtyři nabídky na jedno ťuknutí pokryjou skoro všechno,
+ * co se do seznamu na dnešek píše; pod nimi jsou pole pro zbytek.
+ */
+function DueDialog({
+  todo,
+  open,
+  onOpenChange,
+}: {
+  todo: Todo;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const { setTodoDue } = useStore();
+  const [date, setDate] = React.useState("");
+  const [time, setTime] = React.useState("");
+
+  React.useEffect(() => {
+    if (!open) return;
+    setDate(todo.dueDate ?? "");
+    setTime(todo.dueTime ?? "");
+  }, [open, todo.dueDate, todo.dueTime]);
+
+  const suggestions = React.useMemo(() => (open ? dueSuggestions() : []), [open]);
+
+  const pick = (nextDate: string, nextTime: string | null) => {
+    setTodoDue(todo.id, nextDate, nextTime);
+    void tapFeedback();
+    onOpenChange(false);
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Kdy to má být hotové"
+      description={todo.text}
+      footer={
+        <>
+          {todo.dueDate ? (
+            <Button
+              variant="ghost"
+              className="mr-auto text-muted-foreground"
+              onClick={() => {
+                setTodoDue(todo.id, null);
+                onOpenChange(false);
+              }}
+            >
+              Bez termínu
+            </Button>
+          ) : null}
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+            Zrušit
+          </Button>
+          <Button disabled={!date} onClick={() => pick(date, time || null)}>
+            Uložit
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-4">
+        <div className="grid grid-cols-2 gap-2">
+          {suggestions.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => pick(s.date, s.time)}
+              className="rounded-lg border px-3 py-2.5 text-left text-sm transition-colors hover:bg-accent/60 active:bg-accent"
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Den" htmlFor="todo-due-date">
+            <Input
+              id="todo-due-date"
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+            />
+          </Field>
+          <Field label="Hodina (nepovinná)" htmlFor="todo-due-time">
+            <Input
+              id="todo-due-time"
+              type="time"
+              value={time}
+              disabled={!date}
+              onChange={(e) => setTime(e.target.value)}
+            />
+          </Field>
+        </div>
+      </div>
+    </Dialog>
+  );
+}
+
+/**
+ * "zmizí za 5 h" - tichá poznámka místo odpočtu. Přepočítává se po minutě
+ * stejně jako pruh pod řádkem, ale hodiny se nedrobí na minuty: u pěti hodin
+ * nikoho nezajímá, jestli je jich 5:12 nebo 5:47.
+ */
+function ExpiryNote({ todo, ttlMs }: { todo: Todo; ttlMs: number }) {
+  const [left, setLeft] = React.useState(() => todoRemainingMs(todo, new Date(), ttlMs));
+
+  React.useEffect(() => {
+    setLeft(todoRemainingMs(todo, new Date(), ttlMs));
+    const id = window.setInterval(() => setLeft(todoRemainingMs(todo, new Date(), ttlMs)), 60_000);
+    return () => window.clearInterval(id);
+  }, [todo, ttlMs]);
+
+  if (left === null) return null;
+
+  return (
+    <span className="shrink-0 px-1 text-[11px] text-muted-foreground/70">
+      zmizí {formatRemaining(left)}
+    </span>
   );
 }
 
 /**
  * Vlasový pruh na spodní hraně řádku. Šedý, 2 px, bez čísla - má jít přehlédnout.
  *
- * Přepočítává se po minutě, ne plynule: šest hodin je 360 minut, takže i tak
- * pruh viditelně ubývá, ale nic v seznamu se nehýbe pořád. Animace přechodu je
- * dlouhá schválně, aby minutový skok nebyl vidět jako cuknutí.
+ * Přepočítává se po minutě, ne plynule: i tak pruh viditelně ubývá, ale nic
+ * v seznamu se nehýbe pořád. Animace přechodu je dlouhá schválně, aby minutový
+ * skok nebyl vidět jako cuknutí.
  */
-function ExpiryBar({ todo }: { todo: Todo }) {
-  const [ratio, setRatio] = React.useState(() => todoRemaining(todo));
+function ExpiryBar({ todo, ttlMs }: { todo: Todo; ttlMs: number }) {
+  const [ratio, setRatio] = React.useState(() => todoRemaining(todo, new Date(), ttlMs));
 
   React.useEffect(() => {
-    setRatio(todoRemaining(todo));
-    const id = window.setInterval(() => setRatio(todoRemaining(todo)), 60_000);
+    setRatio(todoRemaining(todo, new Date(), ttlMs));
+    const id = window.setInterval(() => setRatio(todoRemaining(todo, new Date(), ttlMs)), 60_000);
     return () => window.clearInterval(id);
-  }, [todo]);
+  }, [todo, ttlMs]);
+
+  // Vypnuté mizení nemá co odměřovat - plný pruh by lhal.
+  if (ttlMs <= 0) return null;
 
   return (
     <span
@@ -278,3 +483,4 @@ function ExpiryBar({ todo }: { todo: Todo }) {
     </span>
   );
 }
+

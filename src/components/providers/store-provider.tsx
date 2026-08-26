@@ -13,7 +13,9 @@ import {
 import { todayISO } from "@/lib/date";
 import { applyDevSeed } from "@/lib/dev-seed";
 import { mergeState, type ImportMode, type ImportScope } from "@/lib/import";
+import { todoTtlMs } from "@/lib/prefs";
 import { loadState, saveState } from "@/lib/storage";
+import * as blockActions from "@/lib/timeblocks";
 import * as todoActions from "@/lib/todos";
 import {
   EMPTY_STATE,
@@ -22,9 +24,11 @@ import {
   type Milestone,
   type Project,
   type Task,
+  type TimeBlock,
   type Todo,
   type TreeNode,
 } from "@/lib/types";
+import { usePrefs } from "./use-prefs";
 
 export interface StoreApi {
   state: MicroWinsState;
@@ -72,13 +76,31 @@ export interface StoreApi {
   /** Jednoduchý seznam. Vrací null, když text po očištění nic neobsahuje. */
   addTodo: (text: string) => Todo | null;
   renameTodo: (id: string, text: string) => void;
-  /** Odškrtne (nebo vrátí zpět). Odškrtnutá položka se za 6 h smaže sama. */
+  /** Odškrtne (nebo vrátí zpět). Odškrtnutá položka se pak sama smaže. */
   toggleTodo: (id: string) => void;
   /** Smaže a vrátí smazanou položku, aby ji šlo nabídnout zpátky. */
   deleteTodo: (id: string) => Todo | null;
   /** Vrátí smazanou položku na její původní místo. */
   restoreTodo: (todo: Todo) => void;
   reorderTodos: (ids: string[]) => void;
+  /** Termín položky; `null` ho sundá. Hodina bez data se zahodí. */
+  setTodoDue: (id: string, dueDate: ISODate | null, dueTime?: string | null) => void;
+
+  /** Plán dne - blok času, do kterého se dá pověsit položka ToDo nebo úkol. */
+  addBlock: (input: blockActions.BlockInput) => TimeBlock;
+  updateBlock: (
+    id: string,
+    patch: { title?: string; start?: number; duration?: number; date?: ISODate },
+  ) => void;
+  /** Posun v rámci dne - z tahu prstem, proto zvlášť a bez ostatních polí. */
+  moveBlock: (id: string, start: number) => void;
+  resizeBlock: (id: string, duration: number) => void;
+  moveBlockToDay: (id: string, date: ISODate) => void;
+  /** Odškrtne blok; blok z položky ToDo odškrtne i tu položku. */
+  toggleBlockDone: (id: string) => void;
+  /** Smaže a vrátí smazaný blok, aby ho šlo nabídnout zpátky. */
+  deleteBlock: (id: string) => TimeBlock | null;
+  restoreBlock: (block: TimeBlock) => void;
 
   createMilestone: (projectId: string, name: string, date: ISODate | null) => Milestone;
   updateMilestone: (id: string, patch: Partial<Pick<Milestone, "name" | "date">>) => void;
@@ -112,6 +134,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = React.useState<MicroWinsState>(EMPTY_STATE);
   const [hydrated, setHydrated] = React.useState(false);
   const [today, setToday] = React.useState<ISODate>(() => todayISO());
+  /* Doba do smazání odškrtnuté položky ToDo je nastavení, ne data - proto se
+     sem tahá z prefs a nesedí ve stavu. Nula = mizení vypnuté. */
+  const ttlMs = todoTtlMs(usePrefs());
+  const ttlRef = React.useRef(ttlMs);
+  ttlRef.current = ttlMs;
 
   // Nejnovější stav i mimo render - akce potřebují číst synchronně.
   const ref = React.useRef(state);
@@ -124,7 +151,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     // Testovací data z adresy `?seed` - jen ve vývoji, viz lib/dev-seed.ts.
     // Appka mohla být zavřená přes noc - odškrtnuté položky ToDo, kterým
     // mezitím vypršelo, musí být pryč ještě před prvním vykreslením.
-    const loaded = todoActions.purgeTodos(applyDevSeed(loadState()));
+    const loaded = todoActions.purgeTodos(applyDevSeed(loadState()), new Date(), ttlRef.current);
     ref.current = loaded;
     setState(loaded);
     setToday(todayISO());
@@ -143,7 +170,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
     const tick = () => {
       setToday(todayISO());
-      const purged = todoActions.purgeTodos(ref.current);
+      const purged = todoActions.purgeTodos(ref.current, new Date(), ttlRef.current);
       if (purged !== ref.current) commit(purged);
     };
     const id = window.setInterval(tick, 60_000);
@@ -242,6 +269,25 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       },
       restoreTodo: (todo) => commit(todoActions.restoreTodo(ref.current, todo)),
       reorderTodos: (ids) => commit(todoActions.reorderTodos(ref.current, ids)),
+      setTodoDue: (id, dueDate, dueTime) =>
+        commit(todoActions.setTodoDue(ref.current, id, dueDate, dueTime ?? null)),
+
+      addBlock: (input) => {
+        const res = blockActions.addBlock(ref.current, input);
+        commit(res.state);
+        return res.block;
+      },
+      updateBlock: (id, patch) => commit(blockActions.updateBlock(ref.current, id, patch)),
+      moveBlock: (id, start) => commit(blockActions.moveBlock(ref.current, id, start)),
+      resizeBlock: (id, duration) => commit(blockActions.resizeBlock(ref.current, id, duration)),
+      moveBlockToDay: (id, date) => commit(blockActions.moveBlockToDay(ref.current, id, date)),
+      toggleBlockDone: (id) => commit(blockActions.toggleBlockDone(ref.current, id)),
+      deleteBlock: (id) => {
+        const block = ref.current.timeBlocks.find((b) => b.id === id) ?? null;
+        commit(blockActions.deleteBlock(ref.current, id));
+        return block;
+      },
+      restoreBlock: (block) => commit(blockActions.restoreBlock(ref.current, block)),
 
       createMilestone: (projectId, name, date) => {
         const res = projectActions.createMilestone(ref.current, projectId, name, date);

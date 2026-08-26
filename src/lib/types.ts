@@ -185,9 +185,13 @@ export interface TaskSnapshot {
  * cíle, jednotky ani váhy. Napsat, odškrtnout, zapomenout: kdyby si položka
  * žádala nastavení, byl by to úkol a ten už v appce je.
  *
- * Odškrtnutá položka se **sama smaže** za `TODO_TTL_MS`. Do té doby zůstane
- * dole pod otevřenými, aby se šlo přesvědčit, že se to opravdu stalo, a šla
- * vrátit omylem odškrtnutá věc.
+ * Odškrtnutá položka se **sama smaže** po době z Nastavení (výchozí
+ * `TODO_TTL_MS`, dá se i vypnout). Do té doby zůstane dole pod otevřenými,
+ * aby se šlo přesvědčit, že se to opravdu stalo, a šla vrátit omylem
+ * odškrtnutá věc.
+ *
+ * Jediné nepovinné nastavení položky je termín - a i ten se přidává až
+ * dodatečně, aby se zakládání drželo na "napsat a Enter".
  */
 export interface Todo {
   id: string;
@@ -197,10 +201,49 @@ export interface Todo {
   doneAt: string | null;
   /** Ruční pořadí mezi otevřenými položkami. */
   order: number;
+  /**
+   * Kdy to má být hotové. Nepovinné a přidává se **až k hotové položce** -
+   * psaní seznamu se tím nesmí zdržet. `null` = položka bez termínu, což je
+   * ten běžný případ.
+   */
+  dueDate: ISODate | null;
+  /** Hodina termínu "HH:MM". Bez `dueDate` nedává smysl a drží se na null. */
+  dueTime: string | null;
 }
 
-/** Jak dlouho odškrtnutá položka zůstane, než zmizí. */
+/** Výchozí doba, za kterou odškrtnutá položka zmizí. Jde přenastavit v Nastavení. */
 export const TODO_TTL_MS = 6 * 60 * 60 * 1000;
+
+// --- časové bloky -----------------------------------------------------------
+
+/**
+ * Timeblocking: den rozkrájený na bloky. Blok je **kus času**, ne úkol - nemá
+ * procenta ani cíl, jen začátek a délku. Co se v něm dělá, může být buď
+ * napsané rovnou (`title`), nebo převzaté z položky ToDo či úkolu projektu.
+ *
+ * Odkaz drží jen id, ne kopii textu: přejmenovaný úkol se má propsat i do
+ * plánu. Když odkazovaná věc zmizí, blok zůstane s tím, co se do něj napsalo
+ * při zakládání - vyhozený řádek z plánu dne by byl horší než blok, který
+ * nikam nevede.
+ */
+export interface TimeBlock {
+  id: string;
+  /** Den, do kterého blok patří. */
+  date: ISODate;
+  /** Začátek v minutách od půlnoci (0-1439). */
+  start: number;
+  /** Délka v minutách. */
+  duration: number;
+  /** Popisek bloku. U bloku z úkolu se drží jako záloha, kdyby úkol zmizel. */
+  title: string;
+  /** Položka ToDo, ze které blok vznikl; null = blok napsaný ručně. */
+  todoId: string | null;
+  /** Úkol projektu, ze kterého blok vznikl. */
+  taskId: string | null;
+  createdAt: string;
+  /** Kdy se blok odškrtl; null = ještě ne. */
+  doneAt: string | null;
+}
 
 export interface MicroWinsState {
   version: number;
@@ -213,9 +256,10 @@ export interface MicroWinsState {
   snapshots: Snapshot[];
   taskSnapshots: TaskSnapshot[];
   todos: Todo[];
+  timeBlocks: TimeBlock[];
 }
 
-export const STATE_VERSION = 6;
+export const STATE_VERSION = 7;
 
 export const EMPTY_STATE: MicroWinsState = {
   version: STATE_VERSION,
@@ -228,4 +272,5 @@ export const EMPTY_STATE: MicroWinsState = {
   snapshots: [],
   taskSnapshots: [],
   todos: [],
+  timeBlocks: [],
 };

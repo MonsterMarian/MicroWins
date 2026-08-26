@@ -32,6 +32,8 @@ export interface StateCounts {
   milestones: number;
   /** Otevřené položky ToDo; odškrtnuté se do zálohy počítat nemají, mizí samy. */
   todos: number;
+  /** Bloky v plánu dne. */
+  blocks: number;
 }
 
 export function countState(state: MicroWinsState): StateCounts {
@@ -44,15 +46,16 @@ export function countState(state: MicroWinsState): StateCounts {
     tasks: state.tasks.length,
     milestones: state.milestones.length,
     todos: state.todos.filter((t) => t.doneAt === null).length,
+    blocks: state.timeBlocks.length,
   };
 }
 
 /** Záloha nese aspoň jednu z polovin - jinak není co načítat. */
 export function hasScope(counts: StateCounts, scope: ImportScope): boolean {
   const tree = counts.folders + counts.wins > 0;
-  // ToDo patří k projektové polovině: záloha se samotným seznamem je pořád
-  // něco, co má smysl načíst.
-  const projects = counts.projects + counts.todos > 0;
+  // ToDo i plán dne patří k projektové polovině: záloha se samotným seznamem
+  // je pořád něco, co má smysl načíst.
+  const projects = counts.projects + counts.todos + counts.blocks > 0;
   if (scope === "tree") return tree;
   if (scope === "projects") return projects;
   return tree || projects;
@@ -72,7 +75,11 @@ function projectPart(
   incoming: MicroWinsState,
   fresh: boolean,
   orderOffset: number,
-): Pick<MicroWinsState, "projects" | "tasks" | "milestones" | "snapshots" | "taskSnapshots"> {
+  todoIds: Map<string, string>,
+): Pick<
+  MicroWinsState,
+  "projects" | "tasks" | "milestones" | "snapshots" | "taskSnapshots" | "timeBlocks"
+> {
   const projectIds = remap(incoming.projects.map((p) => p.id));
   const taskIds = remap(incoming.tasks.map((t) => t.id));
   const milestoneIds = remap(incoming.milestones.map((m) => m.id));
@@ -128,7 +135,20 @@ function projectPart(
     .filter((s) => knownTasks.has(s.taskId))
     .map((s) => ({ ...s, taskId: tid(s.taskId) }));
 
-  return { projects, tasks, milestones, snapshots, taskSnapshots };
+  /*
+   * Blok si nese odkaz na úkol nebo na položku ToDo. Odkaz, který v záloze
+   * nemá protějšek, se utrhne (`null`) místo zahození celého bloku: v plánu
+   * dne pak zůstane hodina i s popiskem, jen nikam nevede. Utržený odkaz je
+   * menší škoda než díra v naplánovaném dni.
+   */
+  const timeBlocks = incoming.timeBlocks.map((b) => ({
+    ...b,
+    id: fresh ? createId("imp") : b.id,
+    todoId: b.todoId && todoIds.has(b.todoId) ? (todoIds.get(b.todoId) as string) : null,
+    taskId: b.taskId && knownTasks.has(b.taskId) ? tid(b.taskId) : null,
+  }));
+
+  return { projects, tasks, milestones, snapshots, taskSnapshots, timeBlocks };
 }
 
 /**
@@ -213,7 +233,13 @@ export function mergeState(
 
   if (takeProjects) {
     const offset = fresh ? next.projects.length : 0;
-    const part = projectPart(incoming, fresh, offset);
+    /* Nová id položek ToDo se musí znát dřív, než se skládají bloky plánu -
+       ty na položky odkazují. V režimu "nahradit" je mapa jen seznamem toho,
+       co v záloze vůbec je, a id se nechávají být. */
+    const todoIds = new Map(
+      incoming.todos.map((t) => [t.id, fresh ? createId("imp") : t.id] as const),
+    );
+    const part = projectPart(incoming, fresh, offset, new Map(todoIds));
     // ToDo na nic neodkazuje, takže se jen přerazí id a pořadí posadí za
     // stávající položky - jinak by se dva seznamy prolnuly.
     const todoOffset = fresh
@@ -227,7 +253,7 @@ export function mergeState(
     );
     const todos: Todo[] = incoming.todos.map((t) => ({
       ...t,
-      id: fresh ? createId("imp") : t.id,
+      id: todoIds.get(t.id) ?? t.id,
       order: todoOffset + (todoRank.get(t.id) ?? 0),
     }));
     next = fresh
@@ -239,6 +265,7 @@ export function mergeState(
           snapshots: dedupeSnapshots([...next.snapshots, ...part.snapshots]),
           taskSnapshots: dedupeTaskSnapshots([...next.taskSnapshots, ...part.taskSnapshots]),
           todos: [...next.todos, ...todos],
+          timeBlocks: [...next.timeBlocks, ...part.timeBlocks],
         }
       : {
           ...next,
@@ -248,6 +275,7 @@ export function mergeState(
           snapshots: dedupeSnapshots(part.snapshots),
           taskSnapshots: dedupeTaskSnapshots(part.taskSnapshots),
           todos,
+          timeBlocks: part.timeBlocks,
         };
   }
 

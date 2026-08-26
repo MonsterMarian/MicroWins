@@ -1,15 +1,24 @@
 import { describe, expect, it } from "vitest";
+import { toISODate } from "./date";
 import {
   addTodo,
   countTodos,
   deleteTodo,
+  dueSuggestions,
+  formatDuration,
+  formatRemaining,
+  formatTodoDue,
+  isTodoDueSoon,
   isTodoExpired,
+  isTodoOverdue,
   purgeTodos,
   renameTodo,
   reorderTodos,
   restoreTodo,
+  setTodoDue,
   sortedTodos,
   todoRemaining,
+  todoRemainingMs,
   toggleTodo,
   TODO_MAX_LENGTH,
 } from "./todos";
@@ -210,5 +219,161 @@ describe("úpravy", () => {
     const moved = reorderTodos(state, [open[1].id, open[0].id]);
 
     expect(sortedTodos(moved.todos).map((t) => t.text)).toEqual(["b", "a", "hotová"]);
+  });
+});
+
+describe("termín", () => {
+  /** Hodina v lokálním čase, ať test sedí v každém pásmu. */
+  function localTime(at: Date): string {
+    return `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;
+  }
+
+  it("nová položka termín nemá", () => {
+    const state = withTodos("úkol");
+
+    expect(state.todos[0].dueDate).toBeNull();
+    expect(state.todos[0].dueTime).toBeNull();
+  });
+
+  it("nastaví den i hodinu a umí je zase sundat", () => {
+    const state = withTodos("zavolat");
+    const id = state.todos[0].id;
+
+    const withDue = setTodoDue(state, id, "2026-08-20", "9:05");
+    expect(withDue.todos[0].dueDate).toBe("2026-08-20");
+    // Vedoucí nula se doplní, ať se termíny dají porovnávat i jako text.
+    expect(withDue.todos[0].dueTime).toBe("09:05");
+
+    const cleared = setTodoDue(withDue, id, null);
+    expect(cleared.todos[0].dueDate).toBeNull();
+    expect(cleared.todos[0].dueTime).toBeNull();
+  });
+
+  /* "Ve tři" bez dne není termín, ale přání - a podstrčit k tomu tiše dnešek
+     by položce nastavilo den, o kterém uživatel nic neřekl. */
+  it("hodina bez dne se zahodí", () => {
+    const state = withTodos("zavolat");
+    const out = setTodoDue(state, state.todos[0].id, null, "14:00");
+
+    expect(out.todos[0].dueDate).toBeNull();
+    expect(out.todos[0].dueTime).toBeNull();
+  });
+
+  it("nesmyslná hodina se zahodí, den zůstane", () => {
+    const state = withTodos("zavolat");
+    const out = setTodoDue(state, state.todos[0].id, "2026-08-20", "25:99");
+
+    expect(out.todos[0].dueDate).toBe("2026-08-20");
+    expect(out.todos[0].dueTime).toBeNull();
+  });
+
+  it("stejný termín vrací tentýž stav", () => {
+    const state = setTodoDue(withTodos("a"), withTodos("a").todos[0].id, "2026-08-20");
+    expect(setTodoDue(state, state.todos[0].id, state.todos[0].dueDate)).toBe(state);
+  });
+
+  it("popisek je krátký a lidský", () => {
+    const state = withTodos("a");
+    const today = toISODate(NOON);
+    const tomorrow = toISODate(new Date(NOON.getTime() + 86_400_000));
+
+    const dnes = setTodoDue(state, state.todos[0].id, today, "14:30").todos[0];
+    expect(formatTodoDue(dnes, NOON)).toBe("dnes 14:30");
+
+    const zitra = setTodoDue(state, state.todos[0].id, tomorrow).todos[0];
+    expect(formatTodoDue(zitra, NOON)).toBe("zítra");
+
+    // Vzdálený termín už den v týdnu neřekne, ten se nedá představit.
+    const daleko = setTodoDue(state, state.todos[0].id, "2026-12-24").todos[0];
+    expect(formatTodoDue(daleko, NOON)).toBe("24. 12.");
+    expect(formatTodoDue(state.todos[0], NOON)).toBe("");
+  });
+
+  it("propadlý termín se pozná, odškrtnutá položka po termínu nikdy není", () => {
+    const state = withTodos("zavolat");
+    const past = new Date(NOON.getTime() - 90 * 60 * 1000);
+    const overdue = setTodoDue(state, state.todos[0].id, toISODate(past), localTime(past));
+
+    expect(isTodoOverdue(overdue.todos[0], NOON)).toBe(true);
+    expect(isTodoOverdue(toggleTodo(overdue, state.todos[0].id, NOON).todos[0], NOON)).toBe(false);
+  });
+
+  /* Den bez hodiny propadá až o půlnoci - jinak by položka zadaná "na dnešek"
+     byla po termínu hned, jak se na ni ráno člověk podívá. */
+  it("den bez hodiny platí do půlnoci", () => {
+    const state = withTodos("nákup");
+    const today = setTodoDue(state, state.todos[0].id, toISODate(NOON));
+
+    expect(isTodoOverdue(today.todos[0], NOON)).toBe(false);
+  });
+
+  it("termín do hodiny je 'brzy', vzdálenější ne", () => {
+    const state = withTodos("schůzka");
+    const soon = new Date(NOON.getTime() + 30 * 60 * 1000);
+    const later = new Date(NOON.getTime() + 5 * 60 * 60 * 1000);
+
+    expect(
+      isTodoDueSoon(setTodoDue(state, state.todos[0].id, toISODate(soon), localTime(soon)).todos[0], NOON),
+    ).toBe(true);
+    expect(
+      isTodoDueSoon(setTodoDue(state, state.todos[0].id, toISODate(later), localTime(later)).todos[0], NOON),
+    ).toBe(false);
+  });
+
+  it("nabídky termínů míří dopředu a mají den", () => {
+    for (const s of dueSuggestions(NOON)) {
+      expect(s.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(s.label.length).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("nastavitelné mizení", () => {
+  const HALF_HOUR = 30 * 60 * 1000;
+
+  it("kratší doba maže dřív", () => {
+    const base = withTodos("hotová");
+    const state = toggleTodo(base, base.todos[0].id, NOON);
+
+    expect(purgeTodos(state, hoursLater(1), HALF_HOUR).todos).toHaveLength(0);
+    // Se šesti hodinami by tam ta samá položka pořád ještě byla.
+    expect(purgeTodos(state, hoursLater(1), TODO_TTL_MS).todos).toHaveLength(1);
+  });
+
+  /* Nula je dohodnutá řeč pro vypnuté mizení. Musí projít všemi funkcemi
+     naráz - kdyby ji jedna přehlédla, položka by beze stopy zmizela. */
+  it("nula znamená, že se nemaže nic", () => {
+    const base = withTodos("hotová");
+    const state = toggleTodo(base, base.todos[0].id, NOON);
+    const todo = state.todos[0];
+
+    expect(purgeTodos(state, hoursLater(1000), 0)).toBe(state);
+    expect(isTodoExpired(todo, hoursLater(1000), 0)).toBe(false);
+    expect(todoRemaining(todo, hoursLater(1000), 0)).toBe(1);
+    expect(todoRemainingMs(todo, hoursLater(1000), 0)).toBeNull();
+  });
+
+  it("zbývající čas se počítá z nastavené doby", () => {
+    const base = withTodos("hotová");
+    const state = toggleTodo(base, base.todos[0].id, NOON);
+
+    expect(todoRemainingMs(state.todos[0], NOON, HALF_HOUR)).toBe(HALF_HOUR);
+    expect(todoRemainingMs(state.todos[0], hoursLater(0.25), HALF_HOUR)).toBe(HALF_HOUR / 2);
+    // Pod nulu se to nepropadne, i když se appka týden neotevřela.
+    expect(todoRemainingMs(state.todos[0], hoursLater(100), HALF_HOUR)).toBe(0);
+    // Otevřená položka neodměřuje nic.
+    expect(todoRemainingMs(base.todos[0], NOON, HALF_HOUR)).toBeNull();
+  });
+
+  it("popisek zbývajícího času nedrobí hodiny na minuty", () => {
+    expect(formatRemaining(5 * 60 * 60 * 1000 + 12 * 60 * 1000)).toBe("za 5 h");
+    expect(formatRemaining(12 * 60 * 1000)).toBe("za 12 min");
+    expect(formatRemaining(20 * 1000)).toBe("za chvíli");
+  });
+
+  it("popisek doby v nastavení mluví česky", () => {
+    expect(formatDuration(30 * 60 * 1000)).toBe("30 min");
+    expect(formatDuration(6 * 60 * 60 * 1000)).toBe("6 h");
+    expect(formatDuration(24 * 60 * 60 * 1000)).toBe("1 den");
   });
 });

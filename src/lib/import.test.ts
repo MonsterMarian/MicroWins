@@ -3,6 +3,7 @@ import { addCategory, addCheck, addEntry, addMetric, deleteEntry } from "./actio
 import { countState, hasScope, mergeState } from "./import";
 import { createProject, createTask } from "./project-actions";
 import { addTodo, toggleTodo } from "./todos";
+import { addBlock } from "./timeblocks";
 import { EMPTY_STATE, type MicroWinsState } from "./types";
 
 const TODAY = "2026-08-10";
@@ -186,6 +187,79 @@ describe("ToDo v záloze", () => {
     const done = toggleTodo(base, base.todos[0].id);
 
     expect(countState(done).todos).toBe(0);
+  });
+});
+
+describe("plán dne v záloze", () => {
+  /** Stav s blokem na položku ToDo i na úkol projektu - obojí se odkazuje jinam. */
+  function withPlan(names: { tree: string; project: string }): MicroWinsState {
+    const base = stateWith(names);
+    const added = addTodo(base, `${names.project} - položka`);
+    const todo = added.todo!;
+    const task = added.state.tasks[0];
+    const first = addBlock(added.state, {
+      date: TODAY,
+      start: 540,
+      duration: 30,
+      title: todo.text,
+      todoId: todo.id,
+    });
+    return addBlock(first.state, {
+      date: TODAY,
+      start: 600,
+      duration: 60,
+      title: task.name,
+      taskId: task.id,
+    }).state;
+  }
+
+  const mine = withPlan({ tree: "Můj strom", project: "Můj projekt" });
+  const theirs = withPlan({ tree: "Cizí strom", project: "Cizí projekt" });
+
+  it("jede s projektovou polovinou, ne se stromem", () => {
+    expect(mergeState(mine, theirs, "tree", "add").timeBlocks).toBe(mine.timeBlocks);
+    expect(mergeState(mine, theirs, "projects", "add").timeBlocks).toHaveLength(4);
+    expect(mergeState(mine, theirs, "projects", "replace").timeBlocks).toHaveLength(2);
+  });
+
+  /*
+   * Nejcitlivější místo celého importu: blok ukazuje na úkol i na položku ToDo,
+   * a ty při přidávání dostávají nová id. Kdyby se odkaz nepřerazil, ukazoval
+   * by blok z načtené zálohy na cizí úkol z aktuálních dat.
+   */
+  it("přidání přerazí odkazy na nová id, ne na ta stará", () => {
+    const merged = mergeState(mine, theirs, "projects", "add");
+    const added = merged.timeBlocks.slice(2);
+
+    for (const block of added) {
+      if (block.todoId) expect(merged.todos.some((t) => t.id === block.todoId)).toBe(true);
+      if (block.taskId) expect(merged.tasks.some((t) => t.id === block.taskId)).toBe(true);
+      expect(mine.todos.some((t) => t.id === block.todoId)).toBe(false);
+      expect(mine.tasks.some((t) => t.id === block.taskId)).toBe(false);
+    }
+    expect(added.filter((b) => b.todoId).length).toBe(1);
+    expect(added.filter((b) => b.taskId).length).toBe(1);
+  });
+
+  /* Odkaz bez protějšku se utrhne, blok zůstane - díra v naplánovaném dni je
+     horší než hodina, která nikam nevede. */
+  it("odkaz, který v záloze nemá protějšek, se utrhne", () => {
+    const orphan: MicroWinsState = { ...theirs, todos: [], tasks: [] };
+    const merged = mergeState(mine, orphan, "projects", "add");
+
+    expect(merged.timeBlocks).toHaveLength(4);
+    expect(merged.timeBlocks.slice(2).every((b) => b.todoId === null && b.taskId === null)).toBe(
+      true,
+    );
+  });
+
+  it("záloha se samotným plánem se pozná jako projektová", () => {
+    const onlyPlan = addBlock(EMPTY_STATE, { date: TODAY, start: 540, title: "Hluboká práce" }).state;
+    const counts = countState(onlyPlan);
+
+    expect(counts.blocks).toBe(1);
+    expect(hasScope(counts, "projects")).toBe(true);
+    expect(hasScope(counts, "tree")).toBe(false);
   });
 });
 

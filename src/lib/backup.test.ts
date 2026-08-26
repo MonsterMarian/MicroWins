@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { addCategory, addCheck, addMetric, addOnce, toggleCheck } from "./actions";
 import { parseBackup, serializeBackup } from "./backup";
-import { DEFAULT_ADDONS, DEFAULT_PREFS } from "./prefs";
+import { DEFAULT_ADDONS, DEFAULT_PREFS, parseTabOrder } from "./prefs";
 import { createProject, createTask } from "./project-actions";
 import { EMPTY_STATE, STATE_VERSION, type MicroWinsState } from "./types";
 
@@ -108,7 +108,8 @@ describe("záloha", () => {
       overview: "pulse",
       // Ostatní addony drží výchozí hodnotu - záloha mluví jen o `todo`.
       addons: { ...DEFAULT_ADDONS, todo: false },
-      tabOrder: ["projects", "overview", "todo"],
+      // Záložky, o kterých záloha mlčí, se doplní na konec - viz `parseTabOrder`.
+      tabOrder: parseTabOrder(["projects", "overview", "todo"]),
     });
   });
 
@@ -168,8 +169,14 @@ function maximalState(): MicroWinsState {
       { taskId: "t_2", date: "2026-01-11", percent: 100 },
     ],
     todos: [
-      { id: "td_1", text: "otevřená položka", createdAt: "2026-01-10T10:00:00.000Z", doneAt: null, order: 0 },
-      { id: "td_2", text: "odškrtnutá položka", createdAt: "2026-01-10T10:00:00.000Z", doneAt: "2026-01-10T12:00:00.000Z", order: 1 },
+      { id: "td_1", text: "otevřená položka", createdAt: "2026-01-10T10:00:00.000Z", doneAt: null, order: 0, dueDate: "2026-01-12", dueTime: "14:30" },
+      { id: "td_2", text: "odškrtnutá položka", createdAt: "2026-01-10T10:00:00.000Z", doneAt: "2026-01-10T12:00:00.000Z", order: 1, dueDate: null, dueTime: null },
+      { id: "td_3", text: "termín bez hodiny", createdAt: "2026-01-10T10:00:00.000Z", doneAt: null, order: 2, dueDate: "2026-01-20", dueTime: null },
+    ],
+    timeBlocks: [
+      { id: "b_1", date: "2026-01-10", start: 540, duration: 90, title: "Hluboká práce", todoId: null, taskId: null, createdAt: "2026-01-10T08:00:00.000Z", doneAt: null },
+      { id: "b_2", date: "2026-01-10", start: 660, duration: 30, title: "otevřená položka", todoId: "td_1", taskId: null, createdAt: "2026-01-10T08:00:00.000Z", doneAt: "2026-01-10T11:30:00.000Z" },
+      { id: "b_3", date: "2026-01-11", start: 1380, duration: 60, title: "kliky", todoId: null, taskId: "t_1", createdAt: "2026-01-10T08:00:00.000Z", doneAt: null },
     ],
   };
 }
@@ -200,6 +207,7 @@ describe("záloha nese úplně všechno", () => {
       "snapshots",
       "taskSnapshots",
       "todos",
+      "timeBlocks",
     ] as const) {
       expect({ [key]: out[key].length }).toEqual({ [key]: state[key].length });
     }
@@ -217,5 +225,13 @@ describe("záloha nese úplně všechno", () => {
     expect(out.entries.find((e) => e.id === "e_2")!.backdated).toBe(true);
     // Odškrtnuté ToDo se maže samo až po TTL - do zálohy patří i tak.
     expect(out.todos.find((t) => t.id === "td_2")!.doneAt).not.toBeNull();
+    // Termín i s hodinou; den bez hodiny zůstane dnem bez hodiny.
+    expect(out.todos.find((t) => t.id === "td_1")!.dueTime).toBe("14:30");
+    expect(out.todos.find((t) => t.id === "td_3")!.dueDate).toBe("2026-01-20");
+    expect(out.todos.find((t) => t.id === "td_3")!.dueTime).toBeNull();
+    // Blok si drží odkaz na položku i odškrtnutí.
+    expect(out.timeBlocks.find((b) => b.id === "b_2")!.todoId).toBe("td_1");
+    expect(out.timeBlocks.find((b) => b.id === "b_3")!.taskId).toBe("t_1");
+    expect(out.timeBlocks.find((b) => b.id === "b_2")!.doneAt).not.toBeNull();
   });
 });

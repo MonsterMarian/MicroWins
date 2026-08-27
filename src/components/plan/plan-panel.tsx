@@ -94,10 +94,33 @@ export function PlanPanel() {
     setDate(addDays(date, dir * days));
   };
 
+  const daysOfView = React.useMemo(() => {
+    if (plan === "week") {
+      return Array.from({ length: 7 }, (_, i) => addDays(date, i - (new Date(fromISODate(date)).getDay() + 6) % 7));
+    } else if (plan === "3day") {
+      return [date, addDays(date, 1), addDays(date, 2)];
+    }
+    return [date];
+  }, [date, plan]);
+
+  const topLabel = React.useMemo(() => {
+    if (plan === "day") {
+      return `${DAY_SHORT[fromISODate(date).getDay()]} ${formatDate(date)}`;
+    } else if (plan === "week" || plan === "3day") {
+      const first = daysOfView[0];
+      const last = daysOfView[daysOfView.length - 1];
+      const sameMonth = first.slice(0, 7) === last.slice(0, 7);
+      return sameMonth
+        ? `${dayOfMonth(first)}. - ${dayOfMonth(last)}. ${monthGenitive(first)}`
+        : `${formatDate(first).replace(/ \d{4}$/, "")} - ${formatDate(last).replace(/ \d{4}$/, "")}`;
+    }
+    return monthLabel(date); // month, schedule
+  }, [date, plan, daysOfView]);
+
   return (
     <div className="flex flex-col h-[calc(100vh-8rem)] -mx-4 sm:mx-0 bg-background text-foreground relative">
       <TopAppBar 
-        date={date} 
+        label={topLabel}
         onMenu={() => setDrawerOpen(true)} 
         onToday={() => setDate(today)}
         onPrev={() => stepDate(-1)}
@@ -122,7 +145,7 @@ export function PlanPanel() {
           />
         ) : plan === "week" ? (
           <WeekView
-            days={Array.from({ length: 7 }, (_, i) => addDays(date, i - (new Date(fromISODate(date)).getDay() + 6) % 7))}
+            days={daysOfView}
             today={today}
             nowMinutes={nowMinutes}
             gridRef={gridRef}
@@ -187,13 +210,13 @@ export function PlanPanel() {
 }
 
 function TopAppBar({ 
-  date, 
+  label, 
   onMenu, 
   onToday,
   onPrev,
   onNext
 }: { 
-  date: ISODate; 
+  label: string; 
   onMenu: () => void; 
   onToday: () => void;
   onPrev: () => void;
@@ -205,8 +228,8 @@ function TopAppBar({
         <Button variant="ghost" size="icon" onClick={onMenu}>
           <Menu className="size-6" />
         </Button>
-        <div className="text-xl font-medium cursor-pointer hover:bg-accent px-2 py-1 rounded-lg">
-          {monthLabel(date)}
+        <div className="text-xl font-medium cursor-pointer hover:bg-accent px-2 py-1 rounded-lg capitalize">
+          {label}
         </div>
       </div>
       <div className="flex items-center gap-1">

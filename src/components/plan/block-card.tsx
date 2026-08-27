@@ -26,10 +26,10 @@ export function toneOf(block: TimeBlock): BlockTone {
   return "plain";
 }
 
-const RAIL: Record<BlockTone, string> = {
-  task: "bg-progress",
-  todo: "bg-foreground/60",
-  plain: "bg-muted-foreground/40",
+const BG: Record<BlockTone, string> = {
+  task: "bg-progress/20 border-progress/30 text-progress-foreground",
+  todo: "bg-blue-500/20 border-blue-500/30 text-blue-900 dark:text-blue-100",
+  plain: "bg-muted border-muted-foreground/20 text-foreground",
 };
 
 export function BlockCard({
@@ -75,16 +75,8 @@ export function BlockCard({
       }}
       style={{ top, height, left, width }}
       className={cn(
-        "absolute flex select-none overflow-hidden rounded-lg border bg-card [-webkit-touch-callout:none]",
+        "absolute flex select-none overflow-hidden rounded-md border [-webkit-touch-callout:none]",
         "transition-[box-shadow,opacity] duration-150",
-        done ? "opacity-60" : "shadow-sm",
-        dragging ? "z-30 shadow-lg ring-2 ring-foreground/25" : "z-10",
-      )}
-    >
-      <span
-        aria-hidden
-        className={cn(compact ? "w-[3px]" : "w-1", "shrink-0", done ? "bg-progress/40" : RAIL[tone])}
-      />
 
       <div className={cn("flex min-w-0 flex-1 flex-col justify-center", compact ? "px-1 py-0.5" : "px-2 py-1")}>
         <p

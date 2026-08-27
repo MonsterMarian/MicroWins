@@ -194,7 +194,7 @@ export function PlanPanel() {
           })
         }
         aria-label="Nový blok"
-        className="absolute bottom-6 right-6 shadow-xl bg-primary text-primary-foreground size-14 rounded-2xl justify-center px-0"
+        className="absolute bottom-6 right-6 shadow-xl bg-background text-foreground border size-14 rounded-2xl justify-center px-0"
       >
         <Plus className="size-8" />
       </Fab>

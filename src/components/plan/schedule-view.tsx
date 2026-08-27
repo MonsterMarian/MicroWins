@@ -74,9 +74,9 @@ export function ScheduleView({
                 <div 
                   key={`pin-${pin.todo.id}`}
                   onClick={() => onPlanPin(pin)}
-                  className="rounded-lg border-2 border-dashed border-primary/40 p-2 cursor-pointer hover:bg-accent/50"
+                  className="rounded-lg border-2 border-dashed border-muted-foreground/40 p-2 cursor-pointer hover:bg-accent/50"
                 >
-                  <div className="text-xs font-semibold text-primary mb-0.5">
+                  <div className="text-xs font-semibold text-muted-foreground mb-0.5">
                     {formatMinutes(pin.start)}
                   </div>
                   <div className="text-sm">{pin.todo.text}</div>

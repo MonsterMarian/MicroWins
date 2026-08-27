@@ -85,12 +85,23 @@ export function PlanPanel() {
     setDrawerOpen(false);
   };
 
+  const stepDate = (dir: 1 | -1) => {
+    let days = 1;
+    if (plan === "week" || plan === "schedule") days = 7;
+    else if (plan === "3day") days = 3;
+    else if (plan === "month") days = 30;
+    
+    setDate(addDays(date, dir * days));
+  };
+
   return (
     <div className="flex flex-col h-[calc(100vh-8rem)] -mx-4 sm:mx-0 bg-background text-foreground relative">
       <TopAppBar 
         date={date} 
         onMenu={() => setDrawerOpen(true)} 
         onToday={() => setDate(today)}
+        onPrev={() => stepDate(-1)}
+        onNext={() => stepDate(1)}
       />
 
       <div className="flex-1 overflow-auto flex flex-col gap-2 p-2">
@@ -175,10 +186,22 @@ export function PlanPanel() {
   );
 }
 
-function TopAppBar({ date, onMenu, onToday }: { date: ISODate, onMenu: () => void, onToday: () => void }) {
+function TopAppBar({ 
+  date, 
+  onMenu, 
+  onToday,
+  onPrev,
+  onNext
+}: { 
+  date: ISODate; 
+  onMenu: () => void; 
+  onToday: () => void;
+  onPrev: () => void;
+  onNext: () => void;
+}) {
   return (
     <div className="flex items-center justify-between px-2 h-14 border-b bg-background shrink-0">
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1">
         <Button variant="ghost" size="icon" onClick={onMenu}>
           <Menu className="size-6" />
         </Button>
@@ -187,8 +210,11 @@ function TopAppBar({ date, onMenu, onToday }: { date: ISODate, onMenu: () => voi
         </div>
       </div>
       <div className="flex items-center gap-1">
-        <Button variant="ghost" size="icon">
-          <Search className="size-5" />
+        <Button variant="ghost" size="icon" onClick={onPrev}>
+          <ChevronLeft className="size-5" />
+        </Button>
+        <Button variant="ghost" size="icon" onClick={onNext}>
+          <ChevronRight className="size-5" />
         </Button>
         <Button variant="ghost" size="icon" onClick={onToday}>
           <CalendarDays className="size-5" />

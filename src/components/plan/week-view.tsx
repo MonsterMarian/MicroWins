@@ -77,9 +77,9 @@ export function WeekView({
     (clientX: number): ISODate | null => {
       const rect = gridRef.current?.getBoundingClientRect();
       if (!rect) return null;
-      const column = (rect.width - GUTTER) / 7;
+      const column = (rect.width - GUTTER) / days.length;
       const index = Math.floor((clientX - rect.left - GUTTER) / column);
-      return days[Math.min(6, Math.max(0, index))] ?? null;
+      return days[Math.min(days.length - 1, Math.max(0, index))] ?? null;
     },
     [days, gridRef],
   );
@@ -158,10 +158,10 @@ export function WeekView({
             {date === today && nowMinutes >= fromMin && nowMinutes <= toHour * 60 ? (
               <div
                 aria-hidden
-                className="pointer-events-none absolute inset-x-0 z-20 border-t border-foreground/70"
+                className="pointer-events-none absolute inset-x-0 z-20 border-t-2 border-red-500"
                 style={{ top: (nowMinutes - fromMin) * WEEK_PX_PER_MIN }}
               >
-                <span className="absolute -left-[3px] -top-[3px] size-1.5 rounded-full bg-foreground" />
+                <span className="absolute -left-1.5 -top-[5px] size-2.5 rounded-full bg-red-500" />
               </div>
             ) : null}
           </div>

@@ -43,11 +43,14 @@ export const OVERVIEWS: { id: Overview; label: string; hint: string }[] = [
  * Podoba plánu dne. Obě verze pracují se stejnými bloky, jen se ptají jinak:
  * osa na „jak vypadá dnešek", týden na „kdy v tom týdnu na to bude čas".
  */
-export type PlanView = "day" | "week";
+export type PlanView = "schedule" | "day" | "3day" | "week" | "month";
 
 export const PLAN_VIEWS: { id: PlanView; label: string; hint: string }[] = [
-  { id: "day", label: "Osa dne", hint: "jeden den odshora dolů, bloky se tahají po čtvrthodinách" },
+  { id: "schedule", label: "Agenda", hint: "seznam naplánovaných dnů pod sebou" },
+  { id: "day", label: "Den", hint: "jeden den odshora dolů, bloky se tahají po čtvrthodinách" },
+  { id: "3day", label: "3 dny", hint: "tři dny vedle sebe, dobré pro telefony na šířku nebo detail" },
   { id: "week", label: "Týden", hint: "sedm sloupců vedle sebe, blok jde přehodit i na jiný den" },
+  { id: "month", label: "Měsíc", hint: "plná mřížka měsíce s puntíky bloků" },
 ];
 
 /**

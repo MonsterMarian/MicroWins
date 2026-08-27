@@ -199,9 +199,9 @@ function EdgeButton({ dir, onClick }: { dir: "up" | "down"; onClick: () => void 
 function NowLine({ top, minutes }: { top: number; minutes: number }) {
   return (
     <div className="pointer-events-none absolute inset-x-0 z-20" style={{ top }}>
-      <div className="relative border-t border-foreground/70">
-        <span className="absolute -left-1 -top-[3px] size-1.5 rounded-full bg-foreground" />
-        <span className="tabular absolute -left-[42px] -top-[7px] w-9 text-right text-[11px] font-medium leading-none">
+      <div className="relative border-t-2 border-red-500">
+        <span className="absolute -left-1.5 -top-[5px] size-2.5 rounded-full bg-red-500" />
+        <span className="tabular absolute -left-[42px] -top-[7px] w-9 text-right text-[11px] font-bold leading-none text-red-500">
           {formatMinutes(minutes)}
         </span>
       </div>

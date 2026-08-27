@@ -87,9 +87,9 @@ export function PlanPanel() {
 
   const stepDate = (dir: 1 | -1) => {
     let days = 1;
-    if (plan === "week" || plan === "schedule") days = 7;
+    if (plan === "week") days = 7;
+    else if (plan === "schedule" || plan === "month") days = 30;
     else if (plan === "3day") days = 3;
-    else if (plan === "month") days = 30;
     
     setDate(addDays(date, dir * days));
   };
@@ -106,15 +106,15 @@ export function PlanPanel() {
   const topLabel = React.useMemo(() => {
     if (plan === "day") {
       return `${DAY_SHORT[fromISODate(date).getDay()]} ${formatDate(date)}`;
-    } else if (plan === "week" || plan === "3day") {
-      const first = daysOfView[0];
-      const last = daysOfView[daysOfView.length - 1];
+    } else if (plan === "week" || plan === "3day" || plan === "schedule") {
+      const first = plan === "schedule" ? date : daysOfView[0];
+      const last = plan === "schedule" ? addDays(date, 29) : daysOfView[daysOfView.length - 1];
       const sameMonth = first.slice(0, 7) === last.slice(0, 7);
       return sameMonth
         ? `${dayOfMonth(first)}. - ${dayOfMonth(last)}. ${monthGenitive(first)}`
         : `${formatDate(first).replace(/ \d{4}$/, "")} - ${formatDate(last).replace(/ \d{4}$/, "")}`;
     }
-    return monthLabel(date); // month, schedule
+    return monthLabel(date); // month
   }, [date, plan, daysOfView]);
 
   return (

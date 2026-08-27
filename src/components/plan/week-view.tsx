@@ -101,7 +101,7 @@ export function WeekView({
   const dayOf = (block: TimeBlock) => (preview?.id === block.id ? preview.date : block.date);
 
   return (
-    <Card className="overflow-hidden p-0">
+    <Card className="overflow-hidden p-0 shrink-0">
       <div className="flex border-b">
         <div className="shrink-0" style={{ width: GUTTER }} />
         {perDay.map(({ date, blocks, pins }) => (

@@ -79,7 +79,7 @@ export function DayView({
   };
 
   return (
-    <Card className="overflow-hidden p-0">
+    <Card className="overflow-hidden p-0 shrink-0">
       {fromHour > 0 ? <EdgeButton dir="up" onClick={extendEarly} /> : null}
 
       <div

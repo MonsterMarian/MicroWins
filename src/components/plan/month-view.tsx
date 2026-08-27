@@ -43,7 +43,7 @@ export function MonthView({
   const dayNames = [1, 2, 3, 4, 5, 6, 0].map(d => DAY_SHORT[d]);
 
   return (
-    <Card className="overflow-hidden p-0 flex flex-col">
+    <Card className="overflow-hidden p-0 flex flex-col shrink-0">
       <div className="grid grid-cols-7 border-b border-border/50 bg-muted/20">
         {dayNames.map((name, i) => (
           <div key={i} className="py-2 text-center text-[10px] uppercase font-semibold text-muted-foreground">

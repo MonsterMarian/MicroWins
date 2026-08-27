@@ -30,7 +30,7 @@ export function ScheduleView({
   const days = Array.from({ length: 30 }, (_, i) => addDays(date, i));
   
   return (
-    <Card className="overflow-hidden flex flex-col p-0 bg-background divide-y">
+    <Card className="overflow-hidden flex flex-col p-0 bg-background divide-y shrink-0">
       {days.map((d) => {
         const blocks = blocksOfDay(state, d);
         const pins = pinsOfDay(state, d);

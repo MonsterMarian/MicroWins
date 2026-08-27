@@ -28,7 +28,7 @@ export function toneOf(block: TimeBlock): BlockTone {
 
 export const RAIL: Record<BlockTone, string> = {
   task: "bg-progress",
-  todo: "bg-blue-500",
+  todo: "bg-foreground",
   plain: "bg-muted-foreground/40",
 };
 

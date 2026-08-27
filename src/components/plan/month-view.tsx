@@ -80,7 +80,7 @@ export function MonthView({
               <div className="flex flex-col gap-[2px] mt-1 overflow-hidden">
                 {blocks.slice(0, 3).map(b => {
                   const tone = toneOf(b);
-                  const color = tone === "task" ? "bg-progress" : tone === "todo" ? "bg-blue-500" : "bg-muted-foreground";
+                  const color = tone === "task" ? "bg-progress" : tone === "todo" ? "bg-foreground" : "bg-muted-foreground";
                   return (
                     <div key={b.id} className={cn("h-1.5 w-full rounded-full", color)} />
                   );

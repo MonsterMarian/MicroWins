@@ -13,11 +13,13 @@ import { cn } from "@/lib/utils";
 export function ScheduleView({
   date,
   today,
+  onPick,
   onOpen,
   onPlanPin,
 }: {
   date: ISODate;
   today: ISODate;
+  onPick: (date: ISODate) => void;
   onOpen: (block: TimeBlock) => void;
   onPlanPin: (pin: DuePin) => void;
 }) {
@@ -41,8 +43,11 @@ export function ScheduleView({
         const dateNum = dayOfMonth(d);
 
         return (
-          <div key={d} className="flex p-4 gap-4">
-            <div className="w-12 shrink-0 flex flex-col items-center">
+          <div key={d} className="flex p-4 gap-4 border-b border-border/50">
+            <div 
+              className="w-12 shrink-0 flex flex-col items-center cursor-pointer hover:bg-accent/50 rounded-lg p-1"
+              onClick={() => onPick(d)}
+            >
               <span className={cn(
                 "text-[10px] font-medium uppercase",
                 isToday ? "text-primary" : "text-muted-foreground"

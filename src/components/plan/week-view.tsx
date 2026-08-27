@@ -249,13 +249,16 @@ function DayHead({ date, today, count }: { date: ISODate; today: ISODate; count:
 
   return (
     <div className="flex min-w-0 flex-1 flex-col items-center gap-1 py-1.5">
-      <span className="text-[10px] uppercase leading-none text-muted-foreground">
+      <span className={cn(
+        "text-[10px] uppercase leading-none",
+        isToday ? "text-primary font-medium" : "text-muted-foreground"
+      )}>
         {DAY_SHORT[fromISODate(date).getDay()]}
       </span>
       <span
         className={cn(
-          "tabular grid size-6 place-items-center rounded-full text-[12px] leading-none",
-          isToday ? "bg-foreground font-semibold text-background" : "font-medium",
+          "tabular grid size-8 place-items-center rounded-full text-[14px] leading-none",
+          isToday ? "bg-primary font-semibold text-primary-foreground" : "font-medium text-foreground",
         )}
       >
         {dayOfMonth(date)}

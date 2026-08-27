@@ -70,8 +70,8 @@ export function MonthView({
             >
               <div className="flex justify-center">
                 <span className={cn(
-                  "tabular grid size-6 place-items-center rounded-full text-[12px] leading-none",
-                  isToday ? "bg-foreground font-semibold text-background" : "font-medium"
+                  "tabular grid size-7 place-items-center rounded-full text-[13px] leading-none",
+                  isToday ? "bg-primary font-semibold text-primary-foreground" : "font-medium text-foreground"
                 )}>
                   {fromISODate(d).getDate()}
                 </span>

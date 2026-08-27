@@ -132,7 +132,16 @@ export function PlanPanel() {
         <Queue date={date} onDrop={(input) => drop(input)} />
 
         {plan === "schedule" ? (
-          <ScheduleView date={date} today={today} onOpen={setEditing} onPlanPin={(p) => planPin(p as any, p.todo.dueDate as ISODate)} />
+          <ScheduleView 
+            date={date} 
+            today={today} 
+            onPick={(d) => {
+              setDate(d);
+              setView("day");
+            }}
+            onOpen={setEditing} 
+            onPlanPin={(p) => planPin(p as any, p.todo.dueDate as ISODate)} 
+          />
         ) : plan === "3day" ? (
           <ThreeDayView
             date={date}
@@ -154,7 +163,14 @@ export function PlanPanel() {
             onPlanPin={(p) => planPin(p as any, p.todo.dueDate as ISODate)}
           />
         ) : plan === "month" ? (
-          <MonthView date={date} today={today} onPick={setDate} />
+          <MonthView 
+            date={date} 
+            today={today} 
+            onPick={(d) => {
+              setDate(d);
+              setView("day");
+            }} 
+          />
         ) : (
           <DayView
             date={date}
@@ -178,9 +194,9 @@ export function PlanPanel() {
           })
         }
         aria-label="Nový blok"
-        className="absolute bottom-6 right-6 shadow-xl"
+        className="absolute bottom-6 right-6 shadow-xl bg-primary text-primary-foreground size-14 rounded-2xl justify-center px-0"
       >
-        <Plus className="size-6" />
+        <Plus className="size-8" />
       </Fab>
 
       {/* Side Drawer */}

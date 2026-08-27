@@ -77,7 +77,11 @@ export function BlockCard({
       className={cn(
         "absolute flex select-none overflow-hidden rounded-md border [-webkit-touch-callout:none]",
         "transition-[box-shadow,opacity] duration-150",
-
+        BG[tone],
+        done ? "opacity-50" : "shadow-sm",
+        dragging ? "z-30 shadow-lg ring-2 ring-foreground/25 opacity-90" : "z-10",
+      )}
+    >
       <div className={cn("flex min-w-0 flex-1 flex-col justify-center", compact ? "px-1 py-0.5" : "px-2 py-1")}>
         <p
           className={cn(

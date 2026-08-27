@@ -26,10 +26,10 @@ export function toneOf(block: TimeBlock): BlockTone {
   return "plain";
 }
 
-export const BG: Record<BlockTone, string> = {
-  task: "bg-progress/20 border-progress/30 text-progress-foreground",
-  todo: "bg-blue-500/20 border-blue-500/30 text-blue-900 dark:text-blue-100",
-  plain: "bg-muted border-muted-foreground/20 text-foreground",
+export const RAIL: Record<BlockTone, string> = {
+  task: "bg-progress",
+  todo: "bg-blue-500",
+  plain: "bg-muted-foreground/40",
 };
 
 export function BlockCard({
@@ -75,13 +75,14 @@ export function BlockCard({
       }}
       style={{ top, height, left, width }}
       className={cn(
-        "absolute flex select-none overflow-hidden rounded-md border [-webkit-touch-callout:none]",
+        "absolute flex select-none overflow-hidden rounded-md border bg-card text-foreground [-webkit-touch-callout:none]",
         "transition-[box-shadow,opacity] duration-150",
-        BG[tone],
         done ? "opacity-50" : "shadow-sm",
         dragging ? "z-30 shadow-lg ring-2 ring-foreground/25 opacity-90" : "z-10",
       )}
     >
+      <div className={cn("w-1 shrink-0", RAIL[tone])} />
+
       <div className={cn("flex min-w-0 flex-1 flex-col justify-center", compact ? "px-1 py-0.5" : "px-2 py-1")}>
         <p
           className={cn(
@@ -94,7 +95,7 @@ export function BlockCard({
         </p>
         {roomForTime ? (
           <p className="tabular truncate text-[11px] leading-tight text-muted-foreground">
-            {formatMinutes(block.start)} · {formatLength(block.duration)}
+            {formatMinutes(block.start)} – {formatLength(block.duration)}
           </p>
         ) : null}
       </div>

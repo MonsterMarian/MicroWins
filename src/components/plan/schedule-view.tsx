@@ -9,7 +9,7 @@ import { blocksOfDay, pinsOfDay } from "@/lib/timeblocks";
 import { fromISODate, addDays, dayName, dayOfMonth, monthShort } from "@/lib/date";
 import type { ISODate } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { toneOf, BG } from "./block-card";
+import { toneOf, RAIL } from "./block-card";
 
 export function ScheduleView({
   date,
@@ -89,15 +89,15 @@ export function ScheduleView({
                   <div 
                     key={block.id}
                     onClick={() => onOpen(block)}
-                    className={cn(
-                      "rounded-lg p-2 cursor-pointer shadow-sm border",
-                      BG[tone]
-                    )}
+                    className="flex overflow-hidden rounded-lg cursor-pointer shadow-sm border bg-card text-foreground"
                   >
-                    <div className="text-xs font-medium opacity-90 mb-0.5">
-                      {formatMinutes(block.start)} - {formatMinutes(block.start + block.duration)}
+                    <div className={cn("w-1.5 shrink-0", RAIL[tone])} />
+                    <div className="flex-1 p-2">
+                      <div className="text-xs font-medium text-muted-foreground mb-0.5">
+                        {formatMinutes(block.start)} - {formatMinutes(block.start + block.duration)}
+                      </div>
+                      <div className="text-sm font-medium">{block.title}</div>
                     </div>
-                    <div className="text-sm font-medium">{block.title}</div>
                   </div>
                 );
               })}

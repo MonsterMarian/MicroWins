@@ -9,6 +9,7 @@ import { blocksOfDay, pinsOfDay } from "@/lib/timeblocks";
 import { fromISODate, monthDays, DAY_SHORT, weekdayMondayFirst, addDays, toISODate } from "@/lib/date";
 import type { ISODate } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { toneOf } from "./block-card";
 
 export function MonthView({
   date,
@@ -77,9 +78,13 @@ export function MonthView({
                 </span>
               </div>
               <div className="flex flex-col gap-[2px] mt-1 overflow-hidden">
-                {blocks.slice(0, 3).map(b => (
-                  <div key={b.id} className="h-1.5 w-full bg-primary/70 rounded-full" />
-                ))}
+                {blocks.slice(0, 3).map(b => {
+                  const tone = toneOf(b);
+                  const color = tone === "task" ? "bg-progress" : tone === "todo" ? "bg-blue-500" : "bg-muted-foreground";
+                  return (
+                    <div key={b.id} className={cn("h-1.5 w-full rounded-full", color)} />
+                  );
+                })}
                 {blocks.length > 3 && (
                   <div className="text-[9px] text-muted-foreground text-center font-medium leading-none mt-0.5">
                     +{blocks.length - 3}

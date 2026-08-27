@@ -26,7 +26,7 @@ export function toneOf(block: TimeBlock): BlockTone {
   return "plain";
 }
 
-const BG: Record<BlockTone, string> = {
+export const BG: Record<BlockTone, string> = {
   task: "bg-progress/20 border-progress/30 text-progress-foreground",
   todo: "bg-blue-500/20 border-blue-500/30 text-blue-900 dark:text-blue-100",
   plain: "bg-muted border-muted-foreground/20 text-foreground",

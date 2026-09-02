@@ -40,7 +40,6 @@ import {
   DEFAULT_UPDATE_URL,
   getUpdateUrl,
   pendingBundleVersion,
-  revertToBundled,
   setUpdateUrl,
 } from "@/lib/live-update";
 import { isNative, syncStatusBar } from "@/lib/native";
@@ -614,21 +613,6 @@ function UpdateSection() {
           {pending ? `čeká ${pending}` : current ? `verze ${current}` : "verze z APK"}
         </span>
       </div>
-
-      {current || pending ? (
-        <button
-          type="button"
-          onClick={async () => {
-            await revertToBundled();
-            setCurrent(null);
-            setPending(null);
-            toast({ tone: "info", title: "Zpět na verzi z APK", description: "Restartuj appku." });
-          }}
-          className="self-start px-1 py-1 text-xs text-muted-foreground hover:text-foreground"
-        >
-          Vrátit se k verzi z APK
-        </button>
-      ) : null}
     </Section>
   );
 }

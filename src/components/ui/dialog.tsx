@@ -72,10 +72,13 @@ export function Dialog({
   return createPortal(
     <div
       className={cn(
-        "fixed inset-0 z-50 flex items-start justify-center",
+        "fixed inset-0 z-50 flex justify-center",
         fullScreen
-          ? "sm:items-center"
-          : "px-2 pt-[calc(2rem+var(--mw-safe-top))] sm:items-center sm:px-0 sm:pt-0"
+          ? "items-start sm:items-center"
+          // Malé okno (potvrzení, krátký formulář) patří doprostřed. U horní
+          // hrany vypadalo ztracené: pár řádků nahoře a pod nimi půl displeje
+          // prázdna. Odsazení drží i dlouhé okno mimo výřezy a pruh gest.
+          : "items-center px-4 pt-[calc(1rem+var(--mw-safe-top))] pb-[calc(1rem+var(--mw-safe-bottom))] sm:px-0 sm:pt-0 sm:pb-0",
       )}
     >
       <div
@@ -90,15 +93,19 @@ export function Dialog({
         aria-label={title}
         className={cn(
           "animate-in-up relative z-10 w-full bg-card shadow-lg",
+          // Výška je pevná (`h-[100dvh]`), ne minimální. `min-h` totiž nechá
+          // panel vyrůst do výšky obsahu - a `overflow-y-auto` pak nemá co
+          // odříznout, takže se nikde neroluje a konec nastavení je
+          // nedosažitelný. S pevnou výškou má panel kam scrollovat.
           fullScreen
-            ? "min-h-[100dvh] overflow-y-auto px-5 pb-[calc(2rem+var(--mw-safe-bottom))] pt-[calc(1.5rem+var(--mw-safe-top))] sm:min-h-0 sm:max-h-[85dvh] sm:max-w-md sm:rounded-xl sm:border sm:p-5 sm:pb-8"
-            : "max-h-[calc(100dvh-4rem-var(--mw-safe-top)-var(--mw-safe-bottom))] max-w-md overflow-y-auto rounded-xl border p-5 pb-10 sm:max-h-[85dvh] sm:pb-8",
+            ? "h-[100dvh] overflow-y-auto px-5 pb-[calc(2rem+var(--mw-safe-bottom))] pt-[calc(1.5rem+var(--mw-safe-top))] sm:h-auto sm:max-h-[85dvh] sm:max-w-md sm:rounded-xl sm:border sm:p-5 sm:pb-8"
+            : "max-h-[calc(100dvh-2rem-var(--mw-safe-top)-var(--mw-safe-bottom))] max-w-md overflow-y-auto rounded-xl border p-6 sm:max-h-[85dvh]",
           className,
         )}
       >
         <div className="mb-4 flex items-start justify-between gap-4">
           <div className="flex flex-col gap-1">
-            <h2 className="text-base font-semibold tracking-tight">{title}</h2>
+            <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
             {description ? (
               <p className="text-sm text-muted-foreground">{description}</p>
             ) : null}
@@ -113,7 +120,7 @@ export function Dialog({
           </Button>
         </div>
         {children}
-        {footer ? <div className="mt-5 flex justify-end gap-2">{footer}</div> : null}
+        {footer ? <div className="mt-6 flex justify-end gap-2">{footer}</div> : null}
       </div>
     </div>,
     document.body,

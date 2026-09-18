@@ -1,4 +1,4 @@
-import { addDays, diffDays, todayISO } from "./date";
+import { addDays, diffDays, toISODate, todayISO } from "./date";
 import type {
   ISODate,
   MicroWinsState,
@@ -193,8 +193,17 @@ export function progressSeries(
   if (!project) return [];
   const snaps = snapshotsOfProject(state, projectId);
   const start = snaps.length ? minDate(project.startDate, snaps[0].date) : project.startDate;
-  const end = today < start ? start : today;
+  return fillSeries(snaps, start, today, projectPercent(state, projectId));
+}
 
+/** Otisky rozprostřené do dnů od `start` do dneška - společné pro projekt i úkol. */
+function fillSeries(
+  snaps: SeriesPoint[],
+  start: ISODate,
+  today: ISODate,
+  current: number,
+): SeriesPoint[] {
+  const end = today < start ? start : today;
   const byDate = new Map(snaps.map((s) => [s.date, s.percent]));
   const out: SeriesPoint[] = [];
   let last = 0;
@@ -205,7 +214,7 @@ export function progressSeries(
     out.push({ date, percent: last });
   }
   // Aktuální stav má vždy přednost před posledním otiskem.
-  if (out.length) out[out.length - 1] = { date: end, percent: projectPercent(state, projectId) };
+  if (out.length) out[out.length - 1] = { date: end, percent: current };
   return out;
 }
 
@@ -226,7 +235,11 @@ export function dailyChanges(
   projectId: string,
   today: ISODate = todayISO(),
 ): DailyChange[] {
-  const series = progressSeries(state, projectId, today);
+  return changesOf(progressSeries(state, projectId, today));
+}
+
+/** Rozdíly mezi sousedními dny řady, nejnovější první. */
+function changesOf(series: SeriesPoint[]): DailyChange[] {
   const out: DailyChange[] = [];
   for (let i = 1; i < series.length; i++) {
     const from = series[i - 1].percent;
@@ -267,7 +280,7 @@ export interface ProjectStats {
  * až podruhé. První dosažení stovky by u takového projektu tvrdilo, že je
  * hotový od jara, i když se v létě práce znovu otevřela.
  */
-function completionDate(snaps: Snapshot[], percent: number): ISODate | null {
+function completionDate(snaps: SeriesPoint[], percent: number): ISODate | null {
   if (percent < 100) return null;
   let date: ISODate | null = null;
   for (let i = snaps.length - 1; i >= 0; i--) {
@@ -327,21 +340,134 @@ export interface DayRing {
 }
 
 export function dayRing(stats: ProjectStats): DayRing {
-  if (stats.percent >= 100) {
+  return ringOfDays({ ...stats, startDate: stats.project.startDate });
+}
+
+/** Co kolečko dní potřebuje vědět - projekt i úkol to mají stejně. */
+interface DaySpan {
+  percent: number;
+  startDate: ISODate;
+  daysElapsed: number;
+  totalDays: number | null;
+  completedOn: ISODate | null;
+}
+
+function ringOfDays(span: DaySpan): DayRing {
+  if (span.percent >= 100) {
     // Bez otisku (starý projekt, ruční import) není odkud vzít den dokončení -
     // pak je poctivější ukázat dnešek než tvrdit nulu.
-    const days = stats.completedOn
-      ? Math.max(0, diffDays(stats.project.startDate, stats.completedOn))
-      : stats.daysElapsed;
+    const days = span.completedOn
+      ? Math.max(0, diffDays(span.startDate, span.completedOn))
+      : span.daysElapsed;
     return { value: 100, days, total: null };
   }
 
   const value =
-    stats.totalDays && stats.totalDays > 0
-      ? Math.min(100, (stats.daysElapsed / stats.totalDays) * 100)
-      : Math.min(100, stats.daysElapsed);
+    span.totalDays && span.totalDays > 0
+      ? Math.min(100, (span.daysElapsed / span.totalDays) * 100)
+      : Math.min(100, span.daysElapsed);
 
-  return { value, days: stats.daysElapsed, total: stats.totalDays };
+  return { value, days: span.daysElapsed, total: span.totalDays };
+}
+
+// --- statistiky úkolu -------------------------------------------------------
+
+/**
+ * Totéž co statistiky projektu, jen pro jeden úkol: postup, dny od založení
+ * k termínu úkolu, řada pro graf a deník změn. Všechno jde z otisků úkolu
+ * (`taskSnapshots`), ne z projektu - jinak by úkol ukazoval průměr všech
+ * úkolů, ve kterých leží.
+ */
+export interface TaskStats extends DaySpan {
+  task: Task;
+}
+
+export function taskStats(
+  state: MicroWinsState,
+  taskId: string,
+  today: ISODate = todayISO(),
+): TaskStats | null {
+  const task = taskById(state, taskId);
+  if (!task) return null;
+
+  const percent = taskPercent(state, task);
+  const snaps = taskSnapshotsOf(state, taskId);
+  const created = localDay(task.createdAt);
+  // Import nebo seed umí mít historii starší než samotný úkol - pak platí ona.
+  const startDate = snaps.length ? minDate(created, snaps[0].date) : created;
+
+  return {
+    task,
+    percent,
+    startDate,
+    daysElapsed: Math.max(0, diffDays(startDate, today)),
+    totalDays: task.dueDate ? diffDays(startDate, task.dueDate) : null,
+    completedOn: taskCompletedOn(state, task, percent),
+  };
+}
+
+export function taskDayRing(stats: TaskStats): DayRing {
+  return ringOfDays(stats);
+}
+
+/**
+ * Den, kdy úkol naposledy doběhl na 100 %.
+ *
+ * Úkol bez podúkolů si ho pamatuje sám (`completedAt`) - a jen tak ho znají
+ * i úkoly z doby před otisky, kterým historie začala až po dokončení. Úkolu
+ * s podúkoly se `completedAt` při jejich posunu nepřepisuje, tam rozhodují
+ * otisky stejně jako u projektu.
+ */
+function taskCompletedOn(state: MicroWinsState, task: Task, percent: number): ISODate | null {
+  if (percent < 100) return null;
+  if (task.completedAt && subtasksOf(state, task.id).length === 0) {
+    return localDay(task.completedAt);
+  }
+  return completionDate(taskSnapshotsOf(state, task.id), percent);
+}
+
+/**
+ * Denní řada postupu úkolu pro graf.
+ *
+ * Začíná prvním otiskem, ne založením: úkol z doby před otisky má historii
+ * až od chvíle, kdy se ho něco poprvé dotklo. Nula před ní by tvrdila, že
+ * v ten den narostl celý dosavadní postup. Bez jediného otisku zbyde dnešek.
+ */
+export function taskProgressSeries(
+  state: MicroWinsState,
+  taskId: string,
+  today: ISODate = todayISO(),
+): SeriesPoint[] {
+  const task = taskById(state, taskId);
+  if (!task) return [];
+  const snaps = taskSnapshotsOf(state, taskId);
+  return fillSeries(snaps, snaps[0]?.date ?? today, today, taskPercent(state, task));
+}
+
+/**
+ * Deník změn úkolu. Když historie začíná nejpozději dnem založení, úkol rostl
+ * od nuly a do deníku patří i ten první den - stejně to počítá „+X % dnes"
+ * v detailu úkolu. Úkol, kterému historie začala až později, výchozí stav
+ * nezná a první den vynechá.
+ */
+export function taskDailyChanges(
+  state: MicroWinsState,
+  taskId: string,
+  today: ISODate = todayISO(),
+): DailyChange[] {
+  const task = taskById(state, taskId);
+  if (!task) return [];
+  const series = taskProgressSeries(state, taskId, today);
+  const fromZero = series.length > 0 && series[0].date <= localDay(task.createdAt);
+  return changesOf(
+    fromZero ? [{ date: addDays(series[0].date, -1), percent: 0 }, ...series] : series,
+  );
+}
+
+/** Den z časového razítka v lokálním čase - `createdAt` a spol. jsou v UTC. */
+function localDay(timestamp: string): ISODate {
+  const d = new Date(timestamp);
+  return Number.isNaN(d.getTime()) ? timestamp.slice(0, 10) : toISODate(d);
 }
 
 /**

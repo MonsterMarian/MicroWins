@@ -132,10 +132,10 @@ export function TaskDetail({ taskId }: { taskId: string }) {
         </span>
         <h1 className="min-w-0 flex-1 truncate text-lg font-semibold tracking-tight">{task.name}</h1>
         <Link
-          href={`/projects/stats?id=${task.projectId}`}
+          href={`/tasks/stats?id=${task.id}`}
           className={buttonVariants({ variant: "ghost", size: "icon" })}
-          aria-label="Statistiky projektu"
-          title="Statistiky projektu"
+          aria-label="Statistiky úkolu"
+          title="Statistiky úkolu"
         >
           <ChartLine />
         </Link>

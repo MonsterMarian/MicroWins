@@ -24,6 +24,7 @@ Aplikace **MicroWins** ve dvou částech:
 | Detail projektu | `/projects/[id]` | %, delta dne, start–deadline, zbývá dní, tempo %/den, popis, úkoly, milníky, archiv |
 | Statistiky projektu | `/projects/[id]/stats` | prstence (Postup / Dny / Hotové úkoly), plošný graf, deník změn |
 | Detail úkolu | `/tasks/[id]` | %, `630 / 2 000`, posuvník, −/+ s krokem, nastavení, podúkoly (cíl 1 = jen zaškrtnout) |
+| Statistiky úkolu | `/tasks/[id]/stats` | totéž co u projektu, jen z historie úkolu: prstence (Postup / Dny / Hotové podúkoly nebo hodnota), graf, deník změn |
 | Strom | `/tree` | dnešek + procházení složek s winy a jejich záznamy |
 | Analýza | `/stats` | série, pruh měsíce, kalendář roku, přehled winů, tempo projektů |
 
@@ -44,6 +45,7 @@ Věci, které ze zadání jednoznačně nevyplývaly a musely se dořešit:
 | **Zpětný zápis může zrušit dnešní microwin** | Pokud dodatečně přiznaný starší den překoná dnešek, dnešek rekordem nebyl. Minulé microwiny se nikdy nepřepisují, jsou to získané fakty. |
 | **Procenta se zaokrouhlují dolů** | 99,7 % ještě není hotovo. Sedí to i s referenční aplikací (630/2000 = 31 %, ne 32 %). |
 | **Denní otisky postupu (`snapshots`)** | Úkoly znají jen aktuální hodnotu. Bez otisku by nešel nakreslit graf ani deník změn. Jeden otisk na projekt a den. |
+| **Statistiky úkolu jdou z jeho vlastních otisků** | Graf v detailu úkolu dřív vedl na statistiky projektu, takže úkol ukazoval průměr všech úkolů v projektu. Řada úkolu začíná jeho prvním otiskem: starší úkoly historii z doby před otisky nemají a nula před ní by tvrdila, že v ten den narostl celý postup. Den založení se naopak počítá od nuly, stejně jako „+X % dnes" v detailu. |
 | **localStorage místo SQLite** | Zadání bylo o pravidlech a UI. Doménová logika je oddělená od úložiště, takže výměna za DB je práce na jednom místě — viz níže. |
 | **Dva akcenty místo jednoho** | Jantar = microwin/rekord, zelená = postup projektu. Sémanticky odlišné věci; jinak platí neutrální paleta. |
 | **Zelená na pět způsobů** | Vybrat odstín od stolu nešlo, tak jich je pět (Smaragd / Nefrit / Neon / Limetka / Šalvěj) a přepínají se v Nastavení. Sedí na `data-accent` na `<html>`, takže se to obejde bez přebarvování komponent. Jantar u microwinů se nemění. |

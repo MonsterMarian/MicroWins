@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   adjustTask,
   createProject,
@@ -28,7 +28,12 @@ import {
   subtaskCounts,
   subtasksOf,
   taskById,
+  taskDailyChanges,
+  taskDayRing,
+  taskDeltaToday,
   taskPercent,
+  taskProgressSeries,
+  taskStats,
   tasksOfProject,
 } from "./projects";
 import { EMPTY_STATE, type MicroWinsState } from "./types";
@@ -534,5 +539,118 @@ describe("posun projektů za období", () => {
 
     const [m] = projectMovements(s, "week", TODAY);
     expect(m.delta).toBe(-50);
+  });
+});
+
+describe("statistiky úkolu", () => {
+  /* Založení i dokončení úkolu se razítkuje podle hodinek, ne podle `today`.
+     `at` posune hodinky na daný den a ten den vrátí jako `today` akce. */
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+  const at = (day: string) => {
+    vi.setSystemTime(new Date(`${day}T10:00:00`));
+    return day;
+  };
+  const diary = (s: MicroWinsState, taskId: string) =>
+    taskDailyChanges(s, taskId, TODAY).map((c) => [c.date, c.from, c.to]);
+
+  it("graf a deník patří úkolu, ne průměru projektu", () => {
+    const { state, projectId } = withProject();
+    const a = createTask(state, projectId, { name: "a", target: 100 }, at("2026-08-01"));
+    const b = createTask(a.state, projectId, { name: "b", target: 100 }, at("2026-08-01"));
+    let s = setTaskCurrent(b.state, a.task.id, 40, at("2026-08-03"));
+    s = setTaskCurrent(s, b.task.id, 90, at("2026-08-04"));
+    s = setTaskCurrent(s, a.task.id, 60, at(TODAY));
+
+    const series = taskProgressSeries(s, a.task.id, TODAY);
+    // 4. 8. se hnul jen úkol b - úkol a drží svých 40 %.
+    expect(series.find((p) => p.date === "2026-08-04")?.percent).toBe(40);
+    expect(series.at(-1)).toEqual({ date: TODAY, percent: 60 });
+    expect(diary(s, a.task.id)).toEqual([
+      [TODAY, 40, 60],
+      ["2026-08-03", 0, 40],
+    ]);
+    // Projekt je průměr obou úkolů - úkol a ho nesmí převzít.
+    expect(projectPercent(s, projectId)).toBe(75);
+    expect(taskStats(s, a.task.id, TODAY)!.percent).toBe(60);
+  });
+
+  it("první den úkolu roste od nuly, stejně jako „+X % dnes“", () => {
+    const { state, projectId } = withProject();
+    const r = createTask(state, projectId, { name: "a", target: 10 }, at("2026-08-05"));
+    const first = setTaskCurrent(r.state, r.task.id, 3, "2026-08-05");
+    const s = setTaskCurrent(first, r.task.id, 5, at(TODAY));
+
+    expect(taskDeltaToday(first, taskById(first, r.task.id)!, "2026-08-05")).toBe(30);
+    expect(diary(s, r.task.id)).toEqual([
+      [TODAY, 30, 50],
+      ["2026-08-05", 0, 30],
+    ]);
+  });
+
+  it("starší úkol bez historie si skok z nuly nevymyslí", () => {
+    const { state, projectId } = withProject();
+    const r = createTask(state, projectId, { name: "a", target: 10, current: 4 }, at("2026-07-20"));
+    // Úkol z doby před otisky: založený dávno a bez jediného řádku historie.
+    const legacy: MicroWinsState = { ...r.state, taskSnapshots: [] };
+
+    expect(taskProgressSeries(legacy, r.task.id, TODAY)).toEqual([{ date: TODAY, percent: 40 }]);
+    expect(diary(legacy, r.task.id)).toEqual([]);
+
+    const s = setTaskCurrent(legacy, r.task.id, 6, at(TODAY));
+    expect(taskProgressSeries(s, r.task.id, TODAY)[0]).toEqual({ date: "2026-08-05", percent: 40 });
+    expect(diary(s, r.task.id)).toEqual([[TODAY, 40, 60]]);
+  });
+
+  it("kolečko dní běží od založení k termínu úkolu, ne od startu projektu", () => {
+    const { state, projectId } = withProject(30);
+    const r = createTask(
+      state,
+      projectId,
+      { name: "a", target: 10, current: 2, dueDate: "2026-08-11" },
+      at("2026-08-01"),
+    );
+
+    expect(taskDayRing(taskStats(r.state, r.task.id, TODAY)!)).toEqual({
+      value: 50,
+      days: 5,
+      total: 10,
+    });
+  });
+
+  it("hotový úkol zastaví kolečko dní v den dokončení", () => {
+    const { state, projectId } = withProject();
+    const r = createTask(
+      state,
+      projectId,
+      { name: "a", target: 10, current: 2, dueDate: "2026-08-11" },
+      at("2026-08-01"),
+    );
+    const s = setTaskCurrent(r.state, r.task.id, 10, at("2026-08-04"));
+
+    expect(taskDayRing(taskStats(s, r.task.id, "2026-08-20")!)).toEqual({
+      value: 100,
+      days: 3,
+      total: null,
+    });
+  });
+
+  it("úkol s podúkoly bere postup i den dokončení z vlastní historie", () => {
+    const { state, projectId } = withProject();
+    const parent = createTask(state, projectId, { name: "kapitola", target: 1 }, at("2026-08-01"));
+    const child = createTask(
+      parent.state,
+      projectId,
+      { name: "a", target: 2, parentId: parent.task.id },
+      at("2026-08-01"),
+    );
+    let s = setTaskCurrent(child.state, child.task.id, 1, at("2026-08-02"));
+    s = setTaskCurrent(s, child.task.id, 2, at("2026-08-05"));
+
+    expect(diary(s, parent.task.id)).toEqual([
+      ["2026-08-05", 50, 100],
+      ["2026-08-02", 0, 50],
+    ]);
+    expect(taskDayRing(taskStats(s, parent.task.id, "2026-08-20")!).days).toBe(4);
   });
 });

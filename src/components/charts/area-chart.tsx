@@ -12,10 +12,13 @@ import { cn, formatTenth } from "@/lib/utils";
 export function ProgressAreaChart({
   points,
   height = 220,
+  label = "Vývoj postupu projektu v procentech",
   className,
 }: {
   points: SeriesPoint[];
   height?: number;
+  /** Popisek pro čtečku - graf kreslí projekt i jednotlivý úkol. */
+  label?: string;
   className?: string;
 }) {
   const wrapRef = React.useRef<HTMLDivElement>(null);
@@ -73,7 +76,7 @@ export function ProgressAreaChart({
         width={width}
         height={height}
         role="img"
-        aria-label="Vývoj postupu projektu v procentech"
+        aria-label={label}
         onMouseMove={onMove}
         onMouseLeave={() => setHover(null)}
       >

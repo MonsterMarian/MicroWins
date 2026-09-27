@@ -15,7 +15,9 @@ import {
 import {
   dailyChanges,
   dayRing,
+  descendantsOf,
   filterProjects,
+  leavesOf,
   isBinaryTask,
   isTaskDone,
   pace,
@@ -539,6 +541,50 @@ describe("posun projektů za období", () => {
 
     const [m] = projectMovements(s, "week", TODAY);
     expect(m.delta).toBe(-50);
+  });
+});
+
+/* Atomizér rozsekává úkol na stále menší kusy, takže strom bývá hluboký -
+   dvě patra už nejsou výjimka, ale běžný stav. */
+describe("rozsekaný úkol", () => {
+  /** Kapitola → části a, b → pod částí a ještě a1 a a2. */
+  function tree() {
+    const { state, projectId } = withProject();
+    const root = createTask(state, projectId, { name: "kapitola", target: 1 }, TODAY);
+    const a = createTask(root.state, projectId, { name: "a", target: 1, parentId: root.task.id }, TODAY);
+    const b = createTask(a.state, projectId, { name: "b", target: 1, parentId: root.task.id }, TODAY);
+    const a1 = createTask(b.state, projectId, { name: "a1", target: 1, parentId: a.task.id }, TODAY);
+    const a2 = createTask(a1.state, projectId, { name: "a2", target: 1, parentId: a.task.id }, TODAY);
+    return {
+      state: a2.state,
+      projectId,
+      ids: { root: root.task.id, a: a.task.id, b: b.task.id, a1: a1.task.id },
+    };
+  }
+
+  it("potomci jdou do hloubky, atomy jsou listy", () => {
+    const { state, ids } = tree();
+
+    expect(descendantsOf(state, ids.root).map((t) => t.name)).toEqual(["a", "a1", "a2", "b"]);
+    expect(leavesOf(state, ids.root).map((t) => t.name)).toEqual(["a1", "a2", "b"]);
+    // Nerozsekaný úkol je atomem sám sobě - jinak by hlásil "hotovo 0 z 0".
+    expect(leavesOf(state, ids.b).map((t) => t.name)).toEqual(["b"]);
+  });
+
+  it("smazání vezme celý podstrom, ne jen první patro", () => {
+    const { state, ids } = tree();
+
+    const after = deleteTask(state, ids.a, TODAY);
+    expect(after.tasks.map((t) => t.name)).toEqual(["kapitola", "b"]);
+  });
+
+  it("odškrtnutý atom posouvá procenta až nahoru", () => {
+    const { state, projectId, ids } = tree();
+
+    const s = toggleTaskDone(state, ids.a1, TODAY);
+    expect(taskPercent(s, taskById(s, ids.a)!)).toBe(50);
+    expect(taskPercent(s, taskById(s, ids.root)!)).toBe(25);
+    expect(projectPercent(s, projectId)).toBe(25);
   });
 });
 

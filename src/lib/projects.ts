@@ -71,6 +71,38 @@ export function allTasksOfProject(state: MicroWinsState, projectId: string): Tas
   return state.tasks.filter((t) => t.projectId === projectId);
 }
 
+/**
+ * Všechno pod úkolem, do libovolné hloubky, shora dolů. Podúkoly můžou mít
+ * další podúkoly - atomizér z toho dělá běžnou věc, ne výjimku.
+ */
+export function descendantsOf(state: MicroWinsState, taskId: string): Task[] {
+  const out: Task[] = [];
+  const seen = new Set<string>([taskId]);
+  const walk = (id: string) => {
+    for (const child of subtasksOf(state, id)) {
+      if (seen.has(child.id)) continue;
+      seen.add(child.id);
+      out.push(child);
+      walk(child.id);
+    }
+  };
+  walk(taskId);
+  return out;
+}
+
+/**
+ * Atomy úkolu - listy jeho podstromu, tedy to, co se dá odškrtnout. Úkol bez
+ * podúkolů je atomem sám sobě, jinak by rozsekaný a nerozsekaný úkol počítaly
+ * jinak a "hotovo 0 z 0" by nikomu nic neřeklo.
+ */
+export function leavesOf(state: MicroWinsState, taskId: string): Task[] {
+  const task = taskById(state, taskId);
+  if (!task) return [];
+  const below = descendantsOf(state, taskId);
+  if (below.length === 0) return [task];
+  return below.filter((t) => subtasksOf(state, t.id).length === 0);
+}
+
 export function milestonesOfProject(state: MicroWinsState, projectId: string): Milestone[] {
   return state.milestones
     .filter((m) => m.projectId === projectId)

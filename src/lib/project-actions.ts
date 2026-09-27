@@ -2,6 +2,7 @@ import { addDays, todayISO } from "./date";
 import {
   allTasksOfProject,
   clampPercent,
+  descendantsOf,
   isTaskDone,
   projectPercent,
   roundPercent,
@@ -350,6 +351,12 @@ export function toggleTaskDone(
   return setTaskCurrent(state, id, done ? 0 : task.target, today);
 }
 
+/**
+ * Úkol maže **celý svůj podstrom**, ne jen přímé podúkoly. Do dvou úrovní se
+ * na tom nepoznalo nic, ale atomizér rozsekává do hloubky a vnuk osiřelého
+ * rodiče by v datech zůstal navždy: ze seznamů by zmizel (jeho rodič
+ * neexistuje), do součtů by se dál počítal.
+ */
 export function deleteTask(
   state: MicroWinsState,
   id: string,
@@ -358,7 +365,7 @@ export function deleteTask(
   const task = taskById(state, id);
   if (!task) return state;
   const ids = new Set<string>([id]);
-  for (const child of subtasksOf(state, id)) ids.add(child.id);
+  for (const child of descendantsOf(state, id)) ids.add(child.id);
   const next: MicroWinsState = {
     ...state,
     tasks: state.tasks.filter((t) => !ids.has(t.id)),

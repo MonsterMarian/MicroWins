@@ -16,12 +16,13 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import { Input, Textarea } from "@/components/ui/input";
+import { Input, Select, Textarea } from "@/components/ui/input";
 import { useStore } from "@/components/providers/store-provider";
 import { usePrefs, setPrefs } from "@/components/providers/use-prefs";
 import { useToast } from "@/components/providers/toast-provider";
 import { parseBackup, type ExportTarget } from "@/lib/backup";
 import { ACCENTS, ADDONS, PLAN_VIEWS, TODO_TTL_CHOICES } from "@/lib/prefs";
+import { timeboxRowCount } from "@/lib/timebox";
 import { DueRulesSection } from "./settings/due-rules-section";
 import { formatDuration } from "@/lib/todos";
 import {
@@ -126,6 +127,7 @@ export function SettingsDialog({
               <AddonChoice />
             </Section>
 
+            <TimeboxHoursSection />
             <TodoExpirySection />
             <TodoDueSection />
           </div>
@@ -683,6 +685,66 @@ function AddonChoice() {
     </div>
   );
 }
+
+/**
+ * Rozsah mřížky time boxu.
+ *
+ * Výchozích 5-23 sedí na papírovou předlohu, ale budíček ani večerka nejsou
+ * pro každého stejné. Konec **před** začátkem je platná volba: mřížka pak
+ * přeteče přes půlnoc a hodiny po ní patří dalšímu dni - přesně tak, jak se
+ * v ten čas plánuje.
+ */
+function TimeboxHoursSection() {
+  const { addons, timeboxStart, timeboxEnd } = usePrefs();
+  if (!addons.timebox) return null;
+
+  const rows = timeboxRowCount(timeboxStart, timeboxEnd);
+
+  return (
+    <Section
+      title="Mřížka time boxu"
+      hint="Konec před začátkem znamená mřížku přes půlnoc - hodiny po ní se plánují na další den."
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="flex items-center gap-1.5 text-sm">
+          <span className="text-muted-foreground">Od</span>
+          <Select
+            value={String(timeboxStart)}
+            onChange={(e) => setPrefs({ timeboxStart: Number(e.target.value) })}
+            aria-label="První hodina mřížky"
+            className="h-8 w-auto text-xs"
+          >
+            {HOURS.map((h) => (
+              <option key={h} value={h}>
+                {h}:00
+              </option>
+            ))}
+          </Select>
+        </label>
+        <label className="flex items-center gap-1.5 text-sm">
+          <span className="text-muted-foreground">Do</span>
+          <Select
+            value={String(timeboxEnd)}
+            onChange={(e) => setPrefs({ timeboxEnd: Number(e.target.value) })}
+            aria-label="Poslední hodina mřížky"
+            className="h-8 w-auto text-xs"
+          >
+            {HOURS.map((h) => (
+              <option key={h} value={h}>
+                {h}:30
+              </option>
+            ))}
+          </Select>
+        </label>
+        <span className="tabular text-xs text-muted-foreground">
+          {rows} {plural(rows, "řádek", "řádky", "řádků")}
+        </span>
+      </div>
+    </Section>
+  );
+}
+
+const HOURS = Array.from({ length: 24 }, (_, i) => i);
 
 /**
  * Mizení odškrtnutých položek ToDo.

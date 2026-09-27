@@ -12,7 +12,9 @@ import { useStore } from "@/components/providers/store-provider";
 import { usePrefs, setPrefs } from "@/components/providers/use-prefs";
 import { ADDON_TAB, HUB_TABS, type HubTab } from "@/lib/prefs";
 import { Overview } from "./overviews";
+import { AtomsPanel } from "@/components/atoms/atoms-panel";
 import { PlanPanel } from "@/components/plan/plan-panel";
+import { TimeboxPanel } from "@/components/timebox/timebox-panel";
 import { ProjectDialog } from "./project-dialog";
 import { ProjectRow } from "./project-row";
 import { TodoPanel } from "./todo-panel";
@@ -42,6 +44,9 @@ const HUB_SCROLL_KEY = "microwins:hub-scroll";
 function isTab(value: string | null): value is Tab {
   return HUB_TABS.some((t) => t.id === value);
 }
+
+/** Záložky, které se obejdou bez jediného projektu. */
+const STANDALONE_TABS: Tab[] = ["todo", "plan", "timebox", "atoms"];
 
 export function ProjectsHub() {
   const { state } = useStore();
@@ -119,12 +124,16 @@ export function ProjectsHub() {
     : (tabs[0]?.id ?? "overview");
 
   /* Prázdná výzva k založení projektu platí jen tam, kde jsou projekty vidět.
-     Na ToDo ani v plánu dne by zakryla obrazovku, se kterou projekty nemají
-     nic společného. */
-  const noProjects = state.projects.length === 0 && tab !== "todo" && tab !== "plan";
+     Na ToDo, v plánu ani v time boxu by zakryla obrazovku, se kterou projekty
+     nemají nic společného; atomizér si prázdný stav vysvětluje sám. */
+  const noProjects = state.projects.length === 0 && !STANDALONE_TABS.includes(tab);
 
   return (
     <div className="flex flex-col gap-5">
+      {/* Záložek je s addony víc, než se vejde na šířku telefonu - lišta se
+          proto posouvá do boku a přes okraje obrazovky, ať se v ní neztratí
+          půlka poslední. */}
+      <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
       <SortableList
         axis="x"
         ids={tabs.map((t) => t.id)}
@@ -132,7 +141,7 @@ export function ProjectsHub() {
           const hidden = tabOrder.filter((id) => !ids.includes(id));
           setPrefs({ tabOrder: [...ids, ...hidden] as HubTab[] });
         }}
-        className="flex gap-1 border-b"
+        className="flex w-max min-w-full gap-1 border-b"
       >
         {tabs.map((t) => (
           <SortableItem key={t.id} id={t.id} className="-mb-px flex">
@@ -151,6 +160,7 @@ export function ProjectsHub() {
           </SortableItem>
         ))}
       </SortableList>
+      </div>
 
       {noProjects ? (
         <Card>
@@ -176,6 +186,10 @@ export function ProjectsHub() {
         <TodoPanel />
       ) : tab === "plan" ? (
         <PlanPanel />
+      ) : tab === "timebox" ? (
+        <TimeboxPanel />
+      ) : tab === "atoms" ? (
+        <AtomsPanel />
       ) : tab === "overview" ? (
         <Overview onNewProject={() => setDialogOpen(true)} />
       ) : (

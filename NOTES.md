@@ -20,7 +20,9 @@ Aplikace **MicroWins** ve dvou částech:
 
 | Sekce | Route | Obsah |
 |---|---|---|
-| Projekty | `/` | záložky Přehled / ToDo / Plán / Projekty, filtry, řazení, hledání; mezi sekcemi se dá přejet prstem |
+| Projekty | `/` | záložky Přehled / ToDo / Plán / Projekty / Time box / Atomy, filtry, řazení, hledání; mezi sekcemi se dá přejet prstem |
+| Time box | `/?tab=timebox` | list dne: tři priority, brain dump a mřížka půlhodin (`:00` / `:30`) nad bloky plánu |
+| Atomy | `/?tab=atoms` | posouvací lišta úkolů a mapa jednoho z nich rozsekaná až na atomy |
 | Detail projektu | `/projects/[id]` | %, delta dne, start–deadline, zbývá dní, tempo %/den, popis, úkoly, milníky, archiv |
 | Statistiky projektu | `/projects/[id]/stats` | prstence (Postup / Dny / Hotové úkoly), plošný graf, deník změn |
 | Detail úkolu | `/tasks/[id]` | %, `630 / 2 000`, posuvník, −/+ s krokem, nastavení, podúkoly (cíl 1 = jen zaškrtnout) |
@@ -79,6 +81,13 @@ Věci, které ze zadání jednoznačně nevyplývaly a musely se dořešit:
 | **Blok se zvedá až po podržení prstu** | Mřížka je plná bloků a stránka se musí dát pořád normálně scrollovat, takže okamžitý tah nejde. Stejné pravidlo (a stejných ~350 ms) jako u přetahování v seznamech. Za spodní hranu se blok chytá hned - úchyt je malý a na scrollování si ho nikdo neplete. |
 | **Čas v plánu je minuta od půlnoci, ne `Date`** | Plán je vlastnost dne, ne okamžiku. S čísly se počítá bez pastí na letní čas a den se ukládá stejně jako všude jinde v appce - `YYYY-MM-DD` v lokálním čase. |
 | **Přejetí prstem mezi sekcemi** | Tři sekce vedle sebe (Projekty - Strom - Analýza), doleva dál, doprava zpět. Necyklí se: "swipe mě vrátil na začátek" je nepříjemné překvapení a člověk pak neví, kde v řadě stojí. V detailech neplatí - odvedlo by od rozdělané práce a v úkolu si vodorovný tah bere posuvník. |
+| **Time box nemá vlastní data, jede na blocích plánu** | Papírový list dne a Plán dne mluví o tomtéž dni. Dva seznamy, které o sobě nevědí, jsou nejhorší, co plánovač může mít: v jednom je schůzka, ve druhém ne a nikdo neví, čemu věřit. Políčko mřížky je tedy obyčejný blok - co se napíše do time boxu, stojí i v plánu a odškrtává se jednou. Ke dni patří navíc jen tři priority a brain dump, na ty je `DaySheet`. |
+| **Hodina na řádek, ne půlhodina** | Půlhodina na řádek by dala 38 řádků a na telefon by se vešla sotva půlka dne. Hodina se sloupci `:00` a `:30` jich má devatenáct a celý den se vejde na jednu obrazovku - o to na listu jde: vidět dnešek jedním pohledem. |
+| **Rozsah mřížky je nastavitelný a smí přetéct přes půlnoc** | Výchozích 5-23 sedí na předlohu, ale budíček ani večerka nejsou pro každého stejné. Konec před začátkem (7-1) proto není chyba: hodiny po půlnoci se plánují na **další den**, protože blok se ukládá ke dni, ve kterém se odehrává. Každý řádek si tak nese svoje datum. |
+| **Blok z ToDo nebo z úkolu se v mřížce nepřepisuje** | Takový blok ukazuje jméno položky nebo úkolu, takže přepsat ho v políčku by vypadalo, že se nic nestalo. Ťuknutí na něj proto odškrtává, stejně jako zaškrtávátko vedle. Přejmenovat se dá tam, kde ta věc bydlí. |
+| **Atom je podúkol, ne nová struktura** | Rozsekání úkolu se dá zapsat tím, co appka umí odjakživa - podúkolem. Díky tomu se atomy rovnou počítají do procent úkolu i projektu a hotový atom posouvá postup. Vlastní struktura by znamenala, že každý úkol žije dvakrát a čísla si odporují. Nový atom má cíl 1, takže je z něj zaškrtávátko: hotovo, nebo ne. |
+| **Strom se kreslí odsazením, ne jako graf na plátně** | Mapa shora dolů vypadá dobře na papíře a mizerně na telefonu - vedle sebe se vejdou tři uzly, pod sebe deset. Odsazení se zanořeným rámečkem drží stejnou informaci (co je pod čím) a čte se na 375 px. |
+| **Smazání úkolu bere celý podstrom** | Dřív mizely jen přímé podúkoly. Do dvou pater se to nepoznalo, ale atomizér rozsekává do hloubky a vnuk osiřelého rodiče by v datech zůstal navždy: ze seznamů by zmizel, do součtů by se počítal dál. |
 | **Gesto se pozná až po puštění** | Přejetí musí vyhrát nad scrolováním a to se dá rozhodnout jedině z celého tvaru pohybu: 64 px do strany, nejmíň 1,6× víc než nahoru/dolů, do 700 ms. Uvnitř vodorovného scrolleru (kalendář roku, cesta ve stromu, široká tabulka) patří gesto jemu - ale jen dokud tam je kam posouvat, doscrollovaná tabulka prst nepotřebuje. Myš ne: tahem myši se vybírá text. |
 
 ---
@@ -204,6 +213,7 @@ src/lib/
   stats.ts            série, kalendář roku, přehled winů
   todos.ts            jednoduchý seznam (přidat, odškrtnout, termín, mizení)
   timeblocks.ts       plán dne (bloky, překryvy, hledání volna, stopy z ToDo)
+  timebox.ts          list dne (mřížka půlhodin nad bloky, priority, brain dump)
   due-rules.ts        rychlé termíny jako pravidla (za hodinu, nejbližší sobota)
   storage.ts          localStorage + export/import  ← jediné místo k výměně za DB
   backup.ts           záloha celé appky (stav + nastavení), sdílení souboru

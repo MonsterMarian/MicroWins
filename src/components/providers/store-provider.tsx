@@ -16,6 +16,7 @@ import { mergeState, type ImportMode, type ImportScope } from "@/lib/import";
 import { todoTtlMs } from "@/lib/prefs";
 import { loadState, saveState } from "@/lib/storage";
 import * as blockActions from "@/lib/timeblocks";
+import * as sheetActions from "@/lib/timebox";
 import * as todoActions from "@/lib/todos";
 import {
   EMPTY_STATE,
@@ -101,6 +102,13 @@ export interface StoreApi {
   /** Smaže a vrátí smazaný blok, aby ho šlo nabídnout zpátky. */
   deleteBlock: (id: string) => TimeBlock | null;
   restoreBlock: (block: TimeBlock) => void;
+
+  /**
+   * List time boxu. Mřížka hodin vlastní data nemá - je to plán dne z druhé
+   * strany - ale tři priority a brain dump patří ke dni a bydlí tady.
+   */
+  setPriority: (date: ISODate, index: number, text: string) => void;
+  setBrainDump: (date: ISODate, text: string) => void;
 
   createMilestone: (projectId: string, name: string, date: ISODate | null) => Milestone;
   updateMilestone: (id: string, patch: Partial<Pick<Milestone, "name" | "date">>) => void;
@@ -288,6 +296,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         return block;
       },
       restoreBlock: (block) => commit(blockActions.restoreBlock(ref.current, block)),
+
+      setPriority: (date, index, text) =>
+        commit(sheetActions.setPriority(ref.current, date, index, text)),
+      setBrainDump: (date, text) => commit(sheetActions.setBrainDump(ref.current, date, text)),
 
       createMilestone: (projectId, name, date) => {
         const res = projectActions.createMilestone(ref.current, projectId, name, date);

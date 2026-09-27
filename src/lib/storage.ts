@@ -1,10 +1,12 @@
 import { isValidISODate } from "./date";
 import { KIND_ORDER } from "./domain";
 import { DAY_MINUTES, MIN_DURATION } from "./timeblocks";
+import { normalizeSheet } from "./timebox";
 import { isValidTime } from "./todos";
 import {
   EMPTY_STATE,
   STATE_VERSION,
+  type DaySheet,
   type MicroWinsState,
   type Task,
   type TimeBlock,
@@ -141,6 +143,22 @@ function normalizeTimeBlocks(raw: unknown[]): TimeBlock[] {
   return out;
 }
 
+/**
+ * Listy time boxu. Prázdný i poškozený se zahodí a na den zbyde jen jeden -
+ * dva listy ke stejnému datu by se v mřížce přebíjely podle pořadí v poli.
+ */
+function normalizeDaySheets(raw: unknown[]): DaySheet[] {
+  const out: DaySheet[] = [];
+  const seen = new Set<string>();
+  for (const item of raw) {
+    const sheet = normalizeSheet(item, isValidISODate);
+    if (!sheet || seen.has(sheet.date)) continue;
+    seen.add(sheet.date);
+    out.push(sheet);
+  }
+  return out.sort((a, b) => a.date.localeCompare(b.date));
+}
+
 function migrateNodeOrder(nodes: TreeNode[], version: number): TreeNode[] {
   return version < NODE_ORDER_VERSION ? sortNodesByLegacyOrder(nodes) : nodes;
 }
@@ -173,6 +191,8 @@ export function parseState(raw: string): MicroWinsState | null {
       todos: normalizeTodos(Array.isArray(data.todos) ? data.todos : []),
       // Plán dne až v v7 - totéž.
       timeBlocks: normalizeTimeBlocks(Array.isArray(data.timeBlocks) ? data.timeBlocks : []),
+      // Listy time boxu až v v8; starší zálohy je nemají a začnou s prázdnými.
+      daySheets: normalizeDaySheets(Array.isArray(data.daySheets) ? data.daySheets : []),
     };
   } catch {
     return null;

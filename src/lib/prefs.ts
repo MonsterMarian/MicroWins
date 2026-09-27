@@ -8,6 +8,7 @@
  * dalšího providera.
  */
 import { DEFAULT_DUE_RULES, parseDueRules, type DueRule } from "./due-rules";
+import { clampHour, DEFAULT_TIMEBOX_END, DEFAULT_TIMEBOX_START } from "./timebox";
 
 /**
  * Barva postupu. Zelená je výchozí - postup je druhá polovina appky a zaslouží
@@ -58,28 +59,43 @@ export const PLAN_VIEWS: { id: PlanView; label: string; hint: string }[] = [
  * v Nastavení, takže seznam nemůže bydlet v komponentě, která je kreslí -
  * nastavení by na něj muselo sáhnout skrz.
  */
-export type HubTab = "overview" | "todo" | "plan" | "projects";
+export type HubTab = "overview" | "todo" | "plan" | "timebox" | "atoms" | "projects";
 
 export const HUB_TABS: { id: HubTab; label: string }[] = [
   { id: "overview", label: "Přehled" },
   { id: "todo", label: "ToDo" },
   { id: "plan", label: "Plán" },
+  { id: "timebox", label: "Time box" },
+  { id: "atoms", label: "Atomy" },
   { id: "projects", label: "Projekty" },
 ];
 
-export const DEFAULT_TAB_ORDER: HubTab[] = ["overview", "todo", "plan", "projects"];
+export const DEFAULT_TAB_ORDER: HubTab[] = [
+  "overview",
+  "todo",
+  "plan",
+  "projects",
+  "timebox",
+  "atoms",
+];
 
 /**
  * Vypínatelné části appky. Přidání dalšího addonu je jeden řádek v `ADDONS`
  * a jedna položka v `DEFAULT_ADDONS` - všechno ostatní (obrazovka v Nastavení,
  * načítání i ukládání) jede z tohohle seznamu.
  */
-export type AddonId = "overview" | "todo" | "plan";
+export type AddonId = "overview" | "todo" | "plan" | "timebox" | "atoms";
 
 export const ADDONS: { id: AddonId; label: string; hint: string }[] = [
   { id: "overview", label: "Přehled", hint: "úvodní obrazovka s celkovou statistikou" },
   { id: "todo", label: "ToDo", hint: "krátký seznam na dnešek vedle projektů" },
   { id: "plan", label: "Plán dne", hint: "časové bloky - kdy na co bude čas" },
+  {
+    id: "timebox",
+    label: "Time box",
+    hint: "list dne po půlhodinách, tři priority a brain dump",
+  },
+  { id: "atoms", label: "Atomy", hint: "rozsekání úkolu na stále menší kusy" },
 ];
 
 export type Addons = Record<AddonId, boolean>;
@@ -88,6 +104,8 @@ export const DEFAULT_ADDONS: Addons = {
   overview: true,
   todo: true,
   plan: true,
+  timebox: true,
+  atoms: true,
 };
 
 /** Záložka, kterou vypnutý addon schová. Addon bez záložky sem nepatří. */
@@ -95,6 +113,8 @@ export const ADDON_TAB: Partial<Record<AddonId, HubTab>> = {
   overview: "overview",
   todo: "todo",
   plan: "plan",
+  timebox: "timebox",
+  atoms: "atoms",
 };
 
 export interface Prefs {
@@ -118,6 +138,13 @@ export interface Prefs {
   todoTtlMinutes: number;
   /** Podoba plánu dne, viz `PLAN_VIEWS`. */
   plan: PlanView;
+  /**
+   * Rozsah mřížky time boxu, celé hodiny 0-23. Konec **před** začátkem je
+   * platná volba: mřížka pak přeteče přes půlnoc (7-1 pro noční ptáky) a
+   * hodiny po ní patří dalšímu dni.
+   */
+  timeboxStart: number;
+  timeboxEnd: number;
   /** Tlačítka rychlých termínů v ToDo, viz `lib/due-rules.ts`. */
   dueRules: DueRule[];
 }
@@ -137,6 +164,8 @@ export const DEFAULT_PREFS: Prefs = {
   todoExpire: true,
   todoTtlMinutes: DEFAULT_TODO_TTL_MINUTES,
   plan: "day",
+  timeboxStart: DEFAULT_TIMEBOX_START,
+  timeboxEnd: DEFAULT_TIMEBOX_END,
   dueRules: DEFAULT_DUE_RULES,
 };
 
@@ -205,6 +234,14 @@ export function parsePrefs(raw: unknown): Prefs {
     todoExpire: record.todoExpire !== false,
     todoTtlMinutes: parseTtlMinutes(record.todoTtlMinutes),
     plan: isPlanView(record.plan) ? record.plan : DEFAULT_PREFS.plan,
+    timeboxStart:
+      typeof record.timeboxStart === "number"
+        ? clampHour(record.timeboxStart)
+        : DEFAULT_PREFS.timeboxStart,
+    timeboxEnd:
+      typeof record.timeboxEnd === "number"
+        ? clampHour(record.timeboxEnd)
+        : DEFAULT_PREFS.timeboxEnd,
     dueRules: parseDueRules(record.dueRules),
   };
 }

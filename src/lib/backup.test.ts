@@ -178,6 +178,10 @@ function maximalState(): MicroWinsState {
       { id: "b_2", date: "2026-01-10", start: 660, duration: 30, title: "otevřená položka", todoId: "td_1", taskId: null, createdAt: "2026-01-10T08:00:00.000Z", doneAt: "2026-01-10T11:30:00.000Z" },
       { id: "b_3", date: "2026-01-11", start: 1380, duration: 60, title: "kliky", todoId: null, taskId: "t_1", createdAt: "2026-01-10T08:00:00.000Z", doneAt: null },
     ],
+    daySheets: [
+      { date: "2026-01-10", priorities: ["Zavolat bance", "", "Dopsat nabídku"], brainDump: "co se honí hlavou" },
+      { date: "2026-01-11", priorities: ["", "", ""], brainDump: "jen dump" },
+    ],
   };
 }
 
@@ -208,6 +212,7 @@ describe("záloha nese úplně všechno", () => {
       "taskSnapshots",
       "todos",
       "timeBlocks",
+      "daySheets",
     ] as const) {
       expect({ [key]: out[key].length }).toEqual({ [key]: state[key].length });
     }
@@ -233,5 +238,12 @@ describe("záloha nese úplně všechno", () => {
     expect(out.timeBlocks.find((b) => b.id === "b_2")!.todoId).toBe("td_1");
     expect(out.timeBlocks.find((b) => b.id === "b_3")!.taskId).toBe("t_1");
     expect(out.timeBlocks.find((b) => b.id === "b_2")!.doneAt).not.toBeNull();
+    // List time boxu si drží prázdné priority mezi vyplněnými i samotný dump.
+    expect(out.daySheets.find((s) => s.date === "2026-01-10")!.priorities).toEqual([
+      "Zavolat bance",
+      "",
+      "Dopsat nabídku",
+    ]);
+    expect(out.daySheets.find((s) => s.date === "2026-01-11")!.brainDump).toBe("jen dump");
   });
 });

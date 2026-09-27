@@ -245,6 +245,26 @@ export interface TimeBlock {
   doneAt: string | null;
 }
 
+// --- time box ---------------------------------------------------------------
+
+/**
+ * List time boxu k jednomu dni.
+ *
+ * Mřížka půlhodin sama o sobě žádná data nemá - políčko je obyčejný blok
+ * plánu, takže co se napíše do time boxu, stojí i v Plánu dne a odškrtává se
+ * jen jednou. Ke dni ale patří ještě dvě věci, které se jinam v appce nevejdou:
+ * tři hlavní priority a brain dump.
+ *
+ * Prázdný list se neukládá - den, do kterého se nic nenapsalo, nemá mít řádek.
+ */
+export interface DaySheet {
+  date: ISODate;
+  /** Tři hlavní věci dne. Vždy tři pole, klidně prázdná. */
+  priorities: string[];
+  /** Volná plocha na to, co se honí hlavou. */
+  brainDump: string;
+}
+
 export interface MicroWinsState {
   version: number;
   nodes: TreeNode[];
@@ -257,9 +277,10 @@ export interface MicroWinsState {
   taskSnapshots: TaskSnapshot[];
   todos: Todo[];
   timeBlocks: TimeBlock[];
+  daySheets: DaySheet[];
 }
 
-export const STATE_VERSION = 7;
+export const STATE_VERSION = 8;
 
 export const EMPTY_STATE: MicroWinsState = {
   version: STATE_VERSION,
@@ -273,4 +294,5 @@ export const EMPTY_STATE: MicroWinsState = {
   taskSnapshots: [],
   todos: [],
   timeBlocks: [],
+  daySheets: [],
 };

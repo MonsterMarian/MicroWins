@@ -1,4 +1,13 @@
-import type { MicroWinsState, Project, Snapshot, Task, TaskSnapshot, Todo, TreeNode } from "./types";
+import type {
+  DaySheet,
+  MicroWinsState,
+  Project,
+  Snapshot,
+  Task,
+  TaskSnapshot,
+  Todo,
+  TreeNode,
+} from "./types";
 import { createId } from "./utils";
 
 /**
@@ -78,7 +87,13 @@ function projectPart(
   todoIds: Map<string, string>,
 ): Pick<
   MicroWinsState,
-  "projects" | "tasks" | "milestones" | "snapshots" | "taskSnapshots" | "timeBlocks"
+  | "projects"
+  | "tasks"
+  | "milestones"
+  | "snapshots"
+  | "taskSnapshots"
+  | "timeBlocks"
+  | "daySheets"
 > {
   const projectIds = remap(incoming.projects.map((p) => p.id));
   const taskIds = remap(incoming.tasks.map((t) => t.id));
@@ -148,7 +163,9 @@ function projectPart(
     taskId: b.taskId && knownTasks.has(b.taskId) ? tid(b.taskId) : null,
   }));
 
-  return { projects, tasks, milestones, snapshots, taskSnapshots, timeBlocks };
+  /* Listy time boxu na nic neodkazují - drží je datum, ne id. Přerážet se tedy
+     nemá co a den z jiné zálohy zůstává tím samým dnem. */
+  return { projects, tasks, milestones, snapshots, taskSnapshots, timeBlocks, daySheets: incoming.daySheets };
 }
 
 /**
@@ -201,6 +218,18 @@ function dedupeTaskSnapshots(snapshots: TaskSnapshot[]): TaskSnapshot[] {
   const map = new Map<string, TaskSnapshot>();
   for (const s of snapshots) map.set(`${s.taskId}|${s.date}`, s);
   return [...map.values()];
+}
+
+/**
+ * Listy time boxu při přidávání. Na rozdíl od otisků tady vyhrává **to, co už
+ * v appce je**: otisk je spočítaný údaj, ale priority a brain dump někdo psal
+ * rukou a přidaná záloha mu je nemá přepsat.
+ */
+function mergeSheets(current: DaySheet[], incoming: DaySheet[]): DaySheet[] {
+  const taken = new Set(current.map((s) => s.date));
+  return [...current, ...incoming.filter((s) => !taken.has(s.date))].sort((a, b) =>
+    a.date.localeCompare(b.date),
+  );
 }
 
 /**
@@ -266,6 +295,7 @@ export function mergeState(
           taskSnapshots: dedupeTaskSnapshots([...next.taskSnapshots, ...part.taskSnapshots]),
           todos: [...next.todos, ...todos],
           timeBlocks: [...next.timeBlocks, ...part.timeBlocks],
+          daySheets: mergeSheets(next.daySheets, part.daySheets),
         }
       : {
           ...next,
@@ -276,6 +306,7 @@ export function mergeState(
           taskSnapshots: dedupeTaskSnapshots(part.taskSnapshots),
           todos,
           timeBlocks: part.timeBlocks,
+          daySheets: part.daySheets,
         };
   }
 

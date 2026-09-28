@@ -51,6 +51,17 @@ export function projectById(state: MicroWinsState, id: string): Project | undefi
   return state.projects.find((p) => p.id === id);
 }
 
+/**
+ * Projekt, který patří do seznamu Projektů a do součtů nad portfoliem.
+ *
+ * Kromě archivovaného vypadne i **schovaný** - ten vzniká v atomizéru jako
+ * plocha na rozsekání nápadu a mezi projekty s procenty a deadlinem se plést
+ * nemá. Jeho úkoly ale žijí normálně, takže se dají naplánovat i odškrtnout.
+ */
+export function isListed(project: Project): boolean {
+  return project.archivedAt === null && project.hidden !== true;
+}
+
 export function taskById(state: MicroWinsState, id: string): Task | undefined {
   return state.tasks.find((t) => t.id === id);
 }
@@ -557,6 +568,8 @@ export function filterProjects(
   today: ISODate = todayISO(),
 ): Project[] {
   return state.projects.filter((p) => {
+    // Schovaný projekt se nekreslí ani v archivu - do Projektů prostě nepatří.
+    if (p.hidden === true) return false;
     if (filter === "archived") return p.archivedAt !== null;
     if (p.archivedAt !== null) return false;
     const stats = projectStats(state, p.id, today);
@@ -654,7 +667,7 @@ export function portfolioStats(
   state: MicroWinsState,
   today: ISODate = todayISO(),
 ): PortfolioStats {
-  const active = state.projects.filter((p) => p.archivedAt === null);
+  const active = state.projects.filter(isListed);
   const stats = active.map((p) => projectStats(state, p.id, today)!).filter(Boolean);
   const tasks = state.tasks.filter((t) =>
     active.some((p) => p.id === t.projectId),
@@ -754,7 +767,7 @@ export function projectMovements(
 ): ProjectMovement[] {
   const since = addDays(today, -MOVEMENT_PERIOD_DAYS[period]);
   return state.projects
-    .filter((p) => p.archivedAt === null)
+    .filter(isListed)
     .map((project) => {
       const to = projectPercent(state, project.id);
       const from = percentAt(state, project.id, since) ?? 0;
@@ -770,7 +783,7 @@ export function todayMovers(
   today: ISODate = todayISO(),
 ): { project: Project; delta: number; percent: number }[] {
   return state.projects
-    .filter((p) => p.archivedAt === null)
+    .filter(isListed)
     .map((p) => {
       const stats = projectStats(state, p.id, today)!;
       return { project: p, delta: stats.deltaToday, percent: stats.percent };

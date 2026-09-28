@@ -178,6 +178,7 @@ export interface BlockInput {
   title?: string;
   todoId?: string | null;
   taskId?: string | null;
+  priorityId?: string | null;
 }
 
 /**
@@ -217,6 +218,7 @@ export function addBlock(
     title: (input.title ?? "").trim().slice(0, TIMEBLOCK_MAX_TITLE),
     todoId: input.todoId ?? null,
     taskId: input.taskId ?? null,
+    priorityId: input.priorityId ?? null,
     createdAt: now.toISOString(),
     doneAt: null,
   };
@@ -291,6 +293,20 @@ export function updateBlock(
 /** Přesun na jiný den - čas zůstává, protože "v devět" platí i zítra. */
 export function moveBlockToDay(state: MicroWinsState, id: string, date: ISODate): MicroWinsState {
   return patchBlock(state, id, (block) => ({ ...block, date }));
+}
+
+/** Naváže blok na hlavní věc dne (přetažení z trojky do mřížky a zpátky). */
+export function linkBlockToPriority(
+  state: MicroWinsState,
+  id: string,
+  priorityId: string | null,
+): MicroWinsState {
+  const block = state.timeBlocks.find((b) => b.id === id);
+  if (!block || block.priorityId === priorityId) return state;
+  return {
+    ...state,
+    timeBlocks: state.timeBlocks.map((b) => (b.id === id ? { ...b, priorityId } : b)),
+  };
 }
 
 export function deleteBlock(state: MicroWinsState, id: string): MicroWinsState {
@@ -375,6 +391,14 @@ export function parseMinutes(value: string): number | null {
  * (smazaná položka), zbyde text, se kterým blok vznikl.
  */
 export function blockTitle(state: MicroWinsState, block: TimeBlock): string {
+  /* Priorita nemá vlastní id, odkaz je `YYYY-MM-DD#index` - tvar bydlí
+     v `timebox.ts`, ale rozebrat se tu musí na místě: bloky o listu dne
+     nevědí a záměrně ho neimportují. */
+  if (block.priorityId) {
+    const [date, raw] = block.priorityId.split("#");
+    const text = state.daySheets.find((s) => s.date === date)?.priorities[Number(raw)]?.text.trim();
+    if (text) return text;
+  }
   if (block.todoId) {
     const todo = state.todos.find((t) => t.id === block.todoId);
     if (todo) return todo.text;

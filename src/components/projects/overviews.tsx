@@ -24,6 +24,7 @@ import { usePrefs } from "@/components/providers/use-prefs";
 import { diffDays, formatDate, formatDateRelative } from "@/lib/date";
 import {
   displayPercent,
+  isListed,
   isTaskDone,
   pace,
   portfolioActivity,
@@ -72,7 +73,7 @@ function useLiveProjects(): { project: Project; stats: ProjectStats }[] {
   return React.useMemo(
     () =>
       state.projects
-        .filter((p) => p.archivedAt === null)
+        .filter(isListed)
         .sort((a, b) => a.order - b.order)
         .map((project) => ({ project, stats: projectStats(state, project.id, today)! }))
         .filter((x) => x.stats),
@@ -90,7 +91,7 @@ function ClassicOverview({ onNewProject }: { onNewProject: () => void }) {
   const closest = React.useMemo(
     () =>
       state.projects
-        .filter((x) => x.archivedAt === null)
+        .filter(isListed)
         .map((x) => ({ project: x, percent: projectPercent(state, x.id) }))
         .filter((x) => x.percent < 100)
         .sort((a, b) => b.percent - a.percent)
@@ -411,7 +412,7 @@ function TimelineOverview() {
   const { state, today } = useStore();
 
   const items = React.useMemo<TimelineItem[]>(() => {
-    const live = state.projects.filter((p) => p.archivedAt === null);
+    const live = state.projects.filter(isListed);
     const ids = new Set(live.map((p) => p.id));
     const out: TimelineItem[] = [];
 

@@ -136,6 +136,8 @@ function normalizeTimeBlocks(raw: unknown[]): TimeBlock[] {
       title: typeof item.title === "string" ? item.title.slice(0, 120) : "",
       todoId: typeof item.todoId === "string" && item.todoId ? item.todoId : null,
       taskId: typeof item.taskId === "string" && item.taskId ? item.taskId : null,
+      // Odkaz na hlavní věc dne přišel až s time boxem; starší blok ho nemá.
+      priorityId: typeof item.priorityId === "string" && item.priorityId ? item.priorityId : null,
       createdAt: typeof item.createdAt === "string" ? item.createdAt : new Date().toISOString(),
       doneAt: typeof item.doneAt === "string" ? item.doneAt : null,
     });
@@ -181,7 +183,8 @@ export function parseState(raw: string): MicroWinsState | null {
       ),
       entries: data.entries as MicroWinsState["entries"],
       microwins: arr("microwins"),
-      projects: arr("projects"),
+      // Schovávání projektů přišlo až s atomizérem - starší projekt je vidět.
+      projects: arr("projects").map((p) => (p.hidden === true ? p : { ...p, hidden: false })),
       tasks: arr("tasks").map(normalizeTask),
       // Milníky z v2 neznaly odškrtnutí - doplní se jako neodškrtnuté.
       milestones: arr("milestones").map((m) => (m.doneAt === undefined ? { ...m, doneAt: null } : m)),

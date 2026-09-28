@@ -13,6 +13,7 @@ import { addDays, todayISO } from "./date";
 import { projectPercent, taskPercent } from "./projects";
 import {
   EMPTY_STATE,
+  type DaySheet,
   type ISODate,
   type MicroWinsState,
   type Milestone,
@@ -20,6 +21,8 @@ import {
   type Snapshot,
   type Task,
   type TaskSnapshot,
+  type TimeBlock,
+  type Todo,
 } from "./types";
 
 /** Deterministický šum - stejný seed dá pokaždé stejnou historii. */
@@ -295,6 +298,7 @@ function buildState(today: ISODate): MicroWinsState {
       order: index,
       createdAt: stamp(spec.start),
       archivedAt: spec.archived ? stamp(spec.start + 10) : null,
+      hidden: false,
     });
 
     for (const m of spec.milestones ?? []) {
@@ -341,7 +345,73 @@ function buildState(today: ISODate): MicroWinsState {
     ...base,
     snapshots: buildSnapshots(base, today),
     taskSnapshots: buildTaskSnapshots(base, today),
+    ...buildDay(today),
   };
+}
+
+/**
+ * Dnešek: seznam na odškrtání, rozplánovaný den a list time boxu.
+ *
+ * Bez nich je mřížka prázdná a nejde na ní nic poznat - přitom zrovna na ní
+ * se pozná to podstatné: blok z ToDo nebo z úkolu se chová jinak než
+ * obyčejný zápis a delší blok se přes další půlhodiny jen táhne.
+ */
+function buildDay(today: ISODate): Pick<MicroWinsState, "todos" | "timeBlocks" | "daySheets"> {
+  const stamp = (offset: number) => `${addDays(today, offset)}T08:00:00.000Z`;
+
+  const todos: Todo[] = [
+    { id: "seed_td_kafe", text: "Koupit kafe", createdAt: stamp(0), doneAt: null, order: 0, dueDate: null, dueTime: null },
+    { id: "seed_td_banka", text: "Zavolat do banky", createdAt: stamp(0), doneAt: null, order: 1, dueDate: today, dueTime: "15:00" },
+    { id: "seed_td_prani", text: "Poslat přání mámě", createdAt: stamp(-1), doneAt: null, order: 2, dueDate: null, dueTime: null },
+  ];
+
+  const block = (
+    key: string,
+    start: number,
+    duration: number,
+    title: string,
+    extra: Partial<TimeBlock> = {},
+  ): TimeBlock => ({
+    id: `seed_blk_${key}`,
+    date: today,
+    start,
+    duration,
+    title,
+    todoId: null,
+    taskId: null,
+    priorityId: null,
+    createdAt: stamp(0),
+    doneAt: null,
+    ...extra,
+  });
+
+  const timeBlocks: TimeBlock[] = [
+    block("rano", 7 * 60, 30, "Ranní protažení", { doneAt: stamp(0) }),
+    // Devadesát minut: v mřížce stojí popsaný v 8:00 a dál se jen táhne.
+    block("hluboka", 8 * 60, 90, "Hluboká práce"),
+    // Začátek mimo půlhodinu - políčko 9:30 ukáže u popisku i přesný čas.
+    block("mail", 9 * 60 + 45, 15, "Projít maily"),
+    block("obed", 12 * 60, 60, "Oběd", { doneAt: stamp(0) }),
+    // Blok z úkolu projektu: nese jeho jméno a v time boxu se jen odškrtává.
+    block("testy", 14 * 60, 60, "Napsat testy", { taskId: "seed_tsk_app_testy" }),
+    // Blok z položky ToDo: odškrtnutí platí i pro ni.
+    block("kafe", 17 * 60 + 30, 30, "Koupit kafe", { todoId: "seed_td_kafe" }),
+  ];
+
+  const daySheets: DaySheet[] = [
+    {
+      date: today,
+      priorities: [
+        { text: "Dotáhnout atomizér", done: false },
+        { text: "Zavolat do banky", done: true },
+        { text: "", done: false },
+      ],
+      brainDump:
+        "nápady:\n- zkusit tmavé pozadí u mřížky\n- zeptat se na ceny hostingu\n- objednat běžecké boty\n- domluvit schůzku s Petrem na čtvrtek",
+    },
+  ];
+
+  return { todos, timeBlocks, daySheets };
 }
 
 /** Kolik microwinů má seed vyrobit - dost na to, aby statistiky měly co kreslit. */

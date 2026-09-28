@@ -31,6 +31,7 @@ export function pinBlock(pin: DuePin): TimeBlock {
     title: pin.todo.text,
     todoId: pin.todo.id,
     taskId: null,
+    priorityId: null,
     createdAt: pin.todo.createdAt,
     doneAt: null,
   };

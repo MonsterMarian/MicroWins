@@ -8,8 +8,10 @@ import {
   moveTask,
   reorderProjects,
   reorderTasks,
+  reparentTask,
   setTaskCurrent,
   toggleTaskDone,
+  updateProject,
   updateTask,
 } from "./project-actions";
 import {
@@ -544,6 +546,37 @@ describe("posun projektů za období", () => {
   });
 });
 
+describe("schovaný projekt", () => {
+  it("nekreslí se mezi projekty ani do součtů, úkoly v něm ale žijí dál", () => {
+    let s: MicroWinsState = EMPTY_STATE;
+    const open = createProject(s, { name: "běžný", startDate: "2026-08-01" }, TODAY);
+    s = createTask(open.state, open.project.id, { name: "x", target: 10, current: 5 }, TODAY).state;
+    const secret = createProject(
+      s,
+      { name: "nápad", startDate: "2026-08-01", hidden: true },
+      TODAY,
+    );
+    s = createTask(secret.state, secret.project.id, { name: "y", target: 10, current: 10 }, TODAY)
+      .state;
+
+    expect(filterProjects(s, "all", TODAY).map((p) => p.name)).toEqual(["běžný"]);
+    // Ani v archivu - schovaný projekt do seznamu prostě nepatří.
+    expect(filterProjects(s, "archived", TODAY)).toEqual([]);
+    expect(portfolioStats(s, TODAY)).toMatchObject({ projects: 1, tasksTotal: 1 });
+
+    // Úkol uvnitř se počítá normálně, jen projekt není vidět.
+    expect(projectPercent(s, secret.project.id)).toBe(100);
+    expect(isTaskDone(s, s.tasks.find((t) => t.name === "y")!)).toBe(true);
+  });
+
+  it("odschování ho vrátí mezi ostatní", () => {
+    const { state, project } = createProject(EMPTY_STATE, { name: "nápad", hidden: true }, TODAY);
+    const shown = updateProject(state, project.id, { hidden: false });
+
+    expect(filterProjects(shown, "all", TODAY).map((p) => p.name)).toEqual(["nápad"]);
+  });
+});
+
 /* Atomizér rozsekává úkol na stále menší kusy, takže strom bývá hluboký -
    dvě patra už nejsou výjimka, ale běžný stav. */
 describe("rozsekaný úkol", () => {
@@ -585,6 +618,43 @@ describe("rozsekaný úkol", () => {
     expect(taskPercent(s, taskById(s, ids.a)!)).toBe(50);
     expect(taskPercent(s, taskById(s, ids.root)!)).toBe(25);
     expect(projectPercent(s, projectId)).toBe(25);
+  });
+
+  it("kus se dá převěsit pod jiný - i s tím, co pod ním visí", () => {
+    const { state, ids } = tree();
+
+    const moved = reparentTask(state, ids.a, ids.b, TODAY);
+    expect(taskById(moved, ids.a)!.parentId).toBe(ids.b);
+    expect(subtasksOf(moved, ids.root).map((t) => t.name)).toEqual(["b"]);
+    // Vnoučata jdou s ním, visí na svém rodiči.
+    expect(leavesOf(moved, ids.root).map((t) => t.name)).toEqual(["a1", "a2"]);
+  });
+
+  it("převěšení nahoru pod projekt z kusu udělá samostatný úkol", () => {
+    const { state, projectId, ids } = tree();
+
+    const up = reparentTask(state, ids.a, null, TODAY);
+    expect(taskById(up, ids.a)!.parentId).toBe(null);
+    expect(tasksOfProject(up, projectId).map((t) => t.name)).toEqual(["kapitola", "a"]);
+    // Nový sourozenec jde na konec, ne mezi ty, co už pořadí mají.
+    expect(taskById(up, ids.a)!.order).toBe(1);
+  });
+
+  it("do sebe ani do svého potomka to nejde - strom by se zacyklil", () => {
+    const { state, ids } = tree();
+
+    expect(reparentTask(state, ids.a, ids.a, TODAY)).toBe(state);
+    expect(reparentTask(state, ids.a, ids.a1, TODAY)).toBe(state);
+    // Tam, kde už visí, se taky nic nemění.
+    expect(reparentTask(state, ids.a, ids.root, TODAY)).toBe(state);
+  });
+
+  it("do cizího projektu se kus nepřevěsí", () => {
+    const { state, ids } = tree();
+    const other = createProject(state, { name: "jinde" }, TODAY);
+    const host = createTask(other.state, other.project.id, { name: "host", target: 1 }, TODAY);
+
+    expect(reparentTask(host.state, ids.a, host.task.id, TODAY)).toBe(host.state);
   });
 });
 

@@ -1,12 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { isValidISODate } from "./date";
-import { addBlock } from "./timeblocks";
+import { addBlock, blockTitle, linkBlockToPriority } from "./timeblocks";
 import {
+  hasPriorityBlockAt,
   isSheetEmpty,
   normalizeSheet,
+  priorityRef,
   setBrainDump,
   setPriority,
   sheetOf,
+  swapPriorities,
+  toggleBlockDone,
+  togglePriority,
   slotContent,
   slotStart,
   timeboxRowCount,
@@ -79,11 +84,118 @@ describe("políčka mřížky a bloky plánu", () => {
   });
 });
 
+/* Hlavní věc dne přetažená do mřížky je tatáž věc ze dvou stran - musí se
+   chovat jako termín v ToDo a blok v plánu. */
+describe("priorita a blok z ní", () => {
+  const NOON = new Date("2026-09-27T12:00:00");
+
+  function linked() {
+    const withPriority = setPriority(EMPTY_STATE, DAY, 0, "Zavolat bance");
+    const { state, block } = addBlock(
+      withPriority,
+      {
+        date: DAY,
+        start: 9 * 60,
+        duration: 30,
+        title: "Zavolat bance",
+        priorityId: priorityRef(DAY, 0),
+      },
+      NOON,
+    );
+    return { state, blockId: block.id };
+  }
+
+  it("blok si bere text priority, takže přejmenování se propíše", () => {
+    const { state } = linked();
+
+    const renamed = setPriority(state, DAY, 0, "Zavolat do banky");
+    expect(blockTitle(renamed, renamed.timeBlocks[0])).toBe("Zavolat do banky");
+  });
+
+  it("odškrtnutí platí na obou stranách", () => {
+    const { state, blockId } = linked();
+
+    const fromBlock = toggleBlockDone(state, blockId, NOON);
+    expect(sheetOf(fromBlock, DAY).priorities[0].done).toBe(true);
+    expect(fromBlock.timeBlocks[0].doneAt).not.toBeNull();
+
+    const fromPriority = togglePriority(fromBlock, DAY, 0, NOON);
+    expect(sheetOf(fromPriority, DAY).priorities[0].done).toBe(false);
+    expect(fromPriority.timeBlocks[0].doneAt).toBeNull();
+  });
+
+  it("vygumovaná priorita nechá bloku jeho vlastní text", () => {
+    const { state } = linked();
+
+    const cleared = setPriority(state, DAY, 0, "");
+    expect(blockTitle(cleared, cleared.timeBlocks[0])).toBe("Zavolat bance");
+    // Prázdnou prioritu nejde odškrtnout, takže se nehne ani blok.
+    expect(togglePriority(cleared, DAY, 0, NOON)).toBe(cleared);
+  });
+
+  it("prohození hlavních věcí vezme s sebou i bloky, které z nich vznikly", () => {
+    const { state, blockId } = linked();
+    const withThird = setPriority(state, DAY, 2, "Uklidit stůl");
+
+    const swapped = swapPriorities(withThird, DAY, 0, 2);
+    expect(sheetOf(swapped, DAY).priorities.map((p) => p.text)).toEqual([
+      "Uklidit stůl",
+      "",
+      "Zavolat bance",
+    ]);
+    // Blok visí na tom, s čím se přesunul - ne na cizím textu na starém místě.
+    expect(swapped.timeBlocks[0].priorityId).toBe(`${DAY}#2`);
+    expect(blockTitle(swapped, swapped.timeBlocks[0])).toBe("Zavolat bance");
+    expect(toggleBlockDone(swapped, blockId, NOON).daySheets[0].priorities[2].done).toBe(true);
+  });
+
+  it("prohození na prázdné místo je přesun a nesmysly stavem nehnou", () => {
+    const s = setPriority(EMPTY_STATE, DAY, 0, "Zavolat bance");
+
+    expect(sheetOf(swapPriorities(s, DAY, 0, 1), DAY).priorities.map((p) => p.text)).toEqual([
+      "",
+      "Zavolat bance",
+      "",
+    ]);
+    expect(swapPriorities(s, DAY, 1, 1)).toBe(s);
+    expect(swapPriorities(s, DAY, 0, 9)).toBe(s);
+    // Prázdný list nemá co prohazovat.
+    expect(swapPriorities(EMPTY_STATE, DAY, 0, 1)).toBe(EMPTY_STATE);
+  });
+
+  it("druhé puštění do stejného políčka se pozná, ať nevzniknou dva stejné bloky", () => {
+    const { state } = linked();
+    const ref = priorityRef(DAY, 0);
+
+    expect(hasPriorityBlockAt(state.timeBlocks, ref, 9 * 60)).toBe(true);
+    expect(hasPriorityBlockAt(state.timeBlocks, ref, 9 * 60 + 30)).toBe(false);
+    expect(hasPriorityBlockAt(state.timeBlocks, priorityRef(DAY, 1), 9 * 60)).toBe(false);
+  });
+
+  it("odkaz se dá navázat i sundat", () => {
+    const { state, blockId } = linked();
+
+    const loose = linkBlockToPriority(state, blockId, null);
+    expect(loose.timeBlocks[0].priorityId).toBe(null);
+    expect(toggleBlockDone(loose, blockId, NOON).daySheets[0].priorities[0].done).toBe(false);
+
+    const again = linkBlockToPriority(loose, blockId, priorityRef(DAY, 0));
+    expect(again.timeBlocks[0].priorityId).toBe(`${DAY}#0`);
+  });
+});
+
 describe("list dne", () => {
+  const texts = (s: MicroWinsState, date: string) =>
+    sheetOf(s, date).priorities.map((p) => p.text);
+
   it("den bez listu se tváří prázdně a má tři priority", () => {
     const sheet = sheetOf(EMPTY_STATE, DAY);
 
-    expect(sheet.priorities).toEqual(["", "", ""]);
+    expect(sheet.priorities).toEqual([
+      { text: "", done: false },
+      { text: "", done: false },
+      { text: "", done: false },
+    ]);
     expect(isSheetEmpty(sheet)).toBe(true);
   });
 
@@ -92,10 +204,29 @@ describe("list dne", () => {
     s = setBrainDump(s, DAY, "nápady");
     s = setPriority(s, NEXT, 0, "zítřek");
 
-    expect(sheetOf(s, DAY).priorities).toEqual(["", "Zavolat bance", ""]);
+    expect(texts(s, DAY)).toEqual(["", "Zavolat bance", ""]);
     expect(sheetOf(s, DAY).brainDump).toBe("nápady");
-    expect(sheetOf(s, NEXT).priorities[0]).toBe("zítřek");
+    expect(texts(s, NEXT)[0]).toBe("zítřek");
     expect(s.daySheets).toHaveLength(2);
+  });
+
+  it("priorita se odškrtává, prázdný řádek ne", () => {
+    const s = setPriority(EMPTY_STATE, DAY, 0, "Zavolat bance");
+
+    const done = togglePriority(s, DAY, 0);
+    expect(sheetOf(done, DAY).priorities[0]).toEqual({ text: "Zavolat bance", done: true });
+    expect(sheetOf(togglePriority(done, DAY, 0), DAY).priorities[0].done).toBe(false);
+    // Prázdný řádek nemá co odškrtávat - stav se nehne.
+    expect(togglePriority(s, DAY, 2)).toBe(s);
+  });
+
+  it("vygumovaná priorita nezůstane odškrtnutá", () => {
+    let s: MicroWinsState = setPriority(EMPTY_STATE, DAY, 0, "Zavolat bance");
+    s = togglePriority(s, DAY, 0);
+    s = setPriority(s, DAY, 0, "");
+    s = setPriority(s, DAY, 0, "Něco jiného");
+
+    expect(sheetOf(s, DAY).priorities[0]).toEqual({ text: "Něco jiného", done: false });
   });
 
   it("prázdný zápis řádek nezaloží a vygumovaný ho zase sundá", () => {
@@ -115,11 +246,20 @@ describe("list dne", () => {
 
   it("z uložených dat se počet priorit srovná na tři", () => {
     const sheet = normalizeSheet(
-      { date: DAY, priorities: ["a", "b", "c", "d"], brainDump: 5 },
+      {
+        date: DAY,
+        priorities: [{ text: "a", done: true }, { text: "b" }, "c", { text: "d" }],
+        brainDump: 5,
+      },
       isValidISODate,
     );
 
-    expect(sheet?.priorities).toEqual(["a", "b", "c"]);
+    expect(sheet?.priorities).toEqual([
+      { text: "a", done: true },
+      { text: "b", done: false },
+      // Priorita bývala holý text; ze starého zápisu je neodškrtnutá věc.
+      { text: "c", done: false },
+    ]);
     expect(sheet?.brainDump).toBe("");
     // Nesmyslné datum ani prázdný list se nenačítají.
     expect(normalizeSheet({ date: "kdysi", priorities: ["a"] }, isValidISODate)).toBe(null);

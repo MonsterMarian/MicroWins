@@ -71,6 +71,8 @@ export interface StoreApi {
   toggleTaskDone: (id: string) => void;
   deleteTask: (id: string) => void;
   moveTask: (id: string, direction: -1 | 1) => void;
+  /** Převěsí úkol i s podstromem pod jiný úkol; `null` = nahoru pod projekt. */
+  reparentTask: (id: string, parentId: string | null) => void;
   /** Nové pořadí sourozenců po přetažení. */
   reorderTasks: (ids: string[]) => void;
 
@@ -97,8 +99,10 @@ export interface StoreApi {
   moveBlock: (id: string, start: number) => void;
   resizeBlock: (id: string, duration: number) => void;
   moveBlockToDay: (id: string, date: ISODate) => void;
-  /** Odškrtne blok; blok z položky ToDo odškrtne i tu položku. */
+  /** Odškrtne blok; blok z položky ToDo nebo z priority odškrtne i ji. */
   toggleBlockDone: (id: string) => void;
+  /** Naváže blok na hlavní věc dne (`YYYY-MM-DD#index`), nebo odkaz sundá. */
+  linkBlockToPriority: (id: string, priorityId: string | null) => void;
   /** Smaže a vrátí smazaný blok, aby ho šlo nabídnout zpátky. */
   deleteBlock: (id: string) => TimeBlock | null;
   restoreBlock: (block: TimeBlock) => void;
@@ -108,6 +112,10 @@ export interface StoreApi {
    * strany - ale tři priority a brain dump patří ke dni a bydlí tady.
    */
   setPriority: (date: ISODate, index: number, text: string) => void;
+  /** Odškrtne hlavní věc dne; prázdný řádek se odškrtnout nedá. */
+  togglePriority: (date: ISODate, index: number) => void;
+  /** Prohodí dvě hlavní věci dne i s odkazy bloků, které z nich vznikly. */
+  swapPriorities: (date: ISODate, a: number, b: number) => void;
   setBrainDump: (date: ISODate, text: string) => void;
 
   createMilestone: (projectId: string, name: string, date: ISODate | null) => Milestone;
@@ -261,6 +269,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       toggleTaskDone: (id) => commit(projectActions.toggleTaskDone(ref.current, id, todayISO())),
       deleteTask: (id) => commit(projectActions.deleteTask(ref.current, id, todayISO())),
       moveTask: (id, direction) => commit(projectActions.moveTask(ref.current, id, direction)),
+      reparentTask: (id, parentId) =>
+        commit(projectActions.reparentTask(ref.current, id, parentId, todayISO())),
       reorderTasks: (ids) => commit(projectActions.reorderTasks(ref.current, ids)),
 
       addTodo: (text) => {
@@ -289,7 +299,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       moveBlock: (id, start) => commit(blockActions.moveBlock(ref.current, id, start)),
       resizeBlock: (id, duration) => commit(blockActions.resizeBlock(ref.current, id, duration)),
       moveBlockToDay: (id, date) => commit(blockActions.moveBlockToDay(ref.current, id, date)),
-      toggleBlockDone: (id) => commit(blockActions.toggleBlockDone(ref.current, id)),
+      // Přes `timebox`, ne přes `timeblocks`: odškrtnutí platí i pro hlavní
+      // věc dne, ze které blok vznikl.
+      toggleBlockDone: (id) => commit(sheetActions.toggleBlockDone(ref.current, id)),
+      linkBlockToPriority: (id, priorityId) =>
+        commit(blockActions.linkBlockToPriority(ref.current, id, priorityId)),
       deleteBlock: (id) => {
         const block = ref.current.timeBlocks.find((b) => b.id === id) ?? null;
         commit(blockActions.deleteBlock(ref.current, id));
@@ -299,6 +313,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
       setPriority: (date, index, text) =>
         commit(sheetActions.setPriority(ref.current, date, index, text)),
+      togglePriority: (date, index) =>
+        commit(sheetActions.togglePriority(ref.current, date, index)),
+      swapPriorities: (date, a, b) =>
+        commit(sheetActions.swapPriorities(ref.current, date, a, b)),
       setBrainDump: (date, text) => commit(sheetActions.setBrainDump(ref.current, date, text)),
 
       createMilestone: (projectId, name, date) => {

@@ -113,6 +113,13 @@ export interface Project {
   order: number;
   createdAt: string;
   archivedAt: string | null;
+  /**
+   * Schovaný projekt se nekreslí mezi Projekty ani do přehledů. Zakládá se
+   * tak v atomizéru: plocha na rozsekání nápadu, ze které se ještě nemá stát
+   * projekt s procenty a deadlinem. Úkoly v něm přitom žijí normálně - dají
+   * se naplánovat i odškrtnout.
+   */
+  hidden: boolean;
 }
 
 export interface Task {
@@ -240,6 +247,13 @@ export interface TimeBlock {
   todoId: string | null;
   /** Úkol projektu, ze kterého blok vznikl. */
   taskId: string | null;
+  /**
+   * Hlavní věc dne, ze které blok vznikl - zápis `YYYY-MM-DD#index`, protože
+   * priorita nemá vlastní id, drží ji den a pořadí v trojce. Blok si pak bere
+   * její text a odškrtnutí platí na obě strany: je to jedna věc viděná ze
+   * dvou stran, stejně jako termín v ToDo a blok v plánu.
+   */
+  priorityId: string | null;
   createdAt: string;
   /** Kdy se blok odškrtl; null = ještě ne. */
   doneAt: string | null;
@@ -257,10 +271,16 @@ export interface TimeBlock {
  *
  * Prázdný list se neukládá - den, do kterého se nic nenapsalo, nemá mít řádek.
  */
+/** Jedna z hlavních věcí dne. Odškrtává se stejně jako zápis v mřížce. */
+export interface Priority {
+  text: string;
+  done: boolean;
+}
+
 export interface DaySheet {
   date: ISODate;
   /** Tři hlavní věci dne. Vždy tři pole, klidně prázdná. */
-  priorities: string[];
+  priorities: Priority[];
   /** Volná plocha na to, co se honí hlavou. */
   brainDump: string;
 }

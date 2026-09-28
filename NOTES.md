@@ -21,8 +21,8 @@ Aplikace **MicroWins** ve dvou částech:
 | Sekce | Route | Obsah |
 |---|---|---|
 | Projekty | `/` | záložky Přehled / ToDo / Plán / Projekty / Time box / Atomy, filtry, řazení, hledání; mezi sekcemi se dá přejet prstem |
-| Time box | `/?tab=timebox` | list dne: tři priority, brain dump a mřížka půlhodin (`:00` / `:30`) nad bloky plánu |
-| Atomy | `/?tab=atoms` | posouvací lišta úkolů a mapa jednoho z nich rozsekaná až na atomy |
+| Time box | `/?tab=timebox` | list dne: tři odškrtávací priority, brain dump přes celou výšku, návrhy z AI, pás rozdělané práce a mřížka půlhodin (`:00` / `:30`) nad bloky plánu; tahem se věci posouvají mezi trojkou, mřížkou a košem |
+| Atomy | `/?tab=atoms` | posouvací lišta úkolů, mapa jednoho z nich rozsekaná až na atomy (kreslený strom, tahem se kusy převěšují) a zakládání úkolu i projektu rovnou tady |
 | Detail projektu | `/projects/[id]` | %, delta dne, start–deadline, zbývá dní, tempo %/den, popis, úkoly, milníky, archiv |
 | Statistiky projektu | `/projects/[id]/stats` | prstence (Postup / Dny / Hotové úkoly), plošný graf, deník změn |
 | Detail úkolu | `/tasks/[id]` | %, `630 / 2 000`, posuvník, −/+ s krokem, nastavení, podúkoly (cíl 1 = jen zaškrtnout) |
@@ -30,7 +30,7 @@ Aplikace **MicroWins** ve dvou částech:
 | Strom | `/tree` | dnešek + procházení složek s winy a jejich záznamy |
 | Analýza | `/stats` | série, pruh měsíce, kalendář roku, přehled winů, tempo projektů |
 
-Stack: Next.js 15 (App Router, vše klientské) · React 19 · TypeScript strict · Tailwind 4 · Vitest. Data v `localStorage`, export/import JSON. Grafy jsou vlastní SVG bez knihoven. 274 testů nad doménovou logikou.
+Stack: Next.js 15 (App Router, vše klientské) · React 19 · TypeScript strict · Tailwind 4 · Vitest. Data v `localStorage`, export/import JSON. Grafy jsou vlastní SVG bez knihoven. 322 testů nad doménovou logikou.
 
 ---
 
@@ -84,9 +84,21 @@ Věci, které ze zadání jednoznačně nevyplývaly a musely se dořešit:
 | **Time box nemá vlastní data, jede na blocích plánu** | Papírový list dne a Plán dne mluví o tomtéž dni. Dva seznamy, které o sobě nevědí, jsou nejhorší, co plánovač může mít: v jednom je schůzka, ve druhém ne a nikdo neví, čemu věřit. Políčko mřížky je tedy obyčejný blok - co se napíše do time boxu, stojí i v plánu a odškrtává se jednou. Ke dni patří navíc jen tři priority a brain dump, na ty je `DaySheet`. |
 | **Hodina na řádek, ne půlhodina** | Půlhodina na řádek by dala 38 řádků a na telefon by se vešla sotva půlka dne. Hodina se sloupci `:00` a `:30` jich má devatenáct a celý den se vejde na jednu obrazovku - o to na listu jde: vidět dnešek jedním pohledem. |
 | **Rozsah mřížky je nastavitelný a smí přetéct přes půlnoc** | Výchozích 5-23 sedí na předlohu, ale budíček ani večerka nejsou pro každého stejné. Konec před začátkem (7-1) proto není chyba: hodiny po půlnoci se plánují na **další den**, protože blok se ukládá ke dni, ve kterém se odehrává. Každý řádek si tak nese svoje datum. |
-| **Blok z ToDo nebo z úkolu se v mřížce nepřepisuje** | Takový blok ukazuje jméno položky nebo úkolu, takže přepsat ho v políčku by vypadalo, že se nic nestalo. Ťuknutí na něj proto odškrtává, stejně jako zaškrtávátko vedle. Přejmenovat se dá tam, kde ta věc bydlí. |
+| **Navázaný blok se v mřížce nepřepisuje** | Blok z ToDo, z úkolu nebo z hlavní věci dne ukazuje jméno toho, na co odkazuje, takže přepsat ho v políčku by vypadalo, že se nic nestalo: text by se uložil do bloku a na obrazovce by dál svítil původní. Ťuknutí na něj proto odškrtává, stejně jako zaškrtávátko vedle. Přejmenovat se dá tam, kde ta věc bydlí. |
 | **Atom je podúkol, ne nová struktura** | Rozsekání úkolu se dá zapsat tím, co appka umí odjakživa - podúkolem. Díky tomu se atomy rovnou počítají do procent úkolu i projektu a hotový atom posouvá postup. Vlastní struktura by znamenala, že každý úkol žije dvakrát a čísla si odporují. Nový atom má cíl 1, takže je z něj zaškrtávátko: hotovo, nebo ne. |
-| **Strom se kreslí odsazením, ne jako graf na plátně** | Mapa shora dolů vypadá dobře na papíře a mizerně na telefonu - vedle sebe se vejdou tři uzly, pod sebe deset. Odsazení se zanořeným rámečkem drží stejnou informaci (co je pod čím) a čte se na 375 px. |
+| **Mapa atomů je graf na plátně** | Odsazený seznam držel stejnou informaci, ale rozsekaný úkol se čte jako strom - kdo dělí práci, kreslí větve, ne odrážky. Uzly jsou obyčejné HTML nad SVG s hranami (text se zalomí, tlačítka uvnitř fungují jako všude jinde) a rozmístění počítá čistá funkce po listech (`atom-tree.ts`): každý list dostane svůj sloupec, rodič se posadí doprostřed nad svoje děti, takže se hrany nekříží. Na telefon se strom po otevření sám napasuje na šířku a dál se dá přiblížit - 375 px na to nestačí, ale posouvat plátno jde. |
+| **Dvě věci v jedné půlhodině stojí vedle sebe** | Pod sebou vypadaly jako seznam kroků za sebou, přitom se dějí naráz. Vedle sebe to čte stejně jako překryté bloky v Plánu - dva sloupce v jednom políčku. |
+| **Políčko ani priorita text neusekává** | V mřížce není kam dlouhý zápis rozkliknout, takže by se ztratil. Pole proto rostou s textem (`AutoTextarea`) a řádek mřížky se roztáhne podle nejvyššího políčka. |
+| **Číslo priority je zároveň zaškrtávátko** | Pořadí i odškrtnutí vedle sebe by na řádku sebraly místo textu, a ten je tu to hlavní. Vygumovaná priorita se odškrtnutí zbaví sama - na prázdném řádku nemá co dělat. |
+| **Tažení hledá cíl pod prstem; myš táhne hned, prst po podržení** | Řádky mřížky mají po zalamování různou výšku a plátno atomů je navíc zvětšené, takže žádný pevný přepočet souřadnic by neseděl - cíl se bere z toho, nad čím prst visí (`elementFromPoint`). Prstem se stránka scrolluje tahem, proto se u dotyku čeká 420 ms jako u seznamů; myší se nescrolluje nic, tam by čekání znamenalo jen to, že „přetahování nefunguje". Obojí drží jeden `useHoldDrag` (`components/ui`), aby se to v každém addonu nechovalo jinak; cíl se přepisuje jen při skutečné změně, jinak by se mřížka překreslovala desetkrát za sekundu. |
+| **Klíč k AI nebydlí v nastavení appky** | Nastavení se celé propisuje do zálohy a záloha se posílá mailem, takže by z ní klíč vypadl někomu do rukou. Leží proto ve vlastním klíči localStorage (u každého poskytovatele svůj), zůstává na jednom zařízení, do zálohy se nedává a na obrazovku se nevypisuje zpátky - jde jen přepsat nebo smazat. Do kódu ani do commitu nesmí vůbec: repozitář je veřejný a z něj si telefon tahá balíky, takže by si klíč přečetl kdokoliv. Ven odchází jen text brain dumpu, a jen na stisk tlačítka: appka jinak nikam sama nevolá. |
+| **Poskytovatelé AI jsou dva, výchozí je Claude s nejlevnějším modelem** | Gemini umí být přetížený a hlásit „high demand", takže návrhy nesmí stát na jednom poskytovateli. Claude jede přes oficiální SDK s nejlevnějším modelem (`claude-haiku-4-5`) - vytáhnout ze zápisků pár úkolů je malá práce a dražší model by ji neudělal lépe. Klíč i model si každý poskytovatel drží svůj, takže přepnutí tam a zpět nic nezahodí, a SDK se načítá až při prvním dotazu (`import()`), aby balík nezatěžovalo těm, kdo návrhy nepoužívají. Změna nastavení se ohlašuje událostí - klíč se zadává v dialogu nad otevřeným listem a tlačítko se má objevit hned, ne po restartu. |
+| **Hlavní věc dne a blok jsou jedna věc ze dvou stran** | Trojka nahoře říká *co*, mřížka *kdy* - a je to tentýž úkol, takže odškrtnout se má jednou. Přetažení z trojky do mřížky proto blok **kopíruje i s odkazem** (`priorityId` ve tvaru `den#pořadí`): v trojce věc zůstává, v mřížce přibude čas. Odkaz nemá vlastní id, protože priorita ho nemá - drží ji den a pořadí. Z toho plyne, že **prohození dvou priorit musí přesunout i odkazy bloků**, jinak by blok po prohození ukazoval na cizí text a odškrtával něco jiného. Druhé puštění na totéž políčko nic nevyrobí - dva stejné zápisy přes sebe by se musely odškrtávat oba. |
+| **Do time boxu se hází z pásu rozdělané práce, stejně jako do plánu** | Bez pásu se věc, která už leží v ToDo nebo v projektu, musela do listu přepsat rukou - a tím v appce žila dvakrát, s vlastním odškrtáváním a bez vazby na postup. Ťuknutí ji posadí do nejbližšího volna, tažením se pustí přesně do půlhodiny, kterou si člověk vybere; blok si v obou případech nese odkaz, takže hotovo platí na obou stranách. |
+| **Koš se ukáže teprve při tažení** | Navázaný zápis se nedá smazat vygumováním textu (ten není jeho) a trvalá ikonka koše v každém políčku by sebrala místo, o které v mřížce jde nejvíc. Pruh u spodního kraje se proto objeví jen ve chvíli, kdy se něčím táhne, a smazané se nabídne zpátky hláškou - stejně jako jinde v appce. |
+| **Kus mapy se převěšuje tahem** | Rozsekávání je hádání, takže první nástřel skoro nikdy nesedí a přerovnat mapu musí jít bez mazání a psaní znovu. Puštění na jiný uzel kus i s celým podstromem převěsí pod něj (`reparentTask`); podstrom se nikam nekopíruje, stačí přepsat rodiče. Odmítne to dvě věci: **sám do sebe nebo do svého potomka** (strom by se zacyklil a kus i s obsahem by zmizel z dosahu) a **do cizího projektu** (procenta i otisky se vedou po projektech). Kam pustit nejde, to se ani nerozsvítí. |
+| **Sbalit mapu znamená první patro, ne úplně všechno** | Sbalený kořen by z celé mapy nechal jeden rámeček a to není přehled, to je prázdno. Tlačítko proto sbalí všechno pod kořenem a sbalený uzel řekne, kolik kusů schoval - jinak by vypadal jako atom. |
+| **Schovaný projekt místo dalšího archivu** | Nápad, který se teprve krájí, nemá zabírat řádek mezi projekty s procenty a deadlinem. Archiv na to nesedí - ten znamená "hotovo, uklizeno" a má vlastní filtr, kde by se nový projekt tvářil divně. Schovaný projekt se nekreslí ani v Projektech, ani v přehledech; jeho úkoly ale žijí normálně a dají se naplánovat. Přepíná se okem nad mapou. |
 | **Smazání úkolu bere celý podstrom** | Dřív mizely jen přímé podúkoly. Do dvou pater se to nepoznalo, ale atomizér rozsekává do hloubky a vnuk osiřelého rodiče by v datech zůstal navždy: ze seznamů by zmizel, do součtů by se počítal dál. |
 | **Gesto se pozná až po puštění** | Přejetí musí vyhrát nad scrolováním a to se dá rozhodnout jedině z celého tvaru pohybu: 64 px do strany, nejmíň 1,6× víc než nahoru/dolů, do 700 ms. Uvnitř vodorovného scrolleru (kalendář roku, cesta ve stromu, široká tabulka) patří gesto jemu - ale jen dokud tam je kam posouvat, doscrollovaná tabulka prst nepotřebuje. Myš ne: tahem myši se vybírá text. |
 
@@ -105,6 +117,7 @@ Věci, které ze zadání jednoznačně nevyplývaly a musely se dořešit:
 - **Plán dne se neopakuje** — blok platí pro jeden den; „každé úterý v 9" se musí naklikat znovu (dá se přesunout na jiný den, ne rozkopírovat).
 - **Týden na telefonu je jen přehled** — sedm sloupců na 375 px dá bloku ~45 px šířky, takže z názvu zbyde pár znaků. Na čtení je osa dne, týden je na rozvržení.
 - Grafy nemají textovou alternativu (tabulku hodnot) pro čtečky, jen `aria-label`.
+- **Návrhy z brain dumpu potřebují vlastní klíč** (Claude nebo Gemini) a text brain dumpu při nich odchází Anthropicu, respektive Googlu. Klíč se nesynchronizuje ani nezálohuje, takže se na každém zařízení zadává znovu - a do repozitáře nepatří, ten je veřejný.
 
 ---
 
@@ -214,6 +227,8 @@ src/lib/
   todos.ts            jednoduchý seznam (přidat, odškrtnout, termín, mizení)
   timeblocks.ts       plán dne (bloky, překryvy, hledání volna, stopy z ToDo)
   timebox.ts          list dne (mřížka půlhodin nad bloky, priority, brain dump)
+  atom-tree.ts        rozmístění stromu atomů do plátna (uzly, hrany, šířka)
+  ai.ts               návrhy z brain dumpu přes Claude/Gemini (jediné volání ven)
   due-rules.ts        rychlé termíny jako pravidla (za hodinu, nejbližší sobota)
   storage.ts          localStorage + export/import  ← jediné místo k výměně za DB
   backup.ts           záloha celé appky (stav + nastavení), sdílení souboru

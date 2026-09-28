@@ -1,5 +1,5 @@
 import { addDays } from "./date";
-import { blockEnd } from "./timeblocks";
+import { blockEnd, toggleBlockDone as toggleBlock } from "./timeblocks";
 import type { DaySheet, ISODate, MicroWinsState, TimeBlock } from "./types";
 
 /**
@@ -100,10 +100,78 @@ export function slotContent(blocks: TimeBlock[], start: number): SlotContent {
   };
 }
 
+// --- propojení priority s blokem --------------------------------------------
+
+/**
+ * Odkaz na prioritu. Priorita nemá vlastní id - drží ji den a pořadí v trojce -
+ * takže se skládá z obojího: `2026-09-28#0`.
+ */
+export function priorityRef(date: ISODate, index: number): string {
+  return `${date}#${index}`;
+}
+
+export function parsePriorityRef(ref: string | null): { date: ISODate; index: number } | null {
+  if (!ref) return null;
+  const [date, raw] = ref.split("#");
+  const index = Number(raw);
+  if (!date || !isPriorityIndex(index)) return null;
+  return { date, index };
+}
+
+/**
+ * Má už ta hlavní věc dne blok v tomhle políčku?
+ *
+ * Přetažení do mřížky zakládá nový blok, takže druhé puštění na stejné místo
+ * by vyrobilo dva stejné zápisy přes sebe - a odškrtnout by se musely oba.
+ */
+export function hasPriorityBlockAt(
+  blocks: TimeBlock[],
+  ref: string,
+  start: number,
+): boolean {
+  return blocks.some(
+    (b) => b.priorityId === ref && b.start >= start && b.start < start + SHEET_SLOT,
+  );
+}
+
+/** Text priority, na kterou odkaz ukazuje; prázdný, když už tam nic není. */
+export function priorityText(state: MicroWinsState, ref: string | null): string {
+  const parsed = parsePriorityRef(ref);
+  if (!parsed) return "";
+  return sheetOf(state, parsed.date).priorities[parsed.index]?.text ?? "";
+}
+
+/** Je ta priorita odškrtnutá? Podklad pro odškrtnutí bloku ze druhé strany. */
+export function isPriorityDone(state: MicroWinsState, ref: string | null): boolean {
+  const parsed = parsePriorityRef(ref);
+  if (!parsed) return false;
+  return sheetOf(state, parsed.date).priorities[parsed.index]?.done === true;
+}
+
+/** Nastaví odškrtnutí priority napevno - používá se při odškrtnutí bloku. */
+export function setPriorityDone(
+  state: MicroWinsState,
+  ref: string | null,
+  done: boolean,
+): MicroWinsState {
+  const parsed = parsePriorityRef(ref);
+  if (!parsed) return state;
+  const sheet = sheetOf(state, parsed.date);
+  const current = sheet.priorities[parsed.index];
+  if (!current || current.text.trim() === "" || current.done === done) return state;
+  const priorities = [...sheet.priorities];
+  priorities[parsed.index] = { ...current, done };
+  return putSheet(state, { ...sheet, priorities });
+}
+
 // --- list dne ---------------------------------------------------------------
 
 export function emptySheet(date: ISODate): DaySheet {
-  return { date, priorities: Array.from({ length: PRIORITY_COUNT }, () => ""), brainDump: "" };
+  return {
+    date,
+    priorities: Array.from({ length: PRIORITY_COUNT }, () => ({ text: "", done: false })),
+    brainDump: "",
+  };
 }
 
 export function sheetOf(state: MicroWinsState, date: ISODate): DaySheet {
@@ -111,7 +179,7 @@ export function sheetOf(state: MicroWinsState, date: ISODate): DaySheet {
 }
 
 export function isSheetEmpty(sheet: DaySheet): boolean {
-  return sheet.brainDump.trim() === "" && sheet.priorities.every((p) => p.trim() === "");
+  return sheet.brainDump.trim() === "" && sheet.priorities.every((p) => p.text.trim() === "");
 }
 
 /**
@@ -124,7 +192,9 @@ function putSheet(state: MicroWinsState, sheet: DaySheet): MicroWinsState {
     current !== undefined &&
     current.brainDump === sheet.brainDump &&
     current.priorities.length === sheet.priorities.length &&
-    current.priorities.every((p, i) => p === sheet.priorities[i]);
+    current.priorities.every(
+      (p, i) => p.text === sheet.priorities[i].text && p.done === sheet.priorities[i].done,
+    );
   if (same || (current === undefined && isSheetEmpty(sheet))) return state;
 
   const rest = state.daySheets.filter((s) => s.date !== sheet.date);
@@ -142,11 +212,105 @@ export function setPriority(
   index: number,
   text: string,
 ): MicroWinsState {
-  if (!Number.isInteger(index) || index < 0 || index >= PRIORITY_COUNT) return state;
+  if (!isPriorityIndex(index)) return state;
   const sheet = sheetOf(state, date);
   const priorities = [...sheet.priorities];
-  priorities[index] = text.slice(0, PRIORITY_MAX);
+  const value = text.slice(0, PRIORITY_MAX);
+  // Vygumovaná priorita nezůstane odškrtnutá - na prázdném řádku nemá co dělat.
+  priorities[index] = { text: value, done: value.trim() === "" ? false : priorities[index].done };
   return putSheet(state, { ...sheet, priorities });
+}
+
+/**
+ * Odškrtnutí hlavní věci dne. Prázdný řádek se odškrtnout nedá.
+ *
+ * Odškrtne i bloky, které z té priority vznikly - je to jedna věc ze dvou
+ * stran, stejně jako termín v ToDo a blok v plánu. Odškrtávat ji dvakrát by
+ * byla práce navíc, kterou nikdo nechce.
+ */
+export function togglePriority(
+  state: MicroWinsState,
+  date: ISODate,
+  index: number,
+  now: Date = new Date(),
+): MicroWinsState {
+  if (!isPriorityIndex(index)) return state;
+  const sheet = sheetOf(state, date);
+  if (sheet.priorities[index].text.trim() === "") return state;
+
+  const done = !sheet.priorities[index].done;
+  const priorities = [...sheet.priorities];
+  priorities[index] = { ...priorities[index], done };
+  const next = putSheet(state, { ...sheet, priorities });
+
+  const ref = priorityRef(date, index);
+  const stamp = now.toISOString();
+  return {
+    ...next,
+    timeBlocks: next.timeBlocks.map((b) =>
+      b.priorityId === ref && (b.doneAt !== null) !== done
+        ? { ...b, doneAt: done ? stamp : null }
+        : b,
+    ),
+  };
+}
+
+/**
+ * Prohodí dvě hlavní věci dne - přetažení jedné na druhou.
+ *
+ * Musí prohodit **i odkazy bloků**: odkaz na prioritu je `den#pořadí`, takže
+ * po prohození textů by blok navázaný na první věc ukazoval na cizí text
+ * a odškrtával by něco jiného, než na co byl napsaný.
+ */
+export function swapPriorities(
+  state: MicroWinsState,
+  date: ISODate,
+  a: number,
+  b: number,
+): MicroWinsState {
+  if (a === b || !isPriorityIndex(a) || !isPriorityIndex(b)) return state;
+  const sheet = sheetOf(state, date);
+  const priorities = [...sheet.priorities];
+  [priorities[a], priorities[b]] = [priorities[b], priorities[a]];
+  const next = putSheet(state, { ...sheet, priorities });
+
+  const refA = priorityRef(date, a);
+  const refB = priorityRef(date, b);
+  if (!next.timeBlocks.some((block) => block.priorityId === refA || block.priorityId === refB)) {
+    return next;
+  }
+  return {
+    ...next,
+    timeBlocks: next.timeBlocks.map((block) =>
+      block.priorityId === refA
+        ? { ...block, priorityId: refB }
+        : block.priorityId === refB
+          ? { ...block, priorityId: refA }
+          : block,
+    ),
+  };
+}
+
+function isPriorityIndex(index: number): boolean {
+  return Number.isInteger(index) && index >= 0 && index < PRIORITY_COUNT;
+}
+
+/**
+ * Odškrtnutí bloku i priority, ze které vznikl.
+ *
+ * Bydlí tady, a ne v `timeblocks.ts`: bloky o prioritách nevědí a vědět
+ * nepotřebují - list time boxu je ta vrstva, která obě strany zná.
+ */
+export function toggleBlockDone(
+  state: MicroWinsState,
+  id: string,
+  now: Date = new Date(),
+): MicroWinsState {
+  const block = state.timeBlocks.find((b) => b.id === id);
+  if (!block) return state;
+  const next = toggleBlock(state, id, now);
+  const done = next.timeBlocks.find((b) => b.id === id)?.doneAt !== null;
+  return setPriorityDone(next, block.priorityId, done);
 }
 
 export function setBrainDump(
@@ -160,6 +324,9 @@ export function setBrainDump(
 /**
  * List z uložených dat. Počet priorit se srovná na tři - starší nebo cizí
  * záloha jich může mít jiný počet a mřížka na obrazovce počítá se třemi.
+ *
+ * Priorita byla zprvu holý text, teprve pak se k ní přidalo odškrtnutí; obojí
+ * se proto načte a ze starého zápisu vznikne neodškrtnutá věc.
  */
 export function normalizeSheet(raw: unknown, isDate: (value: string) => boolean): DaySheet | null {
   if (typeof raw !== "object" || raw === null) return null;
@@ -167,9 +334,16 @@ export function normalizeSheet(raw: unknown, isDate: (value: string) => boolean)
   if (typeof record.date !== "string" || !isDate(record.date)) return null;
 
   const incoming = Array.isArray(record.priorities) ? record.priorities : [];
-  const priorities = Array.from({ length: PRIORITY_COUNT }, (_, i) =>
-    typeof incoming[i] === "string" ? (incoming[i] as string).slice(0, PRIORITY_MAX) : "",
-  );
+  const priorities = Array.from({ length: PRIORITY_COUNT }, (_, i) => {
+    const item = incoming[i];
+    if (typeof item === "string") return { text: item.slice(0, PRIORITY_MAX), done: false };
+    if (typeof item === "object" && item !== null) {
+      const p = item as Record<string, unknown>;
+      const text = typeof p.text === "string" ? p.text.slice(0, PRIORITY_MAX) : "";
+      return { text, done: text.trim() !== "" && p.done === true };
+    }
+    return { text: "", done: false };
+  });
   const sheet: DaySheet = {
     date: record.date,
     priorities,

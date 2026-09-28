@@ -2,15 +2,23 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Check, ChevronDown, ChevronRight, ExternalLink, Plus, Trash2 } from "lucide-react";
+import {
+  ChevronsDownUp,
+  ChevronsUpDown,
+  ExternalLink,
+  Eye,
+  EyeOff,
+  Plus,
+  Trash2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+import { Field, Input, Select } from "@/components/ui/input";
 import { ProgressBar } from "@/components/ui/progress";
 import { EntityIcon } from "@/components/ui/icon-picker";
 import { useStore } from "@/components/providers/store-provider";
-import { tapFeedback, winFeedback } from "@/lib/native";
+import { tapFeedback } from "@/lib/native";
 import {
   descendantsOf,
   displayPercent,
@@ -23,6 +31,7 @@ import {
 } from "@/lib/projects";
 import type { MicroWinsState, Task } from "@/lib/types";
 import { cn, plural } from "@/lib/utils";
+import { AtomCanvas } from "./atom-canvas";
 
 /**
  * Atomizér - rozsekání úkolu na stále menší kusy.
@@ -36,39 +45,205 @@ import { cn, plural } from "@/lib/utils";
  * posouvá postup - kdyby měl atomizér vlastní strukturu, žil by každý úkol
  * dvakrát a čísla by si odporovala.
  *
- * Strom se kreslí odsazením, ne jako graf na plátně: na šířku telefonu se
- * pod sebe vejde desítka uzlů, vedle sebe tři.
+ * Mapa se kreslí jako graf na plátně (`atom-canvas.tsx`), ne odsazeným
+ * seznamem: rozsekaný úkol se čte jako strom, ne jako odrážky.
  */
 export function AtomsPanel() {
   const { state } = useStore();
   const [selected, setSelected] = React.useState<string | null>(null);
+  const [creating, setCreating] = React.useState(false);
 
   /* V liště jsou úkoly nejvyšší úrovně ze všech neodložených projektů - to jsou
      ty celky, které se rozsekávají. Podúkoly v ní nejsou, ty už jsou uvnitř. */
   const tasks = React.useMemo(() => topTasks(state), [state]);
   const current = tasks.find((t) => t.id === selected) ?? tasks[0] ?? null;
 
-  if (tasks.length === 0) {
-    return (
-      <Card>
-        <CardContent className="flex flex-col items-center gap-2 py-10 text-center">
-          <p className="text-sm font-medium">Zatím není co rozsekávat</p>
-          <p className="max-w-sm text-sm text-muted-foreground">
-            Atomizér pracuje s úkoly projektů. Založ projekt a v něm úkol - tady se pak dá
-            rozdrobit na jednotlivé kroky.
-          </p>
-        </CardContent>
-      </Card>
-    );
-  }
-
   return (
     <div className="flex flex-col gap-3">
-      <TaskStrip tasks={tasks} current={current} onPick={setSelected} />
-      {current ? <AtomMap key={current.id} task={current} /> : null}
+      {tasks.length === 0 ? (
+        <Card>
+          <CardContent className="flex flex-col items-center gap-3 py-10 text-center">
+            <p className="text-sm font-medium">Zatím není co rozsekávat</p>
+            <p className="max-w-sm text-sm text-muted-foreground">
+              Atomizér krájí úkoly na menší kusy. Nemusíš kvůli tomu nic chystat jinde - založ
+              úkol rovnou tady, klidně do projektu, který nikde jinde nebude svítit.
+            </p>
+            <Button size="sm" onClick={() => setCreating(true)}>
+              <Plus /> Nový úkol
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          <TaskStrip
+            tasks={tasks}
+            current={current}
+            onPick={setSelected}
+            onNew={() => setCreating(true)}
+          />
+          {current ? <AtomMap key={current.id} task={current} /> : null}
+        </>
+      )}
+
+      <NewTaskDialog open={creating} onOpenChange={setCreating} onCreated={setSelected} />
     </div>
   );
 }
+
+/**
+ * Nový úkol k rozsekání - i s projektem, když pro něj ještě žádný není.
+ *
+ * Projekt se dá založit **schovaný**: nápad, který se teprve krájí, nemusí
+ * hned zabírat řádek mezi projekty s procenty a deadlinem. Přepnout se to dá
+ * kdykoliv potom nad mapou.
+ */
+function NewTaskDialog({
+  open,
+  onOpenChange,
+  onCreated,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onCreated: (taskId: string) => void;
+}) {
+  const { state, createProject, createTask } = useStore();
+  const projects = React.useMemo(
+    () =>
+      state.projects
+        .filter((p) => p.archivedAt === null)
+        .sort((a, b) => a.order - b.order || a.createdAt.localeCompare(b.createdAt)),
+    [state.projects],
+  );
+
+  const [name, setName] = React.useState("");
+  const [projectId, setProjectId] = React.useState<string>(NEW_PROJECT);
+  const [projectName, setProjectName] = React.useState("");
+  const [listed, setListed] = React.useState(true);
+
+  // Při otevření se formulář vrátí na začátek; předvybraný je první projekt.
+  React.useEffect(() => {
+    if (!open) return;
+    setName("");
+    setProjectName("");
+    setListed(true);
+    setProjectId(projects[0]?.id ?? NEW_PROJECT);
+  }, [open, projects]);
+
+  const fresh = projectId === NEW_PROJECT;
+  const ready = name.trim() !== "" && (!fresh || projectName.trim() !== "");
+
+  const submit = () => {
+    if (!ready) return;
+    const target = fresh
+      ? createProject({ name: projectName.trim(), icon: "🧩", hidden: !listed }).id
+      : projectId;
+    // Cíl 1: úkol se zatím jen odškrtává. Jakmile se rozseká, počítá se z kusů.
+    const task = createTask(target, { name: name.trim(), target: 1 });
+    void tapFeedback();
+    onCreated(task.id);
+    onOpenChange(false);
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Nový úkol k rozsekání"
+      description="Úkol vždycky někam patří - buď do projektu, který už máš, nebo do nového."
+      footer={
+        <>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+            Zrušit
+          </Button>
+          <Button disabled={!ready} onClick={submit}>
+            <Plus /> Založit
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-3">
+        <Field label="Co je potřeba udělat" htmlFor="atom-name">
+          <Input
+            id="atom-name"
+            autoFocus
+            value={name}
+            placeholder="Např. Spustit web"
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && ready) submit();
+            }}
+          />
+        </Field>
+
+        <Field label="Projekt" htmlFor="atom-project">
+          <Select
+            id="atom-project"
+            value={projectId}
+            onChange={(e) => setProjectId(e.target.value)}
+          >
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+                {p.hidden ? " (jen tady)" : ""}
+              </option>
+            ))}
+            <option value={NEW_PROJECT}>— nový projekt —</option>
+          </Select>
+        </Field>
+
+        {fresh ? (
+          <>
+            <Field label="Název projektu" htmlFor="atom-project-name">
+              <Input
+                id="atom-project-name"
+                value={projectName}
+                placeholder="Např. Nápady"
+                onChange={(e) => setProjectName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && ready) submit();
+                }}
+              />
+            </Field>
+
+            <button
+              type="button"
+              onClick={() => setListed((v) => !v)}
+              aria-pressed={listed}
+              className={cn(
+                "flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors",
+                listed ? "border-foreground/40 bg-accent" : "hover:bg-accent/50",
+              )}
+            >
+              <span className="min-w-0">
+                <span className="block text-sm font-medium">Ukázat i v Projektech</span>
+                <span className="block text-xs text-muted-foreground">
+                  {listed
+                    ? "Běžný projekt s procenty, termínem a statistikami."
+                    : "Zůstane jen v atomizéru - do seznamu projektů ani do přehledů se nedostane."}
+                </span>
+              </span>
+              <span
+                className={cn(
+                  "relative h-6 w-11 shrink-0 rounded-full transition-colors",
+                  listed ? "bg-progress" : "bg-muted-foreground/30",
+                )}
+              >
+                <span
+                  className={cn(
+                    "absolute top-1 size-4 rounded-full bg-card shadow transition-[left] duration-200",
+                    listed ? "left-6" : "left-1",
+                  )}
+                />
+              </span>
+            </button>
+          </>
+        ) : null}
+      </div>
+    </Dialog>
+  );
+}
+
+const NEW_PROJECT = "__new__";
 
 /** Úkoly nejvyšší úrovně napříč projekty, v pořadí projektů. */
 function topTasks(state: MicroWinsState): Task[] {
@@ -82,17 +257,19 @@ function TaskStrip({
   tasks,
   current,
   onPick,
+  onNew,
 }: {
   tasks: Task[];
   current: Task | null;
   onPick: (id: string) => void;
+  onNew: () => void;
 }) {
   const { state } = useStore();
 
   return (
     /* Lišta se posouvá do boku - na telefon se vejdou dva a půl úkolu a
        přetahovat je není proč, pořadí drží projekt. */
-    <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+    <div className="scroll-quiet -mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
       <div className="flex w-max gap-2 pb-1">
         {tasks.map((task) => {
           const active = current?.id === task.id;
@@ -116,7 +293,10 @@ function TaskStrip({
                 <EntityIcon icon={task.icon} />
                 <span className="min-w-0 flex-1 truncate text-sm font-medium">{task.name}</span>
               </span>
-              <span className="truncate text-[11px] text-muted-foreground">{project?.name}</span>
+              <span className="flex items-center gap-1 truncate text-[11px] text-muted-foreground">
+                {project?.hidden ? <EyeOff className="size-2.5 shrink-0" /> : null}
+                <span className="truncate">{project?.name}</span>
+              </span>
               <ProgressBar value={percent} />
               <span className="tabular text-[11px] text-muted-foreground">
                 {displayPercent(percent)} % · {done} / {atoms.length}{" "}
@@ -125,6 +305,16 @@ function TaskStrip({
             </button>
           );
         })}
+
+        <button
+          type="button"
+          onClick={onNew}
+          aria-label="Nový úkol k rozsekání"
+          className="flex w-24 shrink-0 flex-col items-center justify-center gap-1 rounded-xl border border-dashed p-2.5 text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+        >
+          <Plus className="size-4" />
+          <span className="text-[11px]">Nový úkol</span>
+        </button>
       </div>
     </div>
   );
@@ -132,54 +322,40 @@ function TaskStrip({
 
 // --- mapa jednoho úkolu -----------------------------------------------------
 
-interface TreeCtrl {
-  collapsed: Set<string>;
-  toggle: (id: string) => void;
-  editing: string | null;
-  setEditing: (id: string | null) => void;
-  adding: string | null;
-  setAdding: (id: string | null) => void;
-  confirm: (task: Task) => void;
-}
-
-const Ctrl = React.createContext<TreeCtrl | null>(null);
-
-function useCtrl(): TreeCtrl {
-  const ctx = React.useContext(Ctrl);
-  if (!ctx) throw new Error("AtomNode musí být uvnitř AtomMap");
-  return ctx;
-}
-
 function AtomMap({ task }: { task: Task }) {
-  const { state, deleteTask } = useStore();
+  const { state, deleteTask, updateProject } = useStore();
+  const project = projectById(state, task.projectId);
   const [collapsed, setCollapsed] = React.useState<Set<string>>(() => new Set());
   const [editing, setEditing] = React.useState<string | null>(null);
   const [adding, setAdding] = React.useState<string | null>(null);
   const [pending, setPending] = React.useState<Task | null>(null);
 
-  const ctrl = React.useMemo<TreeCtrl>(
-    () => ({
-      collapsed,
-      toggle: (id) =>
-        setCollapsed((prev) => {
-          const next = new Set(prev);
-          if (next.has(id)) next.delete(id);
-          else next.add(id);
-          return next;
-        }),
-      editing,
-      setEditing,
-      adding,
-      setAdding,
-      confirm: setPending,
-    }),
-    [collapsed, editing, adding],
+  const toggle = React.useCallback(
+    (id: string) =>
+      setCollapsed((prev) => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      }),
+    [],
   );
 
   const atoms = leavesOf(state, task.id);
   const done = atoms.filter((a) => isTaskDone(state, a)).length;
   const percent = taskPercent(state, task);
   const below = descendantsOf(state, pending?.id ?? task.id).length;
+
+  /* Sbalit jde všechno, co má pod sebou další kusy - kromě kořene. Sbalený
+     kořen by z celé mapy nechal jeden rámeček a to není přehled, to je prázdno. */
+  const parents = React.useMemo(
+    () =>
+      descendantsOf(state, task.id)
+        .filter((t) => subtasksOf(state, t.id).length > 0)
+        .map((t) => t.id),
+    [state, task.id],
+  );
+  const allCollapsed = parents.length > 0 && parents.every((id) => collapsed.has(id));
 
   return (
     <div className="flex flex-col gap-2">
@@ -190,6 +366,40 @@ function AtomMap({ task }: { task: Task }) {
         <span className="tabular text-xs text-muted-foreground">
           {done} / {atoms.length} · {displayPercent(percent)} %
         </span>
+        {parents.length > 0 ? (
+          <button
+            type="button"
+            onClick={() => setCollapsed(allCollapsed ? new Set() : new Set(parents))}
+            aria-label={allCollapsed ? "Rozbalit celou mapu" : "Sbalit mapu na první patro"}
+            title={allCollapsed ? "Rozbalit celou mapu" : "Sbalit mapu na první patro"}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            {allCollapsed ? (
+              <ChevronsUpDown className="size-3.5" />
+            ) : (
+              <ChevronsDownUp className="size-3.5" />
+            )}
+          </button>
+        ) : null}
+        {/* Schovaný projekt se dá kdykoliv vytáhnout mezi ostatní - a zase schovat. */}
+        {project ? (
+          <button
+            type="button"
+            onClick={() => updateProject(project.id, { hidden: !project.hidden })}
+            aria-pressed={project.hidden === true}
+            aria-label={
+              project.hidden ? "Ukázat projekt i v Projektech" : "Schovat projekt z Projektů"
+            }
+            title={
+              project.hidden
+                ? `"${project.name}" je jen tady - ukázat i v Projektech`
+                : `"${project.name}" je vidět v Projektech - schovat`
+            }
+            className="text-muted-foreground hover:text-foreground"
+          >
+            {project.hidden ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+          </button>
+        ) : null}
         <Link
           href={`/tasks?id=${task.id}`}
           aria-label="Otevřít úkol"
@@ -200,11 +410,22 @@ function AtomMap({ task }: { task: Task }) {
         </Link>
       </div>
 
-      <Card className="overflow-hidden p-2 sm:p-3">
-        <Ctrl.Provider value={ctrl}>
-          <AtomBranch task={task} depth={0} />
-        </Ctrl.Provider>
-      </Card>
+      <AtomCanvas
+        root={task}
+        collapsed={collapsed}
+        onToggle={toggle}
+        editing={editing}
+        onEditing={setEditing}
+        adding={adding}
+        onAdding={setAdding}
+        onDelete={setPending}
+      />
+
+      <p className="px-1 text-xs text-muted-foreground">
+        Ťukni na jméno a přepíšeš ho, <span className="font-medium">+</span> rozseká kus na menší.
+        Tahem kus převěsíš pod jiný. Atomy na konci větví se jen odškrtávají - a tím se hýbe
+        postupem úkolu i projektu.
+      </p>
 
       <Dialog
         open={pending !== null}
@@ -236,204 +457,3 @@ function AtomMap({ task }: { task: Task }) {
   );
 }
 
-/** Uzel stromu i s tím, co pod ním visí. Odsazení dělá zanořený rámeček. */
-function AtomBranch({ task, depth }: { task: Task; depth: number }) {
-  const { state } = useStore();
-  const ctrl = useCtrl();
-  const children = subtasksOf(state, task.id);
-  const open = !ctrl.collapsed.has(task.id);
-
-  return (
-    <div className="min-w-0">
-      <AtomRow task={task} depth={depth} childCount={children.length} open={open} />
-
-      {open && (children.length > 0 || ctrl.adding === task.id) ? (
-        <div className="ml-2.5 min-w-0 border-l pl-1.5">
-          {children.map((child) => (
-            <AtomBranch key={child.id} task={child} depth={depth + 1} />
-          ))}
-          {ctrl.adding === task.id ? <AddRow parent={task} /> : null}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function AtomRow({
-  task,
-  depth,
-  childCount,
-  open,
-}: {
-  task: Task;
-  depth: number;
-  childCount: number;
-  open: boolean;
-}) {
-  const { state, toggleTaskDone, updateTask } = useStore();
-  const ctrl = useCtrl();
-  const percent = taskPercent(state, task);
-  const done = isTaskDone(state, task);
-  const leaf = childCount === 0;
-  const editing = ctrl.editing === task.id;
-
-  const rename = (text: string) => {
-    const value = text.trim();
-    if (value && value !== task.name) updateTask(task.id, { name: value });
-    ctrl.setEditing(null);
-  };
-
-  return (
-    <div
-      className={cn(
-        "flex min-w-0 items-center gap-1 rounded-md py-1 pr-0.5",
-        depth === 0 && "font-medium",
-      )}
-    >
-      {leaf ? (
-        /* Atom se dá jen odškrtnout - to je konec rozsekávání. */
-        <button
-          type="button"
-          onClick={() => {
-            void (done ? tapFeedback() : winFeedback());
-            toggleTaskDone(task.id);
-          }}
-          aria-pressed={done}
-          aria-label={done ? `Vrátit zpět: ${task.name}` : `Hotovo: ${task.name}`}
-          className={cn(
-            "grid size-4 shrink-0 place-items-center rounded-[4px] border transition-colors",
-            done
-              ? "border-progress bg-progress text-progress-foreground"
-              : "border-muted-foreground/40",
-          )}
-        >
-          {done ? <Check className="size-3" /> : null}
-        </button>
-      ) : (
-        <button
-          type="button"
-          onClick={() => ctrl.toggle(task.id)}
-          aria-expanded={open}
-          aria-label={open ? `Sbalit ${task.name}` : `Rozbalit ${task.name}`}
-          className="grid size-4 shrink-0 place-items-center text-muted-foreground"
-        >
-          {open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
-        </button>
-      )}
-
-      {editing ? (
-        <Input
-          autoFocus
-          defaultValue={task.name}
-          onBlur={(e) => rename(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") rename(e.currentTarget.value);
-            if (e.key === "Escape") ctrl.setEditing(null);
-          }}
-          aria-label="Název"
-          className="h-7 text-sm"
-        />
-      ) : (
-        <button
-          type="button"
-          onClick={() => ctrl.setEditing(task.id)}
-          title={task.name}
-          className={cn(
-            "min-w-0 flex-1 truncate py-0.5 text-left text-sm",
-            done && leaf && "text-muted-foreground line-through",
-          )}
-        >
-          {task.name}
-        </button>
-      )}
-
-      {!editing && !leaf ? (
-        <span className="tabular shrink-0 text-[11px] text-muted-foreground">
-          {displayPercent(percent)} %
-        </span>
-      ) : null}
-
-      {editing ? (
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label="Smazat"
-          className="shrink-0 hover:text-destructive"
-          /* `onMouseDown`, ne `onClick`: klik by přišel až po `blur` pole,
-             které editaci zavře, a tlačítko by zmizelo dřív, než se stihne. */
-          onMouseDown={(e) => {
-            e.preventDefault();
-            ctrl.setEditing(null);
-            ctrl.confirm(task);
-          }}
-        >
-          <Trash2 />
-        </Button>
-      ) : (
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label={`Rozsekat ${task.name}`}
-          title="Rozsekat na menší kusy"
-          className="shrink-0 text-muted-foreground hover:text-foreground"
-          onClick={() => {
-            ctrl.setAdding(task.id);
-            if (ctrl.collapsed.has(task.id)) ctrl.toggle(task.id);
-          }}
-        >
-          <Plus />
-        </Button>
-      )}
-    </div>
-  );
-}
-
-/**
- * Řádek pro nový kus pod uzlem. Enter ho založí a pole zůstane otevřené -
- * rozsekávání je dávka, ne jeden zápis: kdo dělí úkol, píše rovnou pět věcí
- * pod sebe.
- */
-function AddRow({ parent }: { parent: Task }) {
-  const { createTask } = useStore();
-  const ctrl = useCtrl();
-  const [draft, setDraft] = React.useState("");
-
-  const submit = (keepOpen: boolean) => {
-    const value = draft.trim();
-    if (value) {
-      // Cíl 1 = zaškrtávátko. Atom je hotový, nebo není; procenta si počítá
-      // rodič z toho, kolik jich je odškrtnutých.
-      createTask(parent.projectId, { name: value, target: 1, parentId: parent.id });
-      void tapFeedback();
-    }
-    setDraft("");
-    if (!keepOpen || !value) ctrl.setAdding(null);
-  };
-
-  return (
-    <div className="flex items-center gap-1 py-1 pr-0.5">
-      <span className="grid size-4 shrink-0 place-items-center text-muted-foreground">
-        <Plus className="size-3" />
-      </span>
-      <Input
-        autoFocus
-        value={draft}
-        placeholder="Menší kus…"
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={() => submit(false)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            submit(true);
-          }
-          if (e.key === "Escape") {
-            setDraft("");
-            ctrl.setAdding(null);
-          }
-        }}
-        aria-label={`Nový kus pod ${parent.name}`}
-        className="h-7 text-sm"
-      />
-    </div>
-  );
-}

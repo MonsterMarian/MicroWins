@@ -149,8 +149,9 @@ function maximalState(): MicroWinsState {
       { id: "w_2", metricId: "n_metric", date: "2026-01-11", value: 7, previousRecord: 2.5, firstEver: false, createdAt: "2026-01-11T10:00:00.000Z" },
     ],
     projects: [
-      { id: "p_1", name: "10K kliků", icon: "🖱️", startDate: "2026-01-01", deadline: "2026-12-31", description: "dlouhý popis", order: 0, createdAt: "2026-01-01T10:00:00.000Z", archivedAt: null },
-      { id: "p_2", name: "Archiv", icon: "📦", startDate: "2025-01-01", deadline: null, description: "", order: 1, createdAt: "2025-01-01T10:00:00.000Z", archivedAt: "2026-02-01T10:00:00.000Z" },
+      { id: "p_1", name: "10K kliků", icon: "🖱️", startDate: "2026-01-01", deadline: "2026-12-31", description: "dlouhý popis", order: 0, createdAt: "2026-01-01T10:00:00.000Z", archivedAt: null, hidden: false },
+      { id: "p_2", name: "Archiv", icon: "📦", startDate: "2025-01-01", deadline: null, description: "", order: 1, createdAt: "2025-01-01T10:00:00.000Z", archivedAt: "2026-02-01T10:00:00.000Z", hidden: false },
+      { id: "p_3", name: "Schovaný nápad", icon: "🧪", startDate: "2026-02-01", deadline: null, description: "", order: 2, createdAt: "2026-02-01T10:00:00.000Z", archivedAt: null, hidden: true },
     ],
     tasks: [
       { id: "t_1", projectId: "p_1", parentId: null, name: "kliky", icon: "💪", target: 2000, current: 630, unit: "ks", step: 10, weight: 3, dueDate: "2026-06-30", milestoneId: "m_1", description: "popis úkolu", order: 0, createdAt: "2026-01-01T10:00:00.000Z", completedAt: null },
@@ -174,13 +175,30 @@ function maximalState(): MicroWinsState {
       { id: "td_3", text: "termín bez hodiny", createdAt: "2026-01-10T10:00:00.000Z", doneAt: null, order: 2, dueDate: "2026-01-20", dueTime: null },
     ],
     timeBlocks: [
-      { id: "b_1", date: "2026-01-10", start: 540, duration: 90, title: "Hluboká práce", todoId: null, taskId: null, createdAt: "2026-01-10T08:00:00.000Z", doneAt: null },
-      { id: "b_2", date: "2026-01-10", start: 660, duration: 30, title: "otevřená položka", todoId: "td_1", taskId: null, createdAt: "2026-01-10T08:00:00.000Z", doneAt: "2026-01-10T11:30:00.000Z" },
-      { id: "b_3", date: "2026-01-11", start: 1380, duration: 60, title: "kliky", todoId: null, taskId: "t_1", createdAt: "2026-01-10T08:00:00.000Z", doneAt: null },
+      { id: "b_1", date: "2026-01-10", start: 540, duration: 90, title: "Hluboká práce", todoId: null, taskId: null, priorityId: null, createdAt: "2026-01-10T08:00:00.000Z", doneAt: null },
+      { id: "b_2", date: "2026-01-10", start: 660, duration: 30, title: "otevřená položka", todoId: "td_1", taskId: null, priorityId: null, createdAt: "2026-01-10T08:00:00.000Z", doneAt: "2026-01-10T11:30:00.000Z" },
+      { id: "b_3", date: "2026-01-11", start: 1380, duration: 60, title: "kliky", todoId: null, taskId: "t_1", priorityId: null, createdAt: "2026-01-10T08:00:00.000Z", doneAt: null },
+      { id: "b_4", date: "2026-01-10", start: 900, duration: 30, title: "Zavolat bance", todoId: null, taskId: null, priorityId: "2026-01-10#0", createdAt: "2026-01-10T08:00:00.000Z", doneAt: null },
     ],
     daySheets: [
-      { date: "2026-01-10", priorities: ["Zavolat bance", "", "Dopsat nabídku"], brainDump: "co se honí hlavou" },
-      { date: "2026-01-11", priorities: ["", "", ""], brainDump: "jen dump" },
+      {
+        date: "2026-01-10",
+        priorities: [
+          { text: "Zavolat bance", done: true },
+          { text: "", done: false },
+          { text: "Dopsat nabídku", done: false },
+        ],
+        brainDump: "co se honí hlavou",
+      },
+      {
+        date: "2026-01-11",
+        priorities: [
+          { text: "", done: false },
+          { text: "", done: false },
+          { text: "", done: false },
+        ],
+        brainDump: "jen dump",
+      },
     ],
   };
 }
@@ -238,12 +256,17 @@ describe("záloha nese úplně všechno", () => {
     expect(out.timeBlocks.find((b) => b.id === "b_2")!.todoId).toBe("td_1");
     expect(out.timeBlocks.find((b) => b.id === "b_3")!.taskId).toBe("t_1");
     expect(out.timeBlocks.find((b) => b.id === "b_2")!.doneAt).not.toBeNull();
+    // Blok navázaný na hlavní věc dne si odkaz drží i po načtení.
+    expect(out.timeBlocks.find((b) => b.id === "b_4")!.priorityId).toBe("2026-01-10#0");
     // List time boxu si drží prázdné priority mezi vyplněnými i samotný dump.
     expect(out.daySheets.find((s) => s.date === "2026-01-10")!.priorities).toEqual([
-      "Zavolat bance",
-      "",
-      "Dopsat nabídku",
+      { text: "Zavolat bance", done: true },
+      { text: "", done: false },
+      { text: "Dopsat nabídku", done: false },
     ]);
     expect(out.daySheets.find((s) => s.date === "2026-01-11")!.brainDump).toBe("jen dump");
+    // Schovaný projekt zůstane schovaný i po načtení zálohy.
+    expect(out.projects.find((p) => p.id === "p_3")!.hidden).toBe(true);
+    expect(out.projects.find((p) => p.id === "p_1")!.hidden).toBe(false);
   });
 });

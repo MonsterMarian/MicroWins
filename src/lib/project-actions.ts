@@ -23,6 +23,8 @@ export interface ProjectInput {
   startDate?: ISODate;
   deadline?: ISODate | null;
   description?: string;
+  /** Schovaný projekt se nekreslí mezi Projekty - viz `isListed`. */
+  hidden?: boolean;
 }
 
 export function createProject(
@@ -40,6 +42,7 @@ export function createProject(
     order: state.projects.length,
     createdAt: new Date().toISOString(),
     archivedAt: null,
+    hidden: input.hidden === true,
   };
   const next: MicroWinsState = {
     ...state,
@@ -370,6 +373,43 @@ export function deleteTask(
     ...state,
     tasks: state.tasks.filter((t) => !ids.has(t.id)),
     taskSnapshots: state.taskSnapshots.filter((s) => !ids.has(s.taskId)),
+  };
+  return snapshotProject(next, task.projectId, today);
+}
+
+/**
+ * Převěsí úkol i s celým podstromem pod jiný úkol; `null` = zpátky nahoru
+ * pod projekt. Atomizér tím přetahuje kusy po mapě.
+ *
+ * Podstrom se nikam nekopíruje - stačí přepsat rodiče, děti visí na `parentId`.
+ * Dvě věci to odmítne: **sám do sebe nebo do svého potomka** (strom by se
+ * zacyklil a kus i s obsahem by zmizel z dosahu) a **do cizího projektu**
+ * (procenta i otisky se vedou po projektech, takže přeskok mezi nimi není
+ * přesun, ale přepis dvou historií naráz).
+ */
+export function reparentTask(
+  state: MicroWinsState,
+  id: string,
+  parentId: string | null,
+  today: ISODate = todayISO(),
+): MicroWinsState {
+  const task = taskById(state, id);
+  if (!task || task.parentId === parentId) return state;
+
+  if (parentId !== null) {
+    if (parentId === id) return state;
+    const parent = taskById(state, parentId);
+    if (!parent || parent.projectId !== task.projectId) return state;
+    if (descendantsOf(state, id).some((child) => child.id === parentId)) return state;
+  }
+
+  // Na konec nových sourozenců - přetažený kus se nemá vecpat mezi ty, co tam
+  // už jsou v nějakém pořadí.
+  const siblings =
+    parentId === null ? tasksOfProject(state, task.projectId) : subtasksOf(state, parentId);
+  const next: MicroWinsState = {
+    ...state,
+    tasks: state.tasks.map((t) => (t.id === id ? { ...t, parentId, order: siblings.length } : t)),
   };
   return snapshotProject(next, task.projectId, today);
 }

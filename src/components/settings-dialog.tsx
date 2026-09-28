@@ -23,6 +23,18 @@ import { useToast } from "@/components/providers/toast-provider";
 import { parseBackup, type ExportTarget } from "@/lib/backup";
 import { ACCENTS, ADDONS, PLAN_VIEWS, TODO_TTL_CHOICES } from "@/lib/prefs";
 import { timeboxRowCount } from "@/lib/timebox";
+import {
+  AI_PROVIDERS,
+  DEFAULT_MODELS,
+  DEFAULT_PROVIDER,
+  getAiKey,
+  getAiModel,
+  getAiProvider,
+  setAiKey,
+  setAiModel,
+  setAiProvider,
+  type AiProvider,
+} from "@/lib/ai";
 import { DueRulesSection } from "./settings/due-rules-section";
 import { formatDuration } from "@/lib/todos";
 import {
@@ -128,6 +140,7 @@ export function SettingsDialog({
             </Section>
 
             <TimeboxHoursSection />
+            <AiKeySection />
             <TodoExpirySection />
             <TodoDueSection />
           </div>
@@ -745,6 +758,126 @@ function TimeboxHoursSection() {
 }
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
+
+/**
+ * Klíč ke Gemini pro návrhy z brain dumpu.
+ *
+ * Nebydlí v `prefs.ts` schválně: nastavení se celé propisuje do zálohy
+ * (`backup.ts`) a záloha se posílá mailem nebo leží na disku, takže by z ní
+ * klíč dřív nebo později vypadl někomu do rukou. Leží proto ve vlastním klíči
+ * localStorage, zůstává na jednom zařízení a do zálohy se nedává.
+ *
+ * Uložený klíč se ani nevypisuje zpátky - z obrazovky jde jen přepsat nebo
+ * smazat. Ukazovat ho není proč a je to o jedno místo míň, odkud se dá omylem
+ * vyfotit nebo sdílet obrazovku.
+ */
+function AiKeySection() {
+  const { addons } = usePrefs();
+  const { toast } = useToast();
+  const [provider, setProvider] = React.useState<AiProvider>(DEFAULT_PROVIDER);
+  const [hasKey, setHasKey] = React.useState(false);
+  const [draft, setDraft] = React.useState("");
+  const [model, setModel] = React.useState(DEFAULT_MODELS[DEFAULT_PROVIDER]);
+
+  /** Klíč i model si drží každý poskytovatel svůj - přepnutí je jen přečte. */
+  const load = React.useCallback((next: AiProvider) => {
+    setProvider(next);
+    setHasKey(getAiKey(next) !== "");
+    setModel(getAiModel(next));
+    setDraft("");
+  }, []);
+
+  React.useEffect(() => load(getAiProvider()), [load]);
+
+  if (!addons.timebox) return null;
+
+  const save = () => {
+    const value = draft.trim();
+    if (!value) return;
+    setAiKey(value, provider);
+    setDraft("");
+    setHasKey(true);
+    toast({ tone: "info", title: "Klíč uložený", description: "Zůstává jen v tomhle zařízení." });
+  };
+
+  return (
+    <Section
+      title="Návrhy z brain dumpu"
+      hint="Klíč zůstává jen tady a do zálohy se nedává. Ven odchází samotný text brain dumpu, a jen když klikneš na Navrhnout."
+    >
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-wrap gap-1.5">
+          {AI_PROVIDERS.map((p) => {
+            const active = provider === p.id;
+            return (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => {
+                  setAiProvider(p.id);
+                  load(p.id);
+                }}
+                aria-pressed={active}
+                className={cn(
+                  "rounded-lg border px-3 py-1.5 text-left transition-colors",
+                  active ? "border-foreground/40 bg-accent" : "hover:bg-accent/50",
+                )}
+              >
+                <span className="block text-sm font-medium">{p.label}</span>
+                <span className="block text-xs text-muted-foreground">{p.hint}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Input
+            type="password"
+            value={draft}
+            autoComplete="off"
+            spellCheck={false}
+            placeholder={hasKey ? "Klíč je uložený - sem napiš nový" : `Klíč k ${provider === "claude" ? "Anthropic" : "Gemini"} API`}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") save();
+            }}
+            aria-label="Klíč k API"
+            className="h-8 flex-1 text-xs"
+          />
+          <Button size="sm" disabled={draft.trim() === ""} onClick={save}>
+            Uložit
+          </Button>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">Model</span>
+          <Input
+            value={model}
+            spellCheck={false}
+            onChange={(e) => setModel(e.target.value)}
+            onBlur={() => setAiModel(model || DEFAULT_MODELS[provider], provider)}
+            aria-label="Model"
+            className="h-8 w-56 text-xs"
+          />
+          {hasKey ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="ml-auto hover:text-destructive"
+              onClick={() => {
+                setAiKey("", provider);
+                setHasKey(false);
+                toast({ tone: "info", title: "Klíč smazaný" });
+              }}
+            >
+              Smazat klíč
+            </Button>
+          ) : null}
+        </div>
+      </div>
+    </Section>
+  );
+}
 
 /**
  * Mizení odškrtnutých položek ToDo.

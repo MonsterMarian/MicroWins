@@ -26,9 +26,17 @@ export interface DropInput {
 export function Queue({
   date,
   onDrop,
+  onPress,
+  hint = "Ťukni a padne to do nejbližšího volna",
 }: {
   date: ISODate;
   onDrop: (input: DropInput) => void;
+  /**
+   * Tažení chipu jinam než do nejbližšího volna - time box ho vede do políčka
+   * mřížky. Bez něj se chip dá jen ťuknout, jako v plánu.
+   */
+  onPress?: (input: DropInput, event: React.PointerEvent<HTMLElement>) => void;
+  hint?: string;
 }) {
   const { state } = useStore();
   const todos = React.useMemo(() => unplannedTodos(state, date).slice(0, 10), [state, date]);
@@ -38,28 +46,64 @@ export function Queue({
 
   return (
     <div className="flex flex-col gap-1.5">
-      <p className="px-1 text-xs text-muted-foreground">Ťukni a padne to do nejbližšího volna</p>
+      <p className="px-1 text-xs text-muted-foreground">{hint}</p>
       <div className="scroll-quiet -mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
-        {todos.map((todo) => (
-          <TodoChip key={todo.id} todo={todo} onPick={() => onDrop({ title: todo.text, todoId: todo.id })} />
-        ))}
-        {tasks.map((task) => (
-          <TaskChip key={task.id} task={task} onPick={() => onDrop({ title: task.name, taskId: task.id })} />
-        ))}
+        {todos.map((todo) => {
+          const input: DropInput = { title: todo.text, todoId: todo.id };
+          return (
+            <TodoChip
+              key={todo.id}
+              todo={todo}
+              onPick={() => onDrop(input)}
+              onPress={onPress ? (e) => onPress(input, e) : undefined}
+            />
+          );
+        })}
+        {tasks.map((task) => {
+          const input: DropInput = { title: task.name, taskId: task.id };
+          return (
+            <TaskChip
+              key={task.id}
+              task={task}
+              onPick={() => onDrop(input)}
+              onPress={onPress ? (e) => onPress(input, e) : undefined}
+            />
+          );
+        })}
       </div>
     </div>
   );
 }
 
+type ChipPress = ((event: React.PointerEvent<HTMLElement>) => void) | undefined;
+
+/** Co chip potřebuje k tomu, aby se dal i táhnout. Tažení se nesmí splést s výběrem. */
+function pressProps(onPress: ChipPress) {
+  if (!onPress) return {};
+  return {
+    onPointerDown: onPress,
+    onContextMenu: (e: React.MouseEvent) => e.preventDefault(),
+    className: cn(CHIP, "cursor-grab [-webkit-touch-callout:none]"),
+  };
+}
+
 const CHIP =
   "flex shrink-0 items-center gap-2 rounded-full border bg-card py-1.5 pl-1.5 pr-3 text-xs transition-colors hover:bg-accent active:bg-accent";
 
-function TodoChip({ todo, onPick }: { todo: Todo; onPick: () => void }) {
+function TodoChip({
+  todo,
+  onPick,
+  onPress,
+}: {
+  todo: Todo;
+  onPick: () => void;
+  onPress?: ChipPress;
+}) {
   const overdue = isTodoOverdue(todo);
   const due = formatTodoDue(todo);
 
   return (
-    <button type="button" onClick={onPick} className={CHIP}>
+    <button type="button" onClick={onPick} className={CHIP} {...pressProps(onPress)}>
       <span className="h-4 w-1 shrink-0 rounded-full bg-foreground/60" />
       <span className="max-w-[11rem] truncate">{todo.text}</span>
       {due ? (
@@ -71,12 +115,20 @@ function TodoChip({ todo, onPick }: { todo: Todo; onPick: () => void }) {
   );
 }
 
-function TaskChip({ task, onPick }: { task: Task; onPick: () => void }) {
+function TaskChip({
+  task,
+  onPick,
+  onPress,
+}: {
+  task: Task;
+  onPick: () => void;
+  onPress?: ChipPress;
+}) {
   const { state } = useStore();
   const where = taskOrigin(state, task);
 
   return (
-    <button type="button" onClick={onPick} className={CHIP}>
+    <button type="button" onClick={onPick} className={CHIP} {...pressProps(onPress)}>
       <span className="h-4 w-1 shrink-0 rounded-full bg-progress" />
       <EntityIcon icon={task.icon} size="sm" />
       <span className="max-w-[11rem] truncate">{task.name}</span>

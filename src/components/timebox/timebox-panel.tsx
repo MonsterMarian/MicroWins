@@ -56,8 +56,11 @@ import { useTimeboxDrag, type DragSource, type TimeboxDrag } from "./use-timebox
  * dole místo pro návrhy, které z brain dumpu vytáhne AI. Vpravo mřížka
  * půlhodin nad bloky Plánu dne.
  *
- * Všechno je schválně drobné: list má odpovídat na "co mě dnes čeká" jedním
- * pohledem, takže se na výšku telefonu musí vejít co nejvíc.
+ * Tohle je rozvržení "Papír" - na tabletu čitelné, na telefonu se ale dva
+ * sloupce mačkají na pár písmen a mřížka začíná až pod brain dumpem. Proto
+ * jsou na výběr (Nastavení → Vzhled) i jednosloupcové verze: seznam
+ * půlhodin, agenda jen s obsazenými půlhodinami a záložky, kde má den
+ * a brain dump každý svou obrazovku. Data jsou ve všech stejná.
  */
 export function TimeboxPanel() {
   const {
@@ -72,9 +75,10 @@ export function TimeboxPanel() {
     deleteBlock,
     restoreBlock,
   } = useStore();
-  const { timeboxStart } = usePrefs();
+  const { timeboxStart, timeboxLayout } = usePrefs();
   const { toast } = useToast();
   const [date, setDate] = React.useState<ISODate>(() => today);
+  const [pane, setPane] = React.useState<Pane>("day");
 
   const planned = (start: number, title: string) =>
     toast({ tone: "info", title: `Naplánováno na ${formatMinutes(start)}`, description: title });
@@ -191,48 +195,99 @@ export function TimeboxPanel() {
      nebo na položku ToDo, kterému se text v políčku přepsat nedá. */
   const trashable = drag.ghost?.source.kind === "block" || drag.ghost?.source.kind === "priority";
 
+  const queue = (
+    /* Rozdělaná práce z ToDo a z projektů. Bez ní by se věc, která už někde
+       leží, do listu musela přepsat rukou - a v appce by pak žila dvakrát. */
+    <Queue
+      date={date}
+      hint="Rozdělaná práce: ťukni a padne do nejbližšího volna, nebo si ji táhni do mřížky"
+      onDrop={(input) => {
+        const start = nextFreeSlot(
+          blocksOfDay(state, date),
+          searchFrom(date, today, timeboxStart),
+          SHEET_SLOT,
+        );
+        addBlock({
+          date,
+          start,
+          duration: SHEET_SLOT,
+          title: input.title,
+          todoId: input.todoId ?? null,
+          taskId: input.taskId ?? null,
+        });
+        void tapFeedback();
+        planned(start, input.title);
+      }}
+      onPress={(input, event) => drag.press({ kind: "queue", ...input }, event)}
+    />
+  );
+
   return (
     <div className="flex flex-col gap-3">
       <DateBar date={date} today={today} onDate={setDate} />
 
-      {/* Rozdělaná práce z ToDo a z projektů. Bez ní by se věc, která už někde
-          leží, do listu musela přepsat rukou - a v appce by pak žila dvakrát. */}
-      <Queue
-        date={date}
-        hint="Rozdělaná práce: ťukni a padne do nejbližšího volna, nebo si ji táhni do mřížky"
-        onDrop={(input) => {
-          const start = nextFreeSlot(
-            blocksOfDay(state, date),
-            searchFrom(date, today, timeboxStart),
-            SHEET_SLOT,
-          );
-          addBlock({
-            date,
-            start,
-            duration: SHEET_SLOT,
-            title: input.title,
-            todoId: input.todoId ?? null,
-            taskId: input.taskId ?? null,
-          });
-          void tapFeedback();
-          planned(start, input.title);
-        }}
-        onPress={(input, event) => drag.press({ kind: "queue", ...input }, event)}
-      />
-      {/* Klíč podle dne: rozepsané texty patří tomu dni, ne políčku na obrazovce. */}
-      <div
-        key={date}
-        className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] sm:items-stretch"
-      >
-        {/* Levý sloupec se natáhne na výšku mřížky a brain dump v něm zabere
-            všechno, co zbyde - psát se má kam, ne do řádkového pole. */}
-        <div className="flex min-w-0 flex-col gap-3">
-          <Priorities date={date} drag={drag} />
-          <BrainDump date={date} />
-          <AiSuggestions date={date} today={today} />
-        </div>
-        <TimeboxGrid date={date} today={today} drag={drag} />
-      </div>
+      {timeboxLayout === "tabs" ? (
+        <>
+          <PaneSwitch pane={pane} onPane={setPane} date={date} />
+          {/* Klíč podle dne: rozepsané texty patří tomu dni, ne políčku na obrazovce. */}
+          <div key={date} className="flex flex-col gap-3">
+            {pane === "day" ? (
+              <>
+                {queue}
+                <Priorities date={date} drag={drag} />
+                <TimeboxGrid date={date} today={today} drag={drag} layout="list" />
+              </>
+            ) : (
+              <>
+                <BrainDump date={date} size="screen" />
+                <AiSuggestions date={date} today={today} />
+              </>
+            )}
+          </div>
+        </>
+      ) : timeboxLayout === "sheet" ? (
+        <>
+          {queue}
+          <div
+            key={date}
+            className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] sm:items-stretch"
+          >
+            {/* Levý sloupec se natáhne na výšku mřížky a brain dump v něm zabere
+                všechno, co zbyde - psát se má kam, ne do řádkového pole. */}
+            <div className="flex min-w-0 flex-col gap-3">
+              <Priorities date={date} drag={drag} />
+              <BrainDump date={date} size="fill" />
+              <AiSuggestions date={date} today={today} />
+            </div>
+            <TimeboxGrid date={date} today={today} drag={drag} />
+          </div>
+        </>
+      ) : (
+        <>
+          {queue}
+          {/* Na telefonu jde mřížka hned pod trojku a brain dump až pod ni -
+              den je to, co se tu čte nejčastěji. Levý sloupec se proto na úzké
+              obrazovce rozpustí (`contents`) a jeho části se seřadí přes
+              `order`; na širší zůstane sloupcem vedle mřížky. */}
+          <div
+            key={date}
+            className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] sm:items-start"
+          >
+            <div className="contents sm:flex sm:min-w-0 sm:flex-col sm:gap-3">
+              <Priorities date={date} drag={drag} className="order-1 sm:order-none" />
+              <BrainDump date={date} size="fixed" className="order-3 sm:order-none" />
+              <AiSuggestions date={date} today={today} className="order-4 sm:order-none" />
+            </div>
+            <TimeboxGrid
+              date={date}
+              today={today}
+              drag={drag}
+              layout={timeboxLayout}
+              className="order-2 sm:order-none"
+            />
+          </div>
+        </>
+      )}
 
       {trashable ? (
         <div
@@ -257,6 +312,55 @@ export function TimeboxPanel() {
           {drag.ghost.source.title}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+type Pane = "day" | "head";
+
+/**
+ * Přepínač v rozvržení "Záložky". Brain dump je na své obrazovce celý, takže
+ * tečka u jeho záložky říká, že v něm něco leží - jinak by se na něj
+ * zapomínalo.
+ */
+function PaneSwitch({
+  pane,
+  onPane,
+  date,
+}: {
+  pane: Pane;
+  onPane: (pane: Pane) => void;
+  date: ISODate;
+}) {
+  const { state } = useStore();
+  const hasDump = sheetOf(state, date).brainDump.trim() !== "";
+  const tabs: { id: Pane; label: string }[] = [
+    { id: "day", label: "Den" },
+    { id: "head", label: "Brain dump" },
+  ];
+
+  return (
+    <div className="grid grid-cols-2 gap-1 rounded-lg bg-muted p-1" role="tablist">
+      {tabs.map((tab) => (
+        <button
+          key={tab.id}
+          type="button"
+          role="tab"
+          aria-selected={pane === tab.id}
+          onClick={() => onPane(tab.id)}
+          className={cn(
+            "flex items-center justify-center gap-1.5 rounded-md py-1.5 text-sm transition-colors",
+            pane === tab.id
+              ? "bg-background font-medium shadow-sm"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          {tab.label}
+          {tab.id === "head" && hasDump ? (
+            <span className="size-1.5 rounded-full bg-progress" aria-label="něco v něm je" />
+          ) : null}
+        </button>
+      ))}
     </div>
   );
 }
@@ -323,12 +427,20 @@ function DateBar({
 
 // --- tři priority -----------------------------------------------------------
 
-function Priorities({ date, drag }: { date: ISODate; drag: TimeboxDrag }) {
+function Priorities({
+  date,
+  drag,
+  className,
+}: {
+  date: ISODate;
+  drag: TimeboxDrag;
+  className?: string;
+}) {
   const { state, setPriority, togglePriority } = useStore();
   const sheet = sheetOf(state, date);
 
   return (
-    <section className="flex flex-col gap-1.5">
+    <section className={cn("flex flex-col gap-1.5", className)}>
       <h3 className="px-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
         Tři hlavní věci
       </h3>
@@ -446,7 +558,26 @@ function PriorityRow({
 
 // --- brain dump -------------------------------------------------------------
 
-function BrainDump({ date }: { date: ISODate }) {
+/**
+ * Výška brain dumpu podle rozvržení: `fill` se na širší obrazovce natáhne na
+ * výšku mřížky vedle, `fixed` má pod mřížkou pevnou plochu a `screen` bere
+ * skoro celou obrazovku, protože ji v záložkách má jen pro sebe.
+ */
+const DUMP_SIZE = {
+  fill: "min-h-48 flex-1",
+  fixed: "min-h-40 sm:min-h-48",
+  screen: "min-h-[60vh]",
+} as const;
+
+function BrainDump({
+  date,
+  size,
+  className,
+}: {
+  date: ISODate;
+  size: keyof typeof DUMP_SIZE;
+  className?: string;
+}) {
   const { state, setBrainDump } = useStore();
   const sheet = sheetOf(state, date);
   const [draft, setDraft, flush] = useDraft(sheet.brainDump, (text) => setBrainDump(date, text));
@@ -454,7 +585,7 @@ function BrainDump({ date }: { date: ISODate }) {
   return (
     /* Na telefonu má plocha svoji spodní mez, na širší obrazovce se natáhne
        na výšku mřížky - psát se má kam, ale mřížku to nesmí odsunout dolů. */
-    <section className="flex min-h-48 flex-1 flex-col gap-1.5">
+    <section className={cn("flex flex-col gap-1.5", DUMP_SIZE[size], className)}>
       <h3 className="px-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
         Brain dump
       </h3>
@@ -483,7 +614,15 @@ function BrainDump({ date }: { date: ISODate }) {
  *
  * Bez klíče se tu nic neděje - appka je jinak offline a nikam sama nevolá.
  */
-function AiSuggestions({ date, today }: { date: ISODate; today: ISODate }) {
+function AiSuggestions({
+  date,
+  today,
+  className,
+}: {
+  date: ISODate;
+  today: ISODate;
+  className?: string;
+}) {
   const { state, setPriority, addBlock } = useStore();
   const { timeboxStart } = usePrefs();
   const { toast } = useToast();
@@ -547,7 +686,7 @@ function AiSuggestions({ date, today }: { date: ISODate; today: ISODate }) {
   };
 
   return (
-    <section className="flex flex-col gap-1.5">
+    <section className={cn("flex flex-col gap-1.5", className)}>
       <div className="flex items-center gap-2 px-0.5">
         <h3 className="flex-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
           Návrhy z brain dumpu

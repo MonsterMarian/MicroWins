@@ -21,7 +21,7 @@ import { useStore } from "@/components/providers/store-provider";
 import { usePrefs, setPrefs } from "@/components/providers/use-prefs";
 import { useToast } from "@/components/providers/toast-provider";
 import { parseBackup, type ExportTarget } from "@/lib/backup";
-import { ACCENTS, ADDONS, PLAN_VIEWS, TODO_TTL_CHOICES } from "@/lib/prefs";
+import { ACCENTS, ADDONS, PLAN_VIEWS, TIMEBOX_LAYOUTS, TODO_TTL_CHOICES } from "@/lib/prefs";
 import { timeboxRowCount } from "@/lib/timebox";
 import {
   AI_PROVIDERS,
@@ -129,6 +129,7 @@ export function SettingsDialog({
             </Section>
 
             <PlanChoice />
+            <TimeboxLayoutChoice />
           </div>
         ) : (
           <div className="flex flex-col gap-5 animate-in-up">
@@ -1022,6 +1023,89 @@ function PlanPreview({ view, active }: { view: string; active: boolean }) {
           <span className={bar} />
           <span className={cn(bar, "opacity-40")} />
           <span className={bar} />
+        </>
+      )}
+    </span>
+  );
+}
+
+/**
+ * Rozvržení time boxu. Všechny verze pracují se stejným listem dne, liší se
+ * jen tím, kolik se ho vejde na výšku telefonu.
+ */
+function TimeboxLayoutChoice() {
+  const { addons, timeboxLayout } = usePrefs();
+  if (!addons.timebox) return null;
+
+  return (
+    <Section title="Time box">
+      <div className="flex flex-col gap-2">
+        {TIMEBOX_LAYOUTS.map((layout) => {
+          const active = timeboxLayout === layout.id;
+          return (
+            <button
+              key={layout.id}
+              type="button"
+              onClick={() => setPrefs({ timeboxLayout: layout.id })}
+              aria-pressed={active}
+              className={cn(
+                "flex items-start gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors",
+                active ? "border-foreground/40 bg-accent" : "hover:bg-accent/50",
+              )}
+            >
+              <TimeboxPreview layout={layout.id} active={active} />
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center gap-2 text-sm font-medium">
+                  {layout.label}
+                  {active ? <Check className="ml-auto size-3.5 opacity-60" /> : null}
+                </span>
+                <span className="block text-xs text-muted-foreground">{layout.hint}</span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </Section>
+  );
+}
+
+/** Kresba rozvržení: čárka vlevo je čas, proužek vpravo zápis. */
+function TimeboxPreview({ layout, active }: { layout: string; active: boolean }) {
+  const bar = cn("rounded-[2px]", active ? "bg-foreground/70" : "bg-muted-foreground/40");
+  const faint = cn(bar, "opacity-40");
+  return (
+    <span
+      className="flex h-10 w-10 shrink-0 flex-col gap-[3px] rounded-md border p-1.5"
+      aria-hidden
+    >
+      {layout === "sheet" ? (
+        <span className="grid flex-1 grid-cols-2 gap-[3px]">
+          <span className={bar} />
+          <span className={faint} />
+          <span className={faint} />
+          <span className={bar} />
+        </span>
+      ) : layout === "tabs" ? (
+        <>
+          <span className="flex h-1 gap-[3px]">
+            <span className={cn(bar, "flex-1")} />
+            <span className={cn(faint, "flex-1")} />
+          </span>
+          <span className={cn(bar, "flex-1")} />
+          <span className={cn(faint, "flex-1")} />
+        </>
+      ) : layout === "agenda" ? (
+        <>
+          <span className={cn(bar, "flex-1")} />
+          <span className="h-px border-t border-dashed border-muted-foreground/50" />
+          <span className={cn(bar, "flex-1")} />
+        </>
+      ) : (
+        <>
+          <span className={cn(bar, "flex-1")} />
+          <span className={cn(faint, "flex-1")} />
+          <span className={cn(bar, "flex-1")} />
+          <span className={cn(faint, "flex-1")} />
         </>
       )}
     </span>

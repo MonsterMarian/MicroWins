@@ -94,3 +94,15 @@ describe("nastavení ze starší verze", () => {
     expect(prefs).toEqual({ ...DEFAULT_PREFS, accent: "white" });
   });
 });
+
+describe("rozvržení time boxu", () => {
+  it("uložená volba projde", () => {
+    expect(parsePrefs({ timeboxLayout: "agenda" }).timeboxLayout).toBe("agenda");
+    expect(parsePrefs({ timeboxLayout: "sheet" }).timeboxLayout).toBe("sheet");
+  });
+
+  it("starší nastavení bez volby dostane jednosloupcový seznam", () => {
+    expect(parsePrefs({}).timeboxLayout).toBe("list");
+    expect(parsePrefs({ timeboxLayout: "grid" }).timeboxLayout).toBe("list");
+  });
+});

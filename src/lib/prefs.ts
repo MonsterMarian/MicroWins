@@ -55,6 +55,20 @@ export const PLAN_VIEWS: { id: PlanView; label: string; hint: string }[] = [
 ];
 
 /**
+ * Podoba time boxu. Data jsou pořád tatáž (bloky Plánu, trojka a brain dump),
+ * mění se jen rozvržení - papírový list se dvěma sloupci je čitelný na tabletu,
+ * na telefonu se ale mačká, takže má na výběr i jednosloupcové verze.
+ */
+export type TimeboxLayout = "list" | "agenda" | "tabs" | "sheet";
+
+export const TIMEBOX_LAYOUTS: { id: TimeboxLayout; label: string; hint: string }[] = [
+  { id: "list", label: "Seznam", hint: "půlhodina na řádek přes celou šířku, brain dump až pod dnem" },
+  { id: "agenda", label: "Jen obsazené", hint: "prázdné půlhodiny se slijí do jednoho řádku volna" },
+  { id: "tabs", label: "Záložky", hint: "den a brain dump každý na své obrazovce" },
+  { id: "sheet", label: "Papír", hint: "sloupce :00 a :30 vedle sebe jako na předloze - pro tablet" },
+];
+
+/**
  * Záložky nad projektovou polovinou appky. Jejich pořadí si uživatel skládá
  * v Nastavení, takže seznam nemůže bydlet v komponentě, která je kreslí -
  * nastavení by na něj muselo sáhnout skrz.
@@ -145,6 +159,8 @@ export interface Prefs {
    */
   timeboxStart: number;
   timeboxEnd: number;
+  /** Rozvržení time boxu, viz `TIMEBOX_LAYOUTS`. */
+  timeboxLayout: TimeboxLayout;
   /** Tlačítka rychlých termínů v ToDo, viz `lib/due-rules.ts`. */
   dueRules: DueRule[];
 }
@@ -166,6 +182,7 @@ export const DEFAULT_PREFS: Prefs = {
   plan: "day",
   timeboxStart: DEFAULT_TIMEBOX_START,
   timeboxEnd: DEFAULT_TIMEBOX_END,
+  timeboxLayout: "list",
   dueRules: DEFAULT_DUE_RULES,
 };
 
@@ -177,6 +194,10 @@ function isAccent(value: unknown): value is Accent {
 
 function isOverview(value: unknown): value is Overview {
   return OVERVIEWS.some((o) => o.id === value);
+}
+
+function isTimeboxLayout(value: unknown): value is TimeboxLayout {
+  return TIMEBOX_LAYOUTS.some((l) => l.id === value);
 }
 
 function isPlanView(value: unknown): value is PlanView {
@@ -242,6 +263,9 @@ export function parsePrefs(raw: unknown): Prefs {
       typeof record.timeboxEnd === "number"
         ? clampHour(record.timeboxEnd)
         : DEFAULT_PREFS.timeboxEnd,
+    timeboxLayout: isTimeboxLayout(record.timeboxLayout)
+      ? record.timeboxLayout
+      : DEFAULT_PREFS.timeboxLayout,
     dueRules: parseDueRules(record.dueRules),
   };
 }

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   adjustTask,
+  clearTaskMap,
   createProject,
   createTask,
   deleteProject,
@@ -10,11 +11,13 @@ import {
   reorderTasks,
   reparentTask,
   setTaskCurrent,
+  setTaskMapOffset,
   toggleTaskDone,
   updateProject,
   updateTask,
 } from "./project-actions";
 import {
+  atomsOf,
   dailyChanges,
   dayRing,
   descendantsOf,
@@ -39,6 +42,7 @@ import {
   taskProgressSeries,
   taskStats,
   tasksOfProject,
+  trackerOf,
 } from "./projects";
 import { EMPTY_STATE, type MicroWinsState } from "./types";
 
@@ -768,5 +772,57 @@ describe("statistiky úkolu", () => {
       ["2026-08-02", 0, 50],
     ]);
     expect(taskDayRing(taskStats(s, parent.task.id, "2026-08-20")!).days).toBe(4);
+  });
+});
+
+describe("buňky mapy atomů", () => {
+  function withRoot() {
+    const { state, projectId } = withProject();
+    const root = createTask(state, projectId, { name: "Web", target: 1 }, TODAY);
+    return { state: root.state, projectId, root: root.task };
+  }
+
+  it("bez uložené volby rozhodne cíl, kus s podúkoly má procenta z nich", () => {
+    const { state, projectId, root } = withRoot();
+    const count = createTask(state, projectId, { name: "Stránky", target: 6, parentId: root.id }, TODAY);
+
+    expect(trackerOf(count.state, count.task)).toBe("count");
+    expect(trackerOf(count.state, root)).toBe("parent");
+  });
+
+  it("poznámka se do procent ani do atomů nepočítá", () => {
+    const { state, projectId, root } = withRoot();
+    const a = createTask(state, projectId, { name: "A", target: 1, current: 1, parentId: root.id }, TODAY);
+    const note = createTask(a.state, projectId, { name: "Pozn.", parentId: root.id }, TODAY);
+    const next = updateTask(note.state, note.task.id, { tracker: "none", weight: 0 }, TODAY);
+
+    expect(taskPercent(next, taskById(next, root.id)!)).toBe(100);
+    expect(atomsOf(next, root.id).map((t) => t.name)).toEqual(["A"]);
+  });
+
+  it("pod poznámkou vznikne kus - z poznámky je zase normální kus s vahou", () => {
+    const { state, projectId, root } = withRoot();
+    const note = createTask(state, projectId, { name: "Pozn.", parentId: root.id }, TODAY);
+    const noted = updateTask(note.state, note.task.id, { tracker: "none", weight: 0 }, TODAY);
+    const child = createTask(noted, projectId, { name: "Krok", parentId: note.task.id }, TODAY);
+    const promoted = taskById(child.state, note.task.id)!;
+
+    expect(promoted.tracker).toBeUndefined();
+    expect(promoted.weight).toBe(1);
+  });
+
+  it("posun buňky nepíše historii a srovnání ho smaže celé mapě", () => {
+    const { state, projectId, root } = withRoot();
+    const child = createTask(state, projectId, { name: "A", parentId: root.id }, TODAY);
+    const moved = setTaskMapOffset(child.state, child.task.id, { x: 40.4, y: -12 });
+
+    expect(taskById(moved, child.task.id)!.mapOffset).toEqual({ x: 40, y: -12 });
+    expect(moved.taskSnapshots).toBe(child.state.taskSnapshots);
+    expect(moved.snapshots).toBe(child.state.snapshots);
+
+    const tidy = clearTaskMap(moved, root.id);
+    expect(taskById(tidy, child.task.id)!.mapOffset).toBeUndefined();
+    // Nulový posun se neukládá vůbec.
+    expect(taskById(setTaskMapOffset(moved, child.task.id, { x: 0, y: 0 }), child.task.id)!.mapOffset).toBeUndefined();
   });
 });

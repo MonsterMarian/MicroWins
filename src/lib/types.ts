@@ -146,6 +146,25 @@ export interface Task {
   createdAt: string;
   /** Kdy úkol poprvé dosáhl 100 %. */
   completedAt: string | null;
+  /**
+   * Co má kus v mapě atomů v nadpisu: zaškrtávátko, počítadlo `x/y`, nebo
+   * nic (poznámka - do procent se nepočítá). Chybí = podle cíle, jak to appka
+   * dělala vždycky: cíl 1 je zaškrtávátko, víc je počítadlo.
+   */
+  tracker?: TaskTracker;
+  /**
+   * Ruční posun uzlu v mapě atomů proti místu, kam by ho postavilo
+   * automatické rozmístění. Počítá se **od rodiče**, takže posunutý rodič
+   * s sebou veze celý svůj podstrom. Chybí = uzel stojí, kde ho strom postaví.
+   */
+  mapOffset?: MapOffset;
+}
+
+export type TaskTracker = "check" | "count" | "none";
+
+export interface MapOffset {
+  x: number;
+  y: number;
 }
 
 /**

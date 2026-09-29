@@ -1,20 +1,33 @@
 "use client";
 
 import * as React from "react";
-import { Check, ChevronDown, ChevronRight, Maximize2, Minus, Plus, Trash2 } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Expand,
+  LayoutGrid,
+  Minus,
+  Plus,
+  ScanSearch,
+  Shrink,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { ProgressBar } from "@/components/ui/progress";
 import { useStore } from "@/components/providers/store-provider";
 import { useToast } from "@/components/providers/toast-provider";
 import { tapFeedback, winFeedback } from "@/lib/native";
 import {
+  clampZoom,
   edgePath,
-  layoutTree,
-  NODE_HEIGHT,
+  fitCamera,
   NODE_WIDTH,
+  zoomAround,
+  type Camera,
   type PlacedNode,
+  type Point,
+  layoutTree,
   type TreeInput,
 } from "@/lib/atom-tree";
 import {
@@ -23,213 +36,538 @@ import {
   isTaskDone,
   subtasksOf,
   taskPercent,
+  trackerOf,
 } from "@/lib/projects";
-import type { MicroWinsState, Task } from "@/lib/types";
+import type { MapOffset, MicroWinsState, Task } from "@/lib/types";
 import { cn, plural } from "@/lib/utils";
-import { useAtomDrag, type AtomDrag } from "./use-atom-drag";
 
 /**
- * Mapa rozsekaného úkolu jako **kreslený strom**: kořen nahoře, pod ním patra
- * jeho kusů spojená čarami, dole atomy k odškrtnutí.
+ * Mapa rozsekaného úkolu jako **nekonečné plátno** - podobně jako Miro.
  *
- * Plátno se posouvá prstem (obyčejné scrollování) a jako celek se škáluje -
- * po otevření se strom sám napasuje na šířku, dál si ho jde přiblížit. Uzly
- * jsou obyčejné HTML prvky nad SVG s hranami: text se pak dá zalomit
- * a tlačítka uvnitř uzlu fungují jako všude jinde.
+ * - jedním prstem po prázdném místě se plátno posouvá, dvěma se zoomuje
+ *   (myší kolečko, na touchpadu sevření prstů)
+ * - buňka se dá chytit a odtáhnout kamkoliv; veze s sebou celý svůj podstrom
+ *   a místo si pamatuje (`Task.mapOffset`)
+ * - puštěná **na jinou buňku** se pod ni převěsí - rozsekávání je hádání, první
+ *   nástřel se skoro nikdy netrefí a přerovnat mapu musí jít bez přepisování
+ * - ťuknutí na buňku otevře úpravu (nadpis, co je v nadpisu, popis)
  *
- * Kus se dá přetáhnout na jiný a tím pod něj převěsit - rozsekávání je hádání,
- * takže se první nástřel skoro nikdy netrefí a přerovnat mapu musí jít bez
- * mazání a psaní znovu.
+ * Výchozí rozmístění pořád dělá strom (`lib/atom-tree.ts`), ruční posun se
+ * k němu jen přičítá. Nové kusy tak padají na rozumné místo i v mapě, kterou
+ * už někdo přerovnal, a "Srovnat" vrátí všechno do stromu.
+ *
+ * Buňky jsou obyčejné HTML nad SVG s hranami: text se zalamuje a tlačítka
+ * uvnitř fungují jako všude jinde.
  */
 
-/** Virtuální uzel pro rozepsaný nový kus - v layoutu zabere místo jako dítě. */
+/** Virtuální buňka pro rozepsaný nový kus - v rozmístění zabere místo jako dítě. */
 const ADD_ID = "__add__";
 
-const MIN_ZOOM = 0.45;
-const MAX_ZOOM = 1.4;
+/** O kolik pixelů se musí prst pohnout, než se z ťuknutí stane tah. */
+const DRAG_THRESHOLD = 6;
 
 export interface AtomCanvasProps {
   root: Task;
   collapsed: Set<string>;
   onToggle: (id: string) => void;
-  editing: string | null;
-  onEditing: (id: string | null) => void;
   adding: string | null;
   onAdding: (id: string | null) => void;
-  onDelete: (task: Task) => void;
+  /** Ťuknutí na buňku - úprava nadpisu, počítadla a popisu. */
+  onOpen: (task: Task) => void;
 }
+
+/** Co se zrovna děje pod prsty. */
+type Gesture =
+  | { kind: "idle" }
+  /** Prst na buňce, ale ještě se nepohnul dost na tah - může to být ťuknutí. */
+  | { kind: "press"; id: string; pointerId: number; start: Point }
+  | { kind: "node"; id: string; pointerId: number; start: Point; base: MapOffset }
+  | { kind: "pan"; pointerId: number; last: Point }
+  | { kind: "pinch"; startDistance: number; startMid: Point; startCamera: Camera };
 
 export function AtomCanvas(props: AtomCanvasProps) {
-  const { state, reparentTask } = useStore();
+  const { state, reparentTask, placeTask, resetTaskMap } = useStore();
   const { toast } = useToast();
   const { root, collapsed, adding, onToggle } = props;
-  const wrapRef = React.useRef<HTMLDivElement>(null);
-  const [width, setWidth] = React.useState(0);
-  /** `null` = napasovat na šířku; číslo = uživatel si přiblížil sám. */
-  const [zoom, setZoom] = React.useState<number | null>(null);
+
+  const viewportRef = React.useRef<HTMLDivElement>(null);
+  const [size, setSize] = React.useState({ width: 0, height: 0 });
+  /** `null` = napasovat celý strom do okna; jinak si kameru vede uživatel. */
+  const [camera, setCamera] = React.useState<Camera | null>(null);
+  const [heights, setHeights] = React.useState<Map<string, number>>(() => new Map());
+  /** Buňka v ruce a kam se zrovna posunula (v jednotkách plátna). */
+  const [live, setLive] = React.useState<{ id: string; offset: MapOffset } | null>(null);
+  const [target, setTarget] = React.useState<string | null>(null);
+  const [fullscreen, setFullscreen] = React.useState(false);
+
+  const gesture = React.useRef<Gesture>({ kind: "idle" });
+  const pointers = React.useRef(new Map<number, Point>());
+  /** Po tahu nesmí dopadnout klik - jinak by se po přesunu otevřela úprava. */
+  const swallowClick = React.useRef(false);
 
   React.useEffect(() => {
-    const el = wrapRef.current;
+    const el = viewportRef.current;
     if (!el) return;
-    const ro = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width));
+    // Změří se hned: observer se hlásí až s prvním snímkem, a ten na pozadí nepřijde.
+    setSize({ width: el.clientWidth, height: el.clientHeight });
+    const ro = new ResizeObserver(([entry]) =>
+      setSize({ width: entry.contentRect.width, height: entry.contentRect.height }),
+    );
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [fullscreen]);
 
-  const tree = React.useMemo(
-    () => layoutTree(buildTree(state, root, collapsed, adding)),
-    [state, root, collapsed, adding],
-  );
-
-  const fit = width > 0 ? clampZoom((width - 24) / tree.width) : 1;
-  const scale = zoom ?? Math.min(1, fit);
-  const nodeById = React.useMemo(
-    () => new Map(tree.nodes.map((n) => [n.id, n])),
-    [tree],
-  );
   const taskById = React.useMemo(() => new Map(state.tasks.map((t) => [t.id, t])), [state.tasks]);
 
-  /* Plátno se při tažení u kraje samo posouvá - mapa bývá větší než okénko. */
-  const drag = useAtomDrag((source, target) => {
-    const task = taskById.get(source.id);
-    if (!task || !canDrop(state, source.id, target.id)) return;
-    const parent = taskById.get(target.id);
-    const previous = task.parentId;
+  const layout = React.useMemo(
+    () =>
+      layoutTree(buildTree(state, root, collapsed, adding), {
+        heightOf: (id) => heights.get(id),
+        offsetOf: (id) =>
+          live?.id === id ? live.offset : (taskById.get(id)?.mapOffset ?? undefined),
+      }),
+    [state, root, collapsed, adding, heights, live, taskById],
+  );
+  const nodeById = React.useMemo(() => new Map(layout.nodes.map((n) => [n.id, n])), [layout]);
 
-    reparentTask(source.id, target.id);
-    // Sbalený cíl se rozbalí, ať je vidět, kam kus spadl.
-    if (collapsed.has(target.id)) onToggle(target.id);
+  const cam =
+    camera ??
+    (size.width > 0 ? fitCamera(layout.bounds, size.width, size.height) : { x: 0, y: 0, zoom: 1 });
+  const camRef = React.useRef(cam);
+  camRef.current = cam;
+
+  /* Výšky buněk se měří - popis je volitelný a různě dlouhý a patro stromu
+     musí být vysoké jako jeho nejvyšší buňka. `offsetHeight` zoom nezná,
+     takže měří v jednotkách plátna. */
+  const observer = React.useRef<ResizeObserver | null>(null);
+  React.useEffect(() => () => observer.current?.disconnect(), []);
+  /* Observer se zakládá až při první buňce: ref buněk běží dřív než efekty,
+     takže observer z efektu by první várku buněk minul. */
+  const measure = React.useCallback((el: HTMLElement | null) => {
+    if (!el) return;
+    observer.current ??= new ResizeObserver((entries) => {
+      setHeights((prev) => {
+        let next: Map<string, number> | null = null;
+        for (const entry of entries) {
+          const node = entry.target as HTMLElement;
+          const id = node.dataset.measure;
+          const h = node.offsetHeight;
+          if (!id || h === 0 || prev.get(id) === h) continue;
+          next ??= new Map(prev);
+          next.set(id, h);
+        }
+        return next ?? prev;
+      });
+    });
+    observer.current.observe(el);
+    // Hned i napřímo - observer se hlásí až s prvním snímkem.
+    const id = el.dataset.measure;
+    const h = el.offsetHeight;
+    if (id && h > 0) setHeights((prev) => (prev.get(id) === h ? prev : new Map(prev).set(id, h)));
+  }, []);
+
+  /** Kam se buňka `id` pustit nedá: na sebe, na svůj podstrom a tam, kde už visí. */
+  const blockedFor = React.useCallback(
+    (id: string) => {
+      const set = new Set<string>([id, ADD_ID]);
+      for (const child of descendantsOf(state, id)) set.add(child.id);
+      const parent = taskById.get(id)?.parentId;
+      if (parent) set.add(parent);
+      return set;
+    },
+    [state, taskById],
+  );
+  const blocked = React.useMemo(() => (live ? blockedFor(live.id) : null), [live, blockedFor]);
+
+  const dropTargetAt = (x: number, y: number, id: string): string | null => {
+    const el = document.elementFromPoint(x, y) as HTMLElement | null;
+    const over = el?.closest<HTMLElement>("[data-atom-id]")?.dataset.atomId ?? null;
+    if (!over || blockedFor(id).has(over)) return null;
+    return over;
+  };
+
+  // --- gesta ----------------------------------------------------------------
+
+  const local = (clientX: number, clientY: number): Point => {
+    const rect = viewportRef.current?.getBoundingClientRect();
+    return { x: clientX - (rect?.left ?? 0), y: clientY - (rect?.top ?? 0) };
+  };
+
+  /* Dokud si uživatel plátno nesáhl, drží se napasované na celý strom - nový
+     kus tak nikdy neuteče mimo obraz. Od prvního posunu, zoomu nebo tahu buňky
+     si kameru vede sám; jinak by napasování ujíždělo pod prsty. Obyčejné
+     ťuknutí (odškrtnutí, +) kameru nezamyká. */
+  const holdCamera = () => setCamera((c) => c ?? camRef.current);
+
+  const startPinch = () => {
+    const [a, b] = [...pointers.current.values()];
+    gesture.current = {
+      kind: "pinch",
+      startDistance: Math.max(1, distance(a, b)),
+      startMid: midpoint(a, b),
+      startCamera: camRef.current,
+    };
+    // Rozdělaný tah buňky se zahodí - dva prsty znamenají "chci se rozhlédnout".
+    holdCamera();
+    setLive(null);
+    setTarget(null);
+  };
+
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    const el = e.target as HTMLElement;
+    // V poli se píše a vybírá text - tam gesta nepatří.
+    if (el.closest("input, textarea, [data-no-gesture]")) return;
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+
+    swallowClick.current = false;
+
+    const point = local(e.clientX, e.clientY);
+    pointers.current.set(e.pointerId, point);
+
+    if (pointers.current.size === 2) {
+      startPinch();
+      return;
+    }
+    if (pointers.current.size > 2) return;
+
+    const node = el.closest<HTMLElement>("[data-atom-id]");
+    const id = node?.dataset.atomId;
+    if (id && id !== ADD_ID) {
+      gesture.current = { kind: "press", id, pointerId: e.pointerId, start: point };
+    } else {
+      gesture.current = { kind: "pan", pointerId: e.pointerId, last: point };
+      capture(e);
+    }
+  };
+
+  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!pointers.current.has(e.pointerId)) return;
+    const point = local(e.clientX, e.clientY);
+    pointers.current.set(e.pointerId, point);
+    const g = gesture.current;
+
+    if (g.kind === "pinch") {
+      const [a, b] = [...pointers.current.values()];
+      if (!a || !b) return;
+      const mid = midpoint(a, b);
+      const zoom = clampZoom(g.startCamera.zoom * (distance(a, b) / g.startDistance));
+      // Bod plátna, který byl na začátku mezi prsty, zůstává mezi nimi.
+      const cx = (g.startMid.x - g.startCamera.x) / g.startCamera.zoom;
+      const cy = (g.startMid.y - g.startCamera.y) / g.startCamera.zoom;
+      setCamera({ zoom, x: mid.x - cx * zoom, y: mid.y - cy * zoom });
+      return;
+    }
+
+    if (g.kind === "pan" && g.pointerId === e.pointerId) {
+      const dx = point.x - g.last.x;
+      const dy = point.y - g.last.y;
+      g.last = point;
+      if (Math.abs(dx) + Math.abs(dy) > 0) swallowClick.current = true;
+      setCamera((c) => {
+        const base = c ?? camRef.current;
+        return { ...base, x: base.x + dx, y: base.y + dy };
+      });
+      return;
+    }
+
+    if (g.kind === "press" && g.pointerId === e.pointerId) {
+      if (distance(point, g.start) < DRAG_THRESHOLD) return;
+      const base = taskById.get(g.id)?.mapOffset ?? { x: 0, y: 0 };
+      gesture.current = { kind: "node", id: g.id, pointerId: g.pointerId, start: g.start, base };
+      swallowClick.current = true;
+      holdCamera();
+      capture(e);
+      void tapFeedback();
+    }
+
+    const n = gesture.current;
+    if (n.kind === "node" && n.pointerId === e.pointerId) {
+      const zoom = camRef.current.zoom;
+      setLive({
+        id: n.id,
+        offset: {
+          x: n.base.x + (point.x - n.start.x) / zoom,
+          y: n.base.y + (point.y - n.start.y) / zoom,
+        },
+      });
+      setTarget(dropTargetAt(e.clientX, e.clientY, n.id));
+    }
+  };
+
+  const finish = (e: React.PointerEvent<HTMLDivElement>, cancelled: boolean) => {
+    if (!pointers.current.has(e.pointerId)) return;
+    pointers.current.delete(e.pointerId);
+    const g = gesture.current;
+
+    if (g.kind === "pinch") {
+      // Po sevření zůstane jeden prst - ten plynule přejde do posunu.
+      const rest = [...pointers.current.entries()][0];
+      gesture.current = rest
+        ? { kind: "pan", pointerId: rest[0], last: rest[1] }
+        : { kind: "idle" };
+      swallowClick.current = true;
+      return;
+    }
+
+    if (g.kind === "node" && g.pointerId === e.pointerId) {
+      const task = taskById.get(g.id);
+      const over = cancelled ? null : dropTargetAt(e.clientX, e.clientY, g.id);
+      if (task && over) {
+        const previousParent = task.parentId;
+        const previousOffset = task.mapOffset ?? null;
+        reparentTask(task.id, over);
+        // Pod novým rodičem se kus postaví tam, kam patří ve stromu.
+        placeTask(task.id, null);
+        if (collapsed.has(over)) onToggle(over);
+        toast({
+          tone: "info",
+          title: `Převěšeno pod "${taskById.get(over)?.name ?? ""}"`,
+          description: task.name,
+          action: {
+            label: "Vrátit",
+            onClick: () => {
+              reparentTask(task.id, previousParent);
+              placeTask(task.id, previousOffset);
+            },
+          },
+        });
+      } else if (task && live?.id === g.id && !cancelled) {
+        placeTask(task.id, live.offset);
+      }
+      setLive(null);
+      setTarget(null);
+    }
+
+    if (pointers.current.size === 0) gesture.current = { kind: "idle" };
+  };
+
+  /* Kolečko myši zoomuje kolem kurzoru (jako Miro), sevření na touchpadu
+     přijde jako kolečko s Ctrl. Posun dvěma prsty po touchpadu plátno posouvá.
+     Posluchač musí být nepasivní, jinak `preventDefault` neprojde a zoomovala
+     by se celá stránka. */
+  React.useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const rect = el.getBoundingClientRect();
+      const anchor = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      const mouseWheel = e.deltaX === 0 && Number.isInteger(e.deltaY) && Math.abs(e.deltaY) >= 50;
+      setCamera((c) => {
+        const base = c ?? camRef.current;
+        if (e.ctrlKey || mouseWheel) {
+          return zoomAround(base, base.zoom * Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)), anchor);
+        }
+        return { ...base, x: base.x - e.deltaX, y: base.y - e.deltaY };
+      });
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [fullscreen]);
+
+  // Celá obrazovka se zavírá i Escapem.
+  React.useEffect(() => {
+    if (!fullscreen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setFullscreen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = previous;
+    };
+  }, [fullscreen]);
+
+  const zoomBy = (factor: number) => {
+    const base = camRef.current;
+    setCamera(zoomAround(base, base.zoom * factor, { x: size.width / 2, y: size.height / 2 }));
+  };
+
+  const subtree = React.useMemo(
+    () => [root, ...descendantsOf(state, root.id)],
+    [state, root],
+  );
+  const arranged = subtree.some((t) => t.mapOffset);
+
+  const tidy = () => {
+    const saved = subtree.filter((t) => t.mapOffset).map((t) => [t.id, t.mapOffset!] as const);
+    resetTaskMap(root.id);
+    setCamera(null);
     toast({
       tone: "info",
-      title: `Převěšeno pod "${parent?.name ?? ""}"`,
-      description: source.title,
-      action: { label: "Vrátit", onClick: () => reparentTask(source.id, previous) },
+      title: "Mapa srovnaná do stromu",
+      action: {
+        label: "Vrátit",
+        onClick: () => {
+          for (const [id, offset] of saved) placeTask(id, offset);
+        },
+      },
     });
-  }, () => wrapRef.current);
+  };
 
-  /**
-   * Kam se tažený kus pustit nedá: na sebe, na svoje potomky (strom by se
-   * zacyklil) a tam, kde už visí. Počítá se jednou za tah, ne u každého uzlu.
-   */
-  const held = drag.ghost?.source.id ?? null;
-  const blocked = React.useMemo(() => {
-    if (held === null) return null;
-    const set = new Set<string>([held]);
-    for (const child of descendantsOf(state, held)) set.add(child.id);
-    const parent = taskById.get(held)?.parentId;
-    if (parent) set.add(parent);
-    return set;
-  }, [held, state, taskById]);
+  const grid = 24 * cam.zoom;
 
   return (
-    <Card className="relative overflow-hidden p-0">
-      <div className="absolute right-2 top-2 z-10 flex items-center gap-0.5 rounded-lg border bg-card/90 p-0.5 backdrop-blur">
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label="Oddálit"
-          onClick={() => setZoom(clampZoom(scale - 0.15))}
-        >
-          <Minus />
-        </Button>
-        <span className="tabular w-9 text-center text-[11px] text-muted-foreground">
-          {Math.round(scale * 100)} %
-        </span>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label="Přiblížit"
-          onClick={() => setZoom(clampZoom(scale + 0.15))}
-        >
-          <Plus />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label="Napasovat na šířku"
-          title="Napasovat na šířku"
-          onClick={() => setZoom(null)}
-        >
-          <Maximize2 />
-        </Button>
-      </div>
-
-      <div ref={wrapRef} className="max-h-[60vh] overflow-auto p-3">
-        <div
-          className="relative"
-          style={{ width: tree.width * scale, height: tree.height * scale }}
-        >
-          <div
-            className="absolute left-0 top-0 origin-top-left"
-            style={{ width: tree.width, height: tree.height, transform: `scale(${scale})` }}
+    <div
+      className={cn(
+        "overflow-hidden border bg-card shadow-sm",
+        fullscreen ? "fixed inset-0 z-40 rounded-none border-0" : "relative rounded-xl",
+      )}
+    >
+      <div className="mw-safe-x absolute left-2 right-2 top-2 z-10 flex items-start justify-between gap-2 pointer-events-none">
+        {fullscreen ? (
+          <span className="mt-1 min-w-0 truncate rounded-lg border bg-card/90 px-2 py-1 text-xs font-medium backdrop-blur pointer-events-auto">
+            {root.name}
+          </span>
+        ) : (
+          <span />
+        )}
+        <div className="pointer-events-auto flex items-center gap-0.5 rounded-lg border bg-card/90 p-0.5 backdrop-blur">
+          <Button variant="ghost" size="icon-sm" aria-label="Oddálit" onClick={() => zoomBy(1 / 1.25)}>
+            <Minus />
+          </Button>
+          <span className="tabular w-9 text-center text-[11px] text-muted-foreground">
+            {Math.round(cam.zoom * 100)} %
+          </span>
+          <Button variant="ghost" size="icon-sm" aria-label="Přiblížit" onClick={() => zoomBy(1.25)}>
+            <Plus />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Ukázat celý strom"
+            title="Ukázat celý strom"
+            onClick={() => setCamera(null)}
           >
-            <svg
-              width={tree.width}
-              height={tree.height}
-              className="pointer-events-none absolute inset-0"
-              aria-hidden
-            >
-              {tree.edges.map((edge) => {
-                const from = nodeById.get(edge.from);
-                const to = nodeById.get(edge.to);
-                if (!from || !to) return null;
-                return (
-                  <path
-                    key={`${edge.from}-${edge.to}`}
-                    d={edgePath(tree.center(from), tree.center(to))}
-                    fill="none"
-                    stroke="var(--border)"
-                    strokeWidth={1.5}
-                  />
-                );
-              })}
-            </svg>
-
-            {tree.nodes.map((node) =>
-              node.id === ADD_ID ? (
-                <AddNode key={node.id} node={node} parentId={adding} onDone={props.onAdding} />
-              ) : (
-                <TaskNode
-                  key={node.id}
-                  {...props}
-                  node={node}
-                  task={taskById.get(node.id)}
-                  isRoot={root.id === node.id}
-                  drag={drag}
-                  held={held === node.id}
-                  isTarget={drag.target?.id === node.id && blocked !== null && !blocked.has(node.id)}
-                />
-              ),
-            )}
-          </div>
+            <ScanSearch />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Srovnat do stromu"
+            title="Srovnat ručně posunuté buňky zpátky do stromu"
+            disabled={!arranged}
+            onClick={tidy}
+          >
+            <LayoutGrid />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={fullscreen ? "Zmenšit" : "Na celou obrazovku"}
+            title={fullscreen ? "Zmenšit" : "Na celou obrazovku"}
+            onClick={() => {
+              setFullscreen((v) => !v);
+              setCamera(null);
+            }}
+          >
+            {fullscreen ? <Shrink /> : <Expand />}
+          </Button>
         </div>
       </div>
 
-      {drag.ghost ? (
+      <div
+        ref={viewportRef}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={(e) => finish(e, false)}
+        onPointerCancel={(e) => finish(e, true)}
+        onClickCapture={(e) => {
+          if (!swallowClick.current) return;
+          swallowClick.current = false;
+          e.stopPropagation();
+          e.preventDefault();
+        }}
+        onContextMenu={(e) => e.preventDefault()}
+        className={cn(
+          "relative touch-none select-none overflow-hidden [-webkit-touch-callout:none]",
+          fullscreen ? "h-full" : "h-[65dvh] min-h-80",
+          gesture.current.kind === "pan" ? "cursor-grabbing" : "cursor-grab",
+        )}
+        /* Tečkovaný papír jako v Miru - jede s kamerou, takže je vidět posun i zoom. */
+        style={{
+          backgroundImage: "radial-gradient(var(--border) 1px, transparent 1px)",
+          backgroundSize: `${grid}px ${grid}px`,
+          backgroundPosition: `${cam.x}px ${cam.y}px`,
+        }}
+      >
         <div
-          className="pointer-events-none fixed z-50 max-w-[45vw] truncate rounded-md border bg-popover px-2 py-1 text-[11px] shadow-lg"
-          style={{ left: drag.ghost.x + 12, top: drag.ghost.y - 10 }}
+          className="absolute left-0 top-0 origin-top-left"
+          style={{ transform: `translate(${cam.x}px, ${cam.y}px) scale(${cam.zoom})` }}
         >
-          {drag.ghost.source.title}
+          <svg
+            width={1}
+            height={1}
+            className="pointer-events-none absolute left-0 top-0 overflow-visible"
+            aria-hidden
+          >
+            {layout.edges.map((edge) => {
+              const from = nodeById.get(edge.from);
+              const to = nodeById.get(edge.to);
+              if (!from || !to) return null;
+              return (
+                <path
+                  key={`${edge.from}-${edge.to}`}
+                  d={edgePath(from, to)}
+                  fill="none"
+                  stroke="var(--border)"
+                  strokeWidth={1.5}
+                />
+              );
+            })}
+          </svg>
+
+          {layout.nodes.map((node) =>
+            node.id === ADD_ID ? (
+              <AddNode
+                key={node.id}
+                node={node}
+                parentId={adding}
+                onDone={props.onAdding}
+                measure={measure}
+              />
+            ) : (
+              <TaskNode
+                key={node.id}
+                {...props}
+                node={node}
+                task={taskById.get(node.id)}
+                isRoot={root.id === node.id}
+                held={live?.id === node.id}
+                isTarget={target === node.id && blocked !== null && !blocked.has(node.id)}
+                measure={measure}
+              />
+            ),
+          )}
         </div>
-      ) : null}
-    </Card>
+      </div>
+    </div>
   );
 }
 
-function clampZoom(value: number): number {
-  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round(value * 100) / 100));
+/**
+ * Prst se chytí na plátno, ať tah pokračuje i mimo něj. Prohlížeč to umí
+ * odmítnout (prst už mezitím pustil) - pak se tah dojede i bez toho.
+ */
+function capture(e: React.PointerEvent<HTMLElement>) {
+  try {
+    e.currentTarget.setPointerCapture(e.pointerId);
+  } catch {
+    // není co chytat
+  }
 }
 
-/** Smí kus `id` pod `parentId`? Viz `reparentTask`, tohle je jeho obrazovková půlka. */
-function canDrop(state: MicroWinsState, id: string, parentId: string): boolean {
-  if (id === parentId) return false;
-  const task = state.tasks.find((t) => t.id === id);
-  if (!task || task.parentId === parentId) return false;
-  return !descendantsOf(state, id).some((child) => child.id === parentId);
+function distance(a: Point, b: Point): number {
+  return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
-/** Strom pro rozmístění: sbalený uzel děti neukazuje, rozepsaný kus je taky uzel. */
+function midpoint(a: Point, b: Point): Point {
+  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+}
+
+/** Strom pro rozmístění: sbalená buňka děti neukazuje, rozepsaný kus je taky buňka. */
 function buildTree(
   state: MicroWinsState,
   root: Task,
@@ -246,72 +584,64 @@ function buildTree(
   return make(root);
 }
 
+/**
+ * Buňka mapy: **nadpis** (bílý, tučnější) a pod ním **popis** (šedý).
+ *
+ * V nadpisu může být zaškrtávátko (hotovo = 100 %), počítadlo `x/y`
+ * (3/6 = 50 %), nebo nic - pak je to poznámka a do procent se nepočítá.
+ * Buňka s kusy pod sebou má procenta spočítaná z nich, takže místo toho
+ * ukazuje pruh.
+ */
 function TaskNode({
   node,
   task,
   isRoot,
   collapsed,
   onToggle,
-  editing,
-  onEditing,
   onAdding,
-  onDelete,
-  drag,
+  onOpen,
   held,
   isTarget,
-}: Omit<AtomCanvasProps, "root"> & {
+  measure,
+}: Omit<AtomCanvasProps, "root" | "adding"> & {
   node: PlacedNode;
   task: Task | undefined;
   isRoot: boolean;
-  drag: AtomDrag;
-  /** Tenhle uzel je zrovna v ruce. */
+  /** Tahle buňka je zrovna v ruce. */
   held: boolean;
-  /** Visí nad ním tažený kus a pustit se sem dá. */
+  /** Visí nad ní tažená buňka a pustit se sem dá. */
   isTarget: boolean;
+  measure: (el: HTMLElement | null) => void;
 }) {
-  const { state, toggleTaskDone, updateTask } = useStore();
+  const { state, toggleTaskDone, adjustTask } = useStore();
   if (!task) return null;
 
   const children = subtasksOf(state, task.id);
-  const leaf = children.length === 0;
-  const done = isTaskDone(state, task);
+  const tracker = trackerOf(state, task);
+  const done = tracker !== "none" && isTaskDone(state, task);
   const percent = taskPercent(state, task);
   const open = !collapsed.has(task.id);
-  const writing = editing === task.id;
-
-  const rename = (text: string) => {
-    const value = text.trim();
-    if (value && value !== task.name) updateTask(task.id, { name: value });
-    onEditing(null);
-  };
 
   return (
     <div
+      ref={measure}
+      data-measure={task.id}
       data-atom-id={task.id}
-      /* Táhne se za celý uzel, jako se v seznamech táhne za řádek - na uzel
-         velký jako dva prsty se zvláštní úchyt nevejde. V rozepsaném poli ale
-         patří tah výběru textu, tam se tažení nezačíná. */
-      onPointerDown={
-        writing
-          ? undefined
-          : (e) => {
-              if ((e.target as HTMLElement).closest("input, textarea")) return;
-              drag.press({ id: task.id, title: task.name }, e);
-            }
-      }
-      onContextMenu={(e) => e.preventDefault()}
+      onClick={(e) => {
+        if ((e.target as HTMLElement).closest("button")) return;
+        onOpen(task);
+      }}
       className={cn(
-        "absolute flex flex-col justify-between rounded-xl border bg-card p-1.5 shadow-sm transition-colors [-webkit-touch-callout:none]",
+        "absolute flex cursor-pointer flex-col gap-1 rounded-xl border bg-card px-2.5 pb-3 pt-2 shadow-sm transition-[border-color,background-color,box-shadow,opacity]",
         isRoot && "border-foreground/30",
-        done && "border-progress/50 bg-progress-muted/20",
-        held && "opacity-40",
-        isTarget && "border-progress bg-progress/20 ring-1 ring-progress",
+        done && "border-progress/50",
+        held && "z-20 opacity-80 shadow-lg ring-1 ring-foreground/20 pointer-events-none",
+        isTarget && "border-progress bg-progress/15 ring-2 ring-progress",
       )}
-      style={{ left: node.x, top: node.y, width: NODE_WIDTH, height: NODE_HEIGHT }}
+      style={{ left: node.x, top: node.y, width: NODE_WIDTH }}
     >
-      <div className="flex min-w-0 items-start gap-1">
-        {leaf ? (
-          /* Atom se dá jen odškrtnout - to je konec rozsekávání. */
+      <div className="flex min-w-0 items-start gap-1.5">
+        {tracker === "check" ? (
           <button
             type="button"
             onClick={() => {
@@ -324,100 +654,91 @@ function TaskNode({
               "mt-px grid size-4 shrink-0 place-items-center rounded-[4px] border transition-colors",
               done
                 ? "border-progress bg-progress text-progress-foreground"
-                : "border-muted-foreground/40",
+                : "border-muted-foreground/50 hover:border-foreground/60",
             )}
           >
             {done ? <Check className="size-3" /> : null}
           </button>
-        ) : (
+        ) : tracker === "count" ? (
+          /* Ťuknutí přičte krok; přesné číslo se dá zapsat v úpravě buňky. */
+          <button
+            type="button"
+            onClick={() => {
+              if (task.current >= task.target) return;
+              void (task.current + task.step >= task.target ? winFeedback() : tapFeedback());
+              adjustTask(task.id, task.step);
+            }}
+            aria-label={`${task.name}: ${task.current} z ${task.target}, přidat ${task.step}`}
+            title="Ťukni a přičte se"
+            className={cn(
+              "tabular -my-px shrink-0 rounded-md border px-1.5 text-[11px] leading-[18px] transition-colors",
+              done
+                ? "border-progress bg-progress text-progress-foreground"
+                : "text-muted-foreground hover:border-foreground/40 hover:text-foreground",
+            )}
+          >
+            {task.current}/{task.target}
+          </button>
+        ) : null}
+
+        <span
+          className={cn(
+            "min-w-0 flex-1 break-words text-[13px] font-semibold leading-snug text-foreground dark:text-white",
+            done && tracker === "check" && "line-through decoration-foreground/40 opacity-70",
+          )}
+        >
+          {task.name}
+        </span>
+
+        {children.length > 0 ? (
           <button
             type="button"
             onClick={() => onToggle(task.id)}
             aria-expanded={open}
             aria-label={open ? `Sbalit ${task.name}` : `Rozbalit ${task.name}`}
-            className="mt-px grid size-4 shrink-0 place-items-center text-muted-foreground"
+            className="-mr-1 grid size-5 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
           >
             {open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
           </button>
-        )}
-
-        {writing ? (
-          <Input
-            autoFocus
-            defaultValue={task.name}
-            onBlur={(e) => rename(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") rename(e.currentTarget.value);
-              if (e.key === "Escape") onEditing(null);
-            }}
-            aria-label="Název"
-            className="h-6 px-1 text-[11px]"
-          />
-        ) : (
-          <button
-            type="button"
-            onClick={() => onEditing(task.id)}
-            title={task.name}
-            /* Do uzlu se vejdou dva řádky; delší jméno se useklo, ale celé je
-               v bublině a po ťuknutí v poli. Bez useknutí text přetékal z uzlu
-               přes čáry pod ním. */
-            className={cn(
-              "line-clamp-2 min-w-0 flex-1 break-words text-left text-[11px] leading-snug",
-              done && "text-muted-foreground line-through",
-            )}
-          >
-            {task.name}
-          </button>
-        )}
+        ) : null}
       </div>
 
-      <div className="flex items-center gap-1">
-        {leaf ? null : (
-          <>
-            <span className="tabular shrink-0 text-[10px] text-muted-foreground">
-              {displayPercent(percent)} %
+      {task.description.trim() ? (
+        /* Popis je v buňce celý jen do pár řádků - delší se dočte v úpravě. */
+        <p className="line-clamp-6 whitespace-pre-line break-words text-[11px] leading-snug text-muted-foreground">
+          {task.description}
+        </p>
+      ) : null}
+
+      {children.length > 0 ? (
+        <div className="mt-0.5 flex items-center gap-1.5">
+          {open ? (
+            <ProgressBar value={percent} size="sm" quiet className="min-w-0 flex-1" />
+          ) : (
+            /* Sbalená buňka řekne, kolik kusů schovala - jinak vypadá jako atom. */
+            <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground">
+              {children.length} {plural(children.length, "kus", "kusy", "kusů")} schováno
             </span>
-            {/* Sbalený uzel řekne, kolik kusů schoval - jinak vypadá jako atom. */}
-            {open ? (
-              <ProgressBar value={percent} size="sm" quiet className="min-w-0 flex-1" />
-            ) : (
-              <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground">
-                {children.length} {plural(children.length, "kus", "kusy", "kusů")}
-              </span>
-            )}
-          </>
-        )}
+          )}
+          <span className="tabular shrink-0 text-[10px] text-muted-foreground">
+            {displayPercent(percent)} %
+          </span>
+        </div>
+      ) : null}
 
-        {writing ? (
-          <button
-            type="button"
-            aria-label="Smazat"
-            /* `onMouseDown`, ne `onClick`: klik by přišel až po `blur` pole,
-               které editaci zavře, a tlačítko by zmizelo dřív, než se stihne. */
-            onMouseDown={(e) => {
-              e.preventDefault();
-              onEditing(null);
-              onDelete(task);
-            }}
-            className="ml-auto grid size-5 shrink-0 place-items-center rounded-md text-muted-foreground hover:text-destructive"
-          >
-            <Trash2 className="size-3" />
-          </button>
-        ) : (
-          <button
-            type="button"
-            aria-label={`Rozsekat ${task.name}`}
-            title="Rozsekat na menší kusy"
-            onClick={() => {
-              onAdding(task.id);
-              if (collapsed.has(task.id)) onToggle(task.id);
-            }}
-            className="ml-auto grid size-5 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-          >
-            <Plus className="size-3" />
-          </button>
-        )}
-      </div>
+      {/* Úchyt na rozsekání visí na spodní hraně, odkud vedou čáry k dětem. */}
+      <button
+        type="button"
+        aria-label={`Rozsekat ${task.name}`}
+        title="Rozsekat na menší kusy"
+        onClick={() => {
+          onAdding(task.id);
+          if (collapsed.has(task.id)) onToggle(task.id);
+        }}
+        className="absolute -bottom-2.5 left-1/2 grid size-5 -translate-x-1/2 place-items-center rounded-full border bg-card text-muted-foreground shadow-sm hover:border-foreground/40 hover:text-foreground"
+      >
+        <Plus className="size-3" />
+      </button>
     </div>
   );
 }
@@ -431,10 +752,12 @@ function AddNode({
   node,
   parentId,
   onDone,
+  measure,
 }: {
   node: PlacedNode;
   parentId: string | null;
   onDone: (id: string | null) => void;
+  measure: (el: HTMLElement | null) => void;
 }) {
   const { state, createTask } = useStore();
   const [draft, setDraft] = React.useState("");
@@ -443,8 +766,7 @@ function AddNode({
   const submit = (keepOpen: boolean) => {
     const value = draft.trim();
     if (value && parent) {
-      // Cíl 1 = zaškrtávátko. Atom je hotový, nebo není; procenta si počítá
-      // rodič z toho, kolik jich je odškrtnutých.
+      // Cíl 1 = zaškrtávátko. Počítadlo nebo poznámka se přepne v úpravě buňky.
       createTask(parent.projectId, { name: value, target: 1, parentId: parent.id });
       void tapFeedback();
     }
@@ -454,8 +776,11 @@ function AddNode({
 
   return (
     <div
+      ref={measure}
+      data-measure={ADD_ID}
+      data-no-gesture=""
       className="absolute flex flex-col justify-center rounded-xl border border-dashed bg-card/60 p-1.5"
-      style={{ left: node.x, top: node.y, width: NODE_WIDTH, height: NODE_HEIGHT }}
+      style={{ left: node.x, top: node.y, width: NODE_WIDTH }}
     >
       <Input
         autoFocus
@@ -474,7 +799,7 @@ function AddNode({
           }
         }}
         aria-label={parent ? `Nový kus pod ${parent.name}` : "Nový kus"}
-        className="h-6 px-1 text-[11px]"
+        className="h-8 px-2 text-[13px]"
       />
     </div>
   );

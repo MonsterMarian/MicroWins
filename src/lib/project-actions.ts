@@ -12,7 +12,15 @@ import {
   tasksOfProject,
   weightOf,
 } from "./projects";
-import type { ISODate, MicroWinsState, Milestone, Project, Task, TaskSnapshot } from "./types";
+import type {
+  ISODate,
+  MapOffset,
+  MicroWinsState,
+  Milestone,
+  Project,
+  Task,
+  TaskSnapshot,
+} from "./types";
 import { createId } from "./utils";
 
 /** CRUD nad projekty a úkoly. Každá změna hodnoty rovnou zapíše denní otisk. */
@@ -265,8 +273,23 @@ export function createTask(
     createdAt: new Date().toISOString(),
     completedAt: current >= target ? new Date().toISOString() : null,
   };
-  const withTask: MicroWinsState = { ...state, tasks: [...state.tasks, task] };
+  const withTask: MicroWinsState = {
+    ...state,
+    tasks: [...state.tasks.map((t) => (t.id === task.parentId ? promoteNote(t) : t)), task],
+  };
   return { state: snapshotProject(withTask, projectId, today), task };
+}
+
+/**
+ * Poznámka (kus bez zaškrtávátka) má váhu 0, aby netáhla procenta dolů.
+ * Jakmile se pod ni začne sekat, je z ní normální kus - s nulovou vahou by
+ * se nepočítal ani celý podstrom, který pod ní vznikne.
+ */
+function promoteNote(task: Task): Task {
+  if (task.tracker !== "none") return task;
+  const next: Task = { ...task, weight: task.weight === 0 ? 1 : task.weight };
+  delete next.tracker;
+  return next;
 }
 
 export function updateTask(
@@ -317,6 +340,42 @@ export function updateTask(
     ),
   };
   return snapshotProject(withCompletion, task.projectId, today);
+}
+
+/**
+ * Ruční posun uzlu v mapě atomů. Obchází `updateTask` schválně: poloha na
+ * plátně není postup, takže nemá psát snímky historie ani sahat na procenta
+ * projektu - tah prstem jich jinak nadělá desítky.
+ */
+export function setTaskMapOffset(
+  state: MicroWinsState,
+  id: string,
+  offset: MapOffset | null,
+): MicroWinsState {
+  const task = taskById(state, id);
+  if (!task) return state;
+  const next: Task = { ...task };
+  if (offset && (Math.round(offset.x) !== 0 || Math.round(offset.y) !== 0)) {
+    next.mapOffset = { x: Math.round(offset.x), y: Math.round(offset.y) };
+  } else {
+    delete next.mapOffset;
+  }
+  return { ...state, tasks: state.tasks.map((t) => (t.id === id ? next : t)) };
+}
+
+/** Vrátí celou mapu úkolu (kořen i podstrom) na automatické rozmístění. */
+export function clearTaskMap(state: MicroWinsState, rootId: string): MicroWinsState {
+  const ids = new Set([rootId, ...descendantsOf(state, rootId).map((t) => t.id)]);
+  if (!state.tasks.some((t) => ids.has(t.id) && t.mapOffset)) return state;
+  return {
+    ...state,
+    tasks: state.tasks.map((t) => {
+      if (!ids.has(t.id) || !t.mapOffset) return t;
+      const next = { ...t };
+      delete next.mapOffset;
+      return next;
+    }),
+  };
 }
 
 /** Nastaví absolutní hodnotu (slider, přímý zápis). */
@@ -409,7 +468,13 @@ export function reparentTask(
     parentId === null ? tasksOfProject(state, task.projectId) : subtasksOf(state, parentId);
   const next: MicroWinsState = {
     ...state,
-    tasks: state.tasks.map((t) => (t.id === id ? { ...t, parentId, order: siblings.length } : t)),
+    tasks: state.tasks.map((t) =>
+      t.id === id
+        ? { ...t, parentId, order: siblings.length }
+        : t.id === parentId
+          ? promoteNote(t)
+          : t,
+    ),
   };
   return snapshotProject(next, task.projectId, today);
 }

@@ -20,10 +20,10 @@ import { EntityIcon } from "@/components/ui/icon-picker";
 import { useStore } from "@/components/providers/store-provider";
 import { tapFeedback } from "@/lib/native";
 import {
+  atomsOf,
   descendantsOf,
   displayPercent,
   isTaskDone,
-  leavesOf,
   projectById,
   subtasksOf,
   taskPercent,
@@ -32,6 +32,7 @@ import {
 import type { MicroWinsState, Task } from "@/lib/types";
 import { cn, plural } from "@/lib/utils";
 import { AtomCanvas } from "./atom-canvas";
+import { AtomEditor } from "./atom-editor";
 
 /**
  * Atomizér - rozsekání úkolu na stále menší kusy.
@@ -275,7 +276,7 @@ function TaskStrip({
           const active = current?.id === task.id;
           const percent = taskPercent(state, task);
           const project = projectById(state, task.projectId);
-          const atoms = leavesOf(state, task.id);
+          const atoms = atomsOf(state, task.id);
           const done = atoms.filter((a) => isTaskDone(state, a)).length;
 
           return (
@@ -326,7 +327,7 @@ function AtomMap({ task }: { task: Task }) {
   const { state, deleteTask, updateProject } = useStore();
   const project = projectById(state, task.projectId);
   const [collapsed, setCollapsed] = React.useState<Set<string>>(() => new Set());
-  const [editing, setEditing] = React.useState<string | null>(null);
+  const [openId, setOpenId] = React.useState<string | null>(null);
   const [adding, setAdding] = React.useState<string | null>(null);
   const [pending, setPending] = React.useState<Task | null>(null);
 
@@ -341,7 +342,7 @@ function AtomMap({ task }: { task: Task }) {
     [],
   );
 
-  const atoms = leavesOf(state, task.id);
+  const atoms = atomsOf(state, task.id);
   const done = atoms.filter((a) => isTaskDone(state, a)).length;
   const percent = taskPercent(state, task);
   const below = descendantsOf(state, pending?.id ?? task.id).length;
@@ -414,18 +415,23 @@ function AtomMap({ task }: { task: Task }) {
         root={task}
         collapsed={collapsed}
         onToggle={toggle}
-        editing={editing}
-        onEditing={setEditing}
+        onOpen={(t) => setOpenId(t.id)}
         adding={adding}
         onAdding={setAdding}
-        onDelete={setPending}
       />
 
       <p className="px-1 text-xs text-muted-foreground">
-        Ťukni na jméno a přepíšeš ho, <span className="font-medium">+</span> rozseká kus na menší.
-        Tahem kus převěsíš pod jiný. Atomy na konci větví se jen odškrtávají - a tím se hýbe
-        postupem úkolu i projektu.
+        Plátno posouváš prstem po prázdném místě, dvěma prsty zoomuješ. Buňku chytíš a odtáhneš
+        kam chceš - puštěná na jinou buňku se pod ni převěsí. Ťuknutím ji upravíš (nadpis,
+        zaškrtávátko nebo počítadlo, popis), <span className="font-medium">+</span> pod ní ji
+        rozseká na menší kusy.
       </p>
+
+      <AtomEditor
+        task={openId ? (state.tasks.find((t) => t.id === openId) ?? null) : null}
+        onClose={() => setOpenId(null)}
+        onDelete={setPending}
+      />
 
       <Dialog
         open={pending !== null}

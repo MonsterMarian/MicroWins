@@ -7,6 +7,7 @@ import type {
   Snapshot,
   Task,
   TaskSnapshot,
+  TaskTracker,
 } from "./types";
 
 /**
@@ -112,6 +113,27 @@ export function leavesOf(state: MicroWinsState, taskId: string): Task[] {
   const below = descendantsOf(state, taskId);
   if (below.length === 0) return [task];
   return below.filter((t) => subtasksOf(state, t.id).length === 0);
+}
+
+/**
+ * Co má kus v nadpisu. Kus s podúkoly má procenta spočítaná z nich
+ * (`parent`), takže vlastní zaškrtávátko ani počítadlo nemá. Jinak platí
+ * uložená volba, a když chybí, rozhodne cíl - jak to appka dělala vždycky.
+ */
+export function trackerOf(state: MicroWinsState, task: Task): TaskTracker | "parent" {
+  if (subtasksOf(state, task.id).length > 0) return "parent";
+  if (task.tracker) return task.tracker;
+  return task.target <= 1 ? "check" : "count";
+}
+
+/** Poznámka v mapě atomů - kus bez zaškrtávátka i počítadla. Do atomů se nepočítá. */
+export function isNote(state: MicroWinsState, task: Task): boolean {
+  return trackerOf(state, task) === "none";
+}
+
+/** Atomy k odškrtnutí: listy podstromu bez poznámek. */
+export function atomsOf(state: MicroWinsState, taskId: string): Task[] {
+  return leavesOf(state, taskId).filter((t) => !isNote(state, t));
 }
 
 export function milestonesOfProject(state: MicroWinsState, projectId: string): Milestone[] {

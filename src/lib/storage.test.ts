@@ -87,3 +87,45 @@ describe("migrace pořadí uzlů", () => {
     expect(state!.nodes.map((n) => n.id)).toEqual(["once", "check", "metric", "cat"]);
   });
 });
+
+describe("buňky mapy atomů v uloženém stavu", () => {
+  const task = (id: string, extra: Record<string, unknown>) => ({
+    id,
+    projectId: "p",
+    parentId: null,
+    name: id,
+    icon: "📝",
+    target: 1,
+    current: 0,
+    step: 1,
+    weight: 1,
+    dueDate: null,
+    milestoneId: null,
+    description: "",
+    order: 0,
+    createdAt: "2026-09-01T00:00:00.000Z",
+    completedAt: null,
+    ...extra,
+  });
+  const stored = JSON.stringify({
+    version: 6,
+    nodes: [],
+    entries: [],
+    microwins: [],
+    todos: [],
+    tasks: [
+      task("ok", { tracker: "count", mapOffset: { x: 10, y: -4 } }),
+      task("bad", { tracker: "slider", mapOffset: { x: "vlevo", y: 2 } }),
+    ],
+  });
+
+  it("platná volba a posun projdou, nesmysl zmizí i s klíčem", () => {
+    const state = parseState(stored)!;
+    const [ok, bad] = state.tasks;
+
+    expect(ok.tracker).toBe("count");
+    expect(ok.mapOffset).toEqual({ x: 10, y: -4 });
+    expect("tracker" in bad).toBe(false);
+    expect("mapOffset" in bad).toBe(false);
+  });
+});

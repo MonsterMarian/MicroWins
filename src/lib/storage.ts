@@ -37,15 +37,39 @@ function normalizeTask(task: Task): Task {
      znamená "běžný úkol": cizí nebo starý JSON bez `weight` by s nulou tiše
      přestal hýbat procenty projektu. */
   const weight = task.weight === undefined ? 1 : whole(task.weight, 0);
+  const tracker = isTracker(task.tracker) ? task.tracker : undefined;
+  const mapOffset = isOffset(task.mapOffset) ? task.mapOffset : undefined;
   if (
     target === task.target &&
     current === task.current &&
     step === task.step &&
-    weight === task.weight
+    weight === task.weight &&
+    tracker === task.tracker &&
+    mapOffset === task.mapOffset
   ) {
     return task;
   }
-  return { ...task, target, current, step, weight };
+  const next: Task = { ...task, target, current, step, weight };
+  // Neplatné hodnoty se nepíšou jako `undefined` - klíč zmizí úplně.
+  delete next.tracker;
+  delete next.mapOffset;
+  if (tracker) next.tracker = tracker;
+  if (mapOffset) next.mapOffset = mapOffset;
+  return next;
+}
+
+function isTracker(value: unknown): value is Task["tracker"] {
+  return value === "check" || value === "count" || value === "none";
+}
+
+function isOffset(value: unknown): value is NonNullable<Task["mapOffset"]> {
+  return (
+    isRecord(value) &&
+    typeof value.x === "number" &&
+    Number.isFinite(value.x) &&
+    typeof value.y === "number" &&
+    Number.isFinite(value.y)
+  );
 }
 
 /**

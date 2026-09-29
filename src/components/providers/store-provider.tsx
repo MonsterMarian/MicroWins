@@ -24,6 +24,7 @@ import {
   type MicroWinsState,
   type Milestone,
   type Project,
+  type MapOffset,
   type Task,
   type TimeBlock,
   type Todo,
@@ -75,6 +76,10 @@ export interface StoreApi {
   reparentTask: (id: string, parentId: string | null) => void;
   /** Nové pořadí sourozenců po přetažení. */
   reorderTasks: (ids: string[]) => void;
+  /** Ruční poloha uzlu v mapě atomů; `null` = zpátky na automatické místo. */
+  placeTask: (id: string, offset: MapOffset | null) => void;
+  /** Celá mapa úkolu zpátky na automatické rozmístění. */
+  resetTaskMap: (rootId: string) => void;
 
   /** Jednoduchý seznam. Vrací null, když text po očištění nic neobsahuje. */
   addTodo: (text: string) => Todo | null;
@@ -272,6 +277,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       reparentTask: (id, parentId) =>
         commit(projectActions.reparentTask(ref.current, id, parentId, todayISO())),
       reorderTasks: (ids) => commit(projectActions.reorderTasks(ref.current, ids)),
+      placeTask: (id, offset) => commit(projectActions.setTaskMapOffset(ref.current, id, offset)),
+      resetTaskMap: (rootId) => commit(projectActions.clearTaskMap(ref.current, rootId)),
 
       addTodo: (text) => {
         const res = todoActions.addTodo(ref.current, text);

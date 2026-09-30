@@ -6,6 +6,8 @@ import {
   ChevronRight,
   Download,
   ListChecks,
+  LogIn,
+  LogOut,
   Moon,
   RefreshCw,
   Save,
@@ -13,6 +15,7 @@ import {
   Sun,
   Upload,
   Trophy,
+  UserRound,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
@@ -20,6 +23,9 @@ import { Input, Select } from "@/components/ui/input";
 import { useStore } from "@/components/providers/store-provider";
 import { usePrefs, setPrefs } from "@/components/providers/use-prefs";
 import { useToast } from "@/components/providers/toast-provider";
+import { useAccount } from "@/components/providers/use-account";
+import { LoginDialog } from "@/components/account/login-dialog";
+import { signOut } from "@/lib/account";
 import { ADDON_PART, describePart, type DataPart } from "@/lib/parts";
 import { ACCENTS, ADDONS, PLAN_VIEWS, TIMEBOX_LAYOUTS, TODO_TTL_CHOICES } from "@/lib/prefs";
 import { timeboxRowCount } from "@/lib/timebox";
@@ -110,6 +116,7 @@ export function SettingsDialog({
 
         {activeTab === "main" ? (
           <div className="flex flex-col gap-5 animate-in-up">
+            <AccountSection />
             <DataSection native={native} onImported={() => onOpenChange(false)} />
             {native ? (
               <UpdateSection />
@@ -188,6 +195,76 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "appearance", label: "Vzhled" },
   { id: "addons", label: "Addony" },
 ];
+
+/**
+ * Účet. Nahoře v Nastavení, protože s ním souvisí všechno pod ním - záloha
+ * je dnes jediná cesta, jak dostat data z telefonu, účet bude ta druhá.
+ *
+ * Odhlášení se neptá: nic nemaže, data v telefonu zůstávají.
+ */
+function AccountSection() {
+  const account = useAccount();
+  const { toast } = useToast();
+  const [loginOpen, setLoginOpen] = React.useState(false);
+  const signedIn = account.status === "signed-in";
+
+  const line =
+    account.status === "signed-in"
+      ? "Synchronizace mezi zařízeními se teprve chystá - data jsou zatím jen tady."
+      : account.status === "off"
+        ? "Data jsou jen v tomhle zařízení. Účty se zapnou po napojení databáze."
+        : account.status === "loading"
+          ? "Zjišťuju přihlášení…"
+          : "Data jsou jen v tomhle zařízení.";
+
+  return (
+    <Section title="Účet">
+      <div className="flex items-center gap-3 rounded-lg border px-3 py-2.5">
+        <span
+          className={cn(
+            "grid size-9 shrink-0 place-items-center rounded-full text-sm font-semibold",
+            signedIn ? "bg-foreground text-background" : "bg-muted text-muted-foreground",
+          )}
+          aria-hidden
+        >
+          {signedIn && account.email ? (
+            account.email.slice(0, 1).toUpperCase()
+          ) : (
+            <UserRound className="size-4" />
+          )}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-medium">
+            {signedIn ? account.email || "Přihlášeno" : "Bez účtu"}
+          </span>
+          <span className="block text-xs text-muted-foreground">{line}</span>
+        </span>
+        {account.status === "loading" ? null : signedIn ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={async () => {
+              await signOut();
+              toast({ tone: "info", title: "Odhlášeno", description: "Data v telefonu zůstala." });
+            }}
+          >
+            <LogOut /> Odhlásit
+          </Button>
+        ) : (
+          <Button
+            size="sm"
+            variant={account.status === "off" ? "outline" : "default"}
+            onClick={() => setLoginOpen(true)}
+          >
+            <LogIn /> Přihlásit
+          </Button>
+        )}
+      </div>
+
+      <LoginDialog open={loginOpen} onOpenChange={setLoginOpen} />
+    </Section>
+  );
+}
 
 /**
  * Záloha a obnova. "Poslat" a "Uložit" berou celý stav včetně nastavení (viz

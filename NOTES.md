@@ -183,6 +183,7 @@ src/lib/
   icons.ts            katalog ikon pro projekty (emoji + lucide)
   import.ts           slučování zálohy se stavem (části + přidat/nahradit, mapy atomů)
   parts.ts            části dat k samostatnému uložení (strom, projekty, addony)
+  account.ts          přihlášení kódem z e-mailu přes Supabase (knihovna se načítá až při použití)
   account-merge.ts    převzetí dat ze zařízení do účtu (připraveno, viz DATABAZE.md)
   live-update.ts      živé aktualizace balíku z GitHubu
 ```

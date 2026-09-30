@@ -31,8 +31,9 @@ create index if not exists records_pull on public.records (user_id, updated_at);
 
 alter table public.records enable row level security;
 
--- Každý vidí a mění jen svoje. Díky tomu smí být v appce veřejný anon klíč -
--- repozitář i OTA balíky jsou veřejné, takže nic tajného v nich být nesmí.
+-- Každý vidí a mění jen svoje. Díky tomu smí být v appce veřejný klíč
+-- (publishable) - repozitář i OTA balíky jsou veřejné, nic tajného v nich
+-- být nesmí.
 drop policy if exists "vlastni zaznamy" on public.records;
 create policy "vlastni zaznamy" on public.records
   for all

@@ -29,8 +29,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  *
  * Prázdné = účty ještě nejsou napojené; appka to řekne a jede bez nich.
  */
-export const SUPABASE_URL = "";
-export const SUPABASE_KEY = "";
+export const SUPABASE_URL: string = "https://mgxbvayypbrrbdzurgcj.supabase.co";
+export const SUPABASE_KEY: string = "sb_publishable_ejAce0IsaPlrg8CyrzsePQ_LrDDn4ll";
 
 /** Kde si Supabase drží přihlášení. Do zálohy nepatří a nechodí tam. */
 export const AUTH_STORAGE_KEY = "microwins:auth";

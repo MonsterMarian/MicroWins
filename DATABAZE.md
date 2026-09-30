@@ -250,8 +250,8 @@ Napsané a otestované v [`src/lib/account-merge.ts`](src/lib/account-merge.ts):
 | Krok | Co | Stav |
 |---|---|---|
 | 0 | Pravidla převzetí dat do účtu + testy (`account-merge.ts`) | **hotovo** |
-| 1 | Nastavení → Účet: registrace a přihlášení heslem, odhlášení (`lib/account.ts`, `login-dialog.tsx`) | **hotovo**, čeká na adresu projektu |
-| 2 | Supabase projekt: spustit `supabase/schema.sql`, vypnout Confirm email | potřebuju tebe |
+| 1 | Nastavení → Účet: registrace a přihlášení heslem, odhlášení (`lib/account.ts`, `login-dialog.tsx`) | **hotovo** |
+| 2 | Supabase projekt `mgxbvayypbrrbdzurgcj`: schéma spuštěné, Confirm email vypnuté | **hotovo** (ověřeno 30. 9. 2026) |
 | 3 | Deník změn v telefonu (`lib/changes.ts`, zápis v `commit`) | další na řadě |
 | 4 | `lib/sync.ts` — nahrání, stažení, náhrobky (čisté funkce + testy) | |
 | 5 | Převzetí dat po přihlášení: záloha, náhled, sloučení, případ E | |

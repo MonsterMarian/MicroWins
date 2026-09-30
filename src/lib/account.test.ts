@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { describeAuthError, isValidEmail, normalizeCode, normalizeEmail } from "./account";
+import {
+  ACCOUNT_EXISTS,
+  describeAuthError,
+  isValidEmail,
+  isValidPassword,
+  normalizeEmail,
+  WRONG_PASSWORD,
+} from "./account";
 
 describe("adresa", () => {
   it("se očistí od mezer a velkých písmen - jinak by vznikly dva účty", () => {
@@ -16,47 +23,65 @@ describe("adresa", () => {
   });
 });
 
-describe("kód z e-mailu", () => {
-  it("z vloženého textu nechá jen číslice", () => {
-    expect(normalizeCode("Kód: 123 456")).toBe("123456");
-    expect(normalizeCode("12-34-56")).toBe("123456");
+describe("heslo", () => {
+  it("musí mít aspoň šest znaků, jak to chce Supabase", () => {
+    expect(isValidPassword("12345")).toBe(false);
+    expect(isValidPassword("123456")).toBe(true);
   });
 
-  it("víc než šest číslic se usekne", () => {
-    expect(normalizeCode("1234567890")).toBe("123456");
+  /* Heslo se neořezává: mezera na konci je jeho součást, a kdyby ji appka
+     při registraci zahodila a při přihlášení ne, člověk by se nedostal dovnitř. */
+  it("mezery se počítají", () => {
+    expect(isValidPassword("     x")).toBe(true);
   });
 });
 
 describe("chyby přihlášení česky", () => {
-  it("prošlý nebo špatný kód", () => {
-    expect(describeAuthError({ code: "otp_expired", status: 403 }).message).toMatch(/nesedí/);
-    expect(describeAuthError({ message: "Token has expired or is invalid", status: 403 }).message).toMatch(
-      /nesedí/,
+  it("špatné heslo nebo e-mail", () => {
+    expect(describeAuthError({ code: "invalid_credentials", status: 400 }).message).toBe(
+      WRONG_PASSWORD,
+    );
+    expect(describeAuthError({ message: "Invalid login credentials", status: 400 }).message).toBe(
+      WRONG_PASSWORD,
     );
   });
 
-  /* Supabase dovolí nový kód jednou za minutu a zbytek čekání napíše do
-     anglické věty. Dialog podle čísla odpočítává tlačítko "Poslat znovu". */
-  it("čekání na nový kód vytáhne počet sekund", () => {
+  it("účet, který už existuje", () => {
+    expect(describeAuthError({ code: "user_already_exists", status: 422 }).message).toBe(
+      ACCOUNT_EXISTS,
+    );
+    expect(describeAuthError({ message: "User already registered", status: 422 }).message).toBe(
+      ACCOUNT_EXISTS,
+    );
+  });
+
+  it("slabé heslo", () => {
+    expect(describeAuthError({ code: "weak_password", status: 422 }).message).toMatch(/slabé/);
+  });
+
+  /* Kdyby v Supabase zůstalo zapnuté potvrzování e-mailu, registrace by
+     visela na mailu, který nikdo nepošle. Hláška řekne, co přepnout. */
+  it("nepotvrzený účet ukáže na nastavení databáze", () => {
+    expect(describeAuthError({ code: "email_not_confirmed", status: 400 }).message).toMatch(
+      /Confirm email/,
+    );
+  });
+
+  it("omezení počtu pokusů vytáhne počet sekund", () => {
     const res = describeAuthError({
-      code: "over_email_send_rate_limit",
+      code: "over_request_rate_limit",
       status: 429,
       message: "For security purposes, you can only request this after 42 seconds.",
     });
     expect(res.retryIn).toBe(42);
-    expect(res.message).toBe("Nový kód půjde poslat za 42 s.");
-  });
-
-  it("příliš mnoho pokusů bez udaného času", () => {
+    expect(res.message).toMatch(/42 s/);
     expect(describeAuthError({ status: 429, message: "Too many requests" }).message).toMatch(
       /Moc pokusů/,
     );
   });
 
-  /* Bez vlastního SMTP posílá Supabase jen členům týmu projektu - bez
-     vysvětlení by to vypadalo jako rozbitá appka. */
-  it("adresa, na kterou databáze zatím neposílá", () => {
-    expect(describeAuthError({ code: "email_address_not_authorized" }).message).toMatch(/SMTP/);
+  it("vypnuté zakládání účtů", () => {
+    expect(describeAuthError({ code: "signup_disabled", status: 422 }).message).toMatch(/vypnuté/);
   });
 
   it("výpadek sítě", () => {

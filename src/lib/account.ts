@@ -1,16 +1,17 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /**
- * Uživatelský účet - přihlášení kódem z e-mailu (návrh v DATABAZE.md).
+ * Uživatelský účet - e-mail a heslo (návrh v DATABAZE.md).
  *
  * Účet je volitelný: kdo se nepřihlásí, má appku přesně jako dřív. Proto se
  * knihovna Supabase načítá až ve chvíli, kdy je potřeba (`import()`), stejně
  * jako SDK k AI - v balíku neleží nikomu, kdo účet nepoužívá, a appka bez
  * uloženého přihlášení ji při startu vůbec nesahá.
  *
- * Přihlašuje se **kódem**, ne odkazem v mailu: odkaz by musel otevřít appku,
- * a to je nativní nastavení (deep link) = nové APK, které přes to staré nejde
- * nainstalovat. Kód se opíše a nativní část zůstane, jak je.
+ * Žádné e-maily se neposílají: účet vznikne rovnou z adresy a hesla, bez
+ * potvrzování. V Supabase musí být proto vypnuté "Confirm email" - jinak by
+ * registrace skončila na čekání na mail, který nikdo nepošle (viz `signUp`).
+ * Daň za to: zapomenuté heslo si člověk sám neobnoví, obnova chodí mailem.
  *
  * Synchronizace dat zatím není - přihlášení nic nenahrává ani nestahuje.
  * Převzetí dat z telefonu do účtu je připravené v `account-merge.ts`.
@@ -34,11 +35,8 @@ export const SUPABASE_KEY = "";
 /** Kde si Supabase drží přihlášení. Do zálohy nepatří a nechodí tam. */
 export const AUTH_STORAGE_KEY = "microwins:auth";
 
-/** Kód z e-mailu má šest číslic (Supabase, výchozí délka). */
-export const CODE_LENGTH = 6;
-
-/** Nový kód jde pro stejnou adresu vyžádat nejdřív po minutě. */
-export const RESEND_SECONDS = 60;
+/** Nejkratší heslo, které Supabase ve výchozím nastavení vezme. */
+export const PASSWORD_MIN = 6;
 
 export function accountsEnabled(): boolean {
   return SUPABASE_URL !== "" && SUPABASE_KEY !== "";
@@ -147,38 +145,55 @@ export type AuthResult =
       retryIn?: number;
     };
 
-/** Pošle na adresu kód. Účet, který ještě neexistuje, se tím založí. */
-export async function sendCode(email: string): Promise<AuthResult> {
+/** Přihlášení k účtu, který už existuje. */
+export async function signIn(email: string, password: string): Promise<AuthResult> {
   if (!accountsEnabled()) return { ok: false, message: NOT_CONNECTED };
   try {
     const supabase = await client();
-    const { error } = await supabase.auth.signInWithOtp({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email: normalizeEmail(email),
-      options: { shouldCreateUser: true },
+      password,
     });
-    return error ? { ok: false, ...describeAuthError(error) } : { ok: true };
+    if (error) return { ok: false, ...describeAuthError(error) };
+    signedIn(data.user);
+    return { ok: true };
   } catch (e) {
     return { ok: false, ...describeAuthError(e) };
   }
 }
 
-export async function verifyCode(email: string, code: string): Promise<AuthResult> {
+/**
+ * Založení účtu. S vypnutým potvrzováním e-mailu vrátí Supabase rovnou
+ * přihlášení. Když přihlášení nepřijde, potvrzování v projektu zapnuté
+ * zůstalo - účet vznikl, ale bez mailu se do něj nikdo nedostane. Appka to
+ * řekne naplno, jinak by to vypadalo, že registrace nefunguje.
+ */
+export async function signUp(email: string, password: string): Promise<AuthResult> {
   if (!accountsEnabled()) return { ok: false, message: NOT_CONNECTED };
   try {
     const supabase = await client();
-    const { data, error } = await supabase.auth.verifyOtp({
+    const { data, error } = await supabase.auth.signUp({
       email: normalizeEmail(email),
-      token: normalizeCode(code),
-      type: "email",
+      password,
     });
     if (error) return { ok: false, ...describeAuthError(error) };
-    // Stav se přepne i sám přes `onAuthStateChange`; tady kvůli jistotě hned.
-    const user = data.session?.user ?? data.user;
-    if (user) publish({ status: "signed-in", email: user.email ?? "", userId: user.id });
+    if (!data.session) {
+      return {
+        ok: false,
+        message:
+          "Účet vznikl, ale databáze chce potvrzení e-mailem. V Supabase je potřeba vypnout Confirm email.",
+      };
+    }
+    signedIn(data.user);
     return { ok: true };
   } catch (e) {
     return { ok: false, ...describeAuthError(e) };
   }
+}
+
+/** Stav se přepne i sám přes `onAuthStateChange`; tady kvůli jistotě hned. */
+function signedIn(user: { id: string; email?: string } | null): void {
+  if (user) publish({ status: "signed-in", email: user.email ?? "", userId: user.id });
 }
 
 /**
@@ -205,6 +220,10 @@ export async function signOut(): Promise<void> {
 
 export const NOT_CONNECTED = "Účty zatím nejsou napojené na databázi.";
 
+/** Dialog podle nich nabídne přepnutí na druhou cestu (přihlášení / nový účet). */
+export const ACCOUNT_EXISTS = "Účet s tímhle e-mailem už existuje. Přihlas se.";
+export const WRONG_PASSWORD = "E-mail nebo heslo nesedí.";
+
 export function normalizeEmail(value: string): string {
   return value.trim().toLowerCase();
 }
@@ -214,9 +233,8 @@ export function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(normalizeEmail(value));
 }
 
-/** Z vloženého textu ("123 456", "Kód: 123456") nechá jen číslice. */
-export function normalizeCode(value: string): string {
-  return value.replace(/\D/g, "").slice(0, CODE_LENGTH);
+export function isValidPassword(value: string): boolean {
+  return value.length >= PASSWORD_MIN;
 }
 
 /**
@@ -239,25 +257,33 @@ export function describeAuthError(error: unknown): { message: string; retryIn?: 
   const wait = /after (\d+) seconds?/i.exec(message);
   if (wait) {
     const retryIn = Number(wait[1]);
-    return { message: `Nový kód půjde poslat za ${retryIn} s.`, retryIn };
+    return { message: `Moc pokusů za sebou. Zkus to znovu za ${retryIn} s.`, retryIn };
   }
 
-  if (code === "otp_expired" || /expired|invalid.*token|token.*invalid/i.test(message)) {
-    return { message: "Kód nesedí nebo už vypršel. Zkontroluj ho, nebo si pošli nový." };
+  if (code === "invalid_credentials" || /invalid login credentials/i.test(message)) {
+    return { message: WRONG_PASSWORD };
   }
-  if (code === "over_email_send_rate_limit" || code === "over_request_rate_limit" || status === 429) {
-    return { message: "Moc pokusů za sebou. Zkus to znovu za chvíli." };
+  if (code === "user_already_exists" || code === "email_exists" || /already registered/i.test(message)) {
+    return { message: ACCOUNT_EXISTS };
   }
-  if (code === "email_address_not_authorized") {
+  if (code === "weak_password") {
+    return { message: `Heslo je moc slabé - aspoň ${PASSWORD_MIN} znaků, klidně víc.` };
+  }
+  if (code === "email_not_confirmed") {
     return {
-      message:
-        "Na tuhle adresu zatím e-maily nechodí - databáze posílá jen členům projektu, dokud nemá vlastní odesílání (SMTP).",
+      message: "Účet čeká na potvrzení e-mailem. V Supabase je potřeba vypnout Confirm email.",
     };
+  }
+  if (code === "over_request_rate_limit" || code === "over_email_send_rate_limit" || status === 429) {
+    return { message: "Moc pokusů za sebou. Zkus to znovu za chvíli." };
   }
   if (code === "email_address_invalid" || code === "validation_failed") {
     return { message: "Tahle adresa nevypadá platně." };
   }
-  if (code === "signup_disabled" || code === "otp_disabled" || code === "email_provider_disabled") {
+  if (code === "signup_disabled") {
+    return { message: "Zakládání nových účtů je v databázi vypnuté." };
+  }
+  if (code === "email_provider_disabled") {
     return { message: "Přihlašování e-mailem je v databázi vypnuté." };
   }
   if (

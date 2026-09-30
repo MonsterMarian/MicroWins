@@ -1,35 +1,39 @@
 "use client";
 
 import * as React from "react";
-import { ArrowLeft, LogIn, Mail, RotateCw } from "lucide-react";
+import { Eye, EyeOff, LogIn, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Field, Input } from "@/components/ui/input";
 import { useAccount } from "@/components/providers/use-account";
 import { useToast } from "@/components/providers/toast-provider";
 import {
-  CODE_LENGTH,
+  ACCOUNT_EXISTS,
   isValidEmail,
-  normalizeCode,
+  isValidPassword,
   normalizeEmail,
-  RESEND_SECONDS,
-  sendCode,
-  verifyCode,
+  PASSWORD_MIN,
+  signIn,
+  signUp,
+  WRONG_PASSWORD,
 } from "@/lib/account";
 import { tapFeedback } from "@/lib/native";
 import { cn } from "@/lib/utils";
 
-type Step = "email" | "code";
+type Mode = "signin" | "signup";
+
+const MODES: { id: Mode; label: string }[] = [
+  { id: "signin", label: "Přihlásit se" },
+  { id: "signup", label: "Nový účet" },
+];
 
 /**
- * Přihlášení kódem z e-mailu, ve dvou krocích: adresa → kód.
+ * Přihlášení a založení účtu - e-mail a heslo, nic víc.
  *
- * Heslo tu schválně není. Kód je jedno pole navíc jednou za čas, heslo by
- * bylo další věc k zapomenutí - a odkaz v mailu místo kódu by musel otevřít
- * appku, na což je potřeba nové APK (viz `lib/account.ts`).
- *
- * Účet, který ještě neexistuje, se založí sám - "registrace" a "přihlášení"
- * jsou pro člověka jedno a totéž: chci být přihlášený.
+ * Žádný potvrzovací e-mail: účet vznikne hned a rovnou se do něj přihlásí.
+ * Obě cesty jsou v jednom dialogu pod přepínačem, protože se liší jen jedním
+ * tlačítkem - a kdo se splete (zakládá účet, který už má), dostane nabídku
+ * přepnout se, místo aby musel dialog zavírat.
  */
 export function LoginDialog({
   open,
@@ -40,218 +44,192 @@ export function LoginDialog({
 }) {
   const account = useAccount();
   const { toast } = useToast();
-  const [step, setStep] = React.useState<Step>("email");
+  const [mode, setMode] = React.useState<Mode>("signin");
   const [email, setEmail] = React.useState("");
-  const [code, setCode] = React.useState("");
+  const [password, setPassword] = React.useState("");
+  const [visible, setVisible] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  /** Za kolik sekund jde poslat nový kód; 0 = hned. */
-  const [cooldown, setCooldown] = React.useState(0);
-  const codeRef = React.useRef<HTMLInputElement>(null);
+  const passwordRef = React.useRef<HTMLInputElement>(null);
 
   const off = account.status === "off";
+  const signup = mode === "signup";
 
-  // Každé otevření začíná od adresy - rozepsaný kód z minula by jen mátl.
-  // Adresa zůstává, ať se nemusí psát znovu.
+  // Každé otevření začíná přihlášením a s prázdným heslem. Adresa zůstává,
+  // ať se po překlepu v hesle nemusí psát znovu.
   React.useEffect(() => {
     if (!open) return;
-    setStep("email");
-    setCode("");
+    setMode("signin");
+    setPassword("");
+    setVisible(false);
     setError(null);
   }, [open]);
 
-  React.useEffect(() => {
-    if (cooldown <= 0) return;
-    const id = window.setTimeout(() => setCooldown((s) => Math.max(0, s - 1)), 1000);
-    return () => window.clearTimeout(id);
-  }, [cooldown]);
+  const ready = isValidEmail(email) && isValidPassword(password) && !busy && !off;
 
-  React.useEffect(() => {
-    if (step === "code") codeRef.current?.focus();
-  }, [step]);
-
-  const validEmail = isValidEmail(email);
-
-  const send = async () => {
-    if (!validEmail || busy || off) return;
-    setBusy(true);
+  const switchTo = (next: Mode) => {
+    setMode(next);
     setError(null);
-    const res = await sendCode(email);
-    setBusy(false);
-    if (res.ok) {
-      // Nový kód na žádost ruší ten starý - ať člověk ví, který opisovat.
-      if (step === "code") toast({ tone: "info", title: "Poslali jsme nový kód", description: "Ten předchozí už neplatí." });
-      setStep("code");
-      setCode("");
-      setCooldown(RESEND_SECONDS);
-      return;
-    }
-    setError(res.message);
-    if (res.retryIn) setCooldown(res.retryIn);
   };
 
-  const verify = async (value: string) => {
-    const token = normalizeCode(value);
-    if (token.length !== CODE_LENGTH || busy) return;
+  const submit = async () => {
+    if (!ready) return;
     setBusy(true);
     setError(null);
-    const res = await verifyCode(email, token);
+    const res = signup ? await signUp(email, password) : await signIn(email, password);
     setBusy(false);
     if (res.ok) {
       void tapFeedback();
-      toast({ tone: "info", title: "Přihlášeno", description: normalizeEmail(email) });
+      toast({
+        tone: "info",
+        title: signup ? "Účet založený" : "Přihlášeno",
+        description: normalizeEmail(email),
+      });
       onOpenChange(false);
       return;
     }
-    // Špatný kód se smaže, ať se dá rovnou psát znovu.
     setError(res.message);
-    setCode("");
-    codeRef.current?.focus();
   };
 
   return (
     <Dialog
       open={open}
       onOpenChange={onOpenChange}
-      title={step === "email" ? "Přihlásit se" : "Opiš kód z e-mailu"}
+      title={signup ? "Založit účet" : "Přihlásit se"}
       description={
-        step === "email" ? (
-          "Bez hesla - na e-mail ti přijde kód."
-        ) : (
-          <>
-            Poslali jsme ho na <span className="font-medium text-foreground">{normalizeEmail(email)}</span>.
-            Platí hodinu.
-          </>
-        )
+        signup ? "Účet vznikne hned, bez potvrzovacího e-mailu." : "E-mail a heslo k tvému účtu."
       }
       footer={
         <>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             Zrušit
           </Button>
-          {step === "email" ? (
-            <Button disabled={!validEmail || busy || off} onClick={send}>
-              <Mail /> {busy ? "Posílám…" : "Poslat kód"}
-            </Button>
-          ) : (
-            <Button disabled={code.length !== CODE_LENGTH || busy} onClick={() => verify(code)}>
-              <LogIn /> {busy ? "Ověřuju…" : "Přihlásit"}
-            </Button>
-          )}
+          <Button disabled={!ready} onClick={submit}>
+            {signup ? <UserPlus /> : <LogIn />}
+            {busy ? (signup ? "Zakládám…" : "Přihlašuju…") : signup ? "Založit účet" : "Přihlásit"}
+          </Button>
         </>
       }
     >
-      {step === "email" ? (
-        <div className="flex flex-col gap-3">
-          {off ? (
-            <div className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
-              Účty zatím nejsou napojené na databázi. Appka mezitím jede dál bez účtu a data
-              zůstávají v tomhle zařízení.
-            </div>
-          ) : null}
+      <div className="flex flex-col gap-4">
+        {/* Stejné záložky jako v Nastavení - přepínač, ne dva dialogy. */}
+        <div className="flex gap-1 border-b">
+          {MODES.map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              onClick={() => switchTo(m.id)}
+              aria-pressed={mode === m.id}
+              className={cn(
+                "-mb-px border-b-2 px-3 py-2 text-sm transition-colors",
+                mode === m.id
+                  ? "border-foreground font-medium text-foreground"
+                  : "border-transparent text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
 
-          <Field
-            label="E-mail"
-            htmlFor="login-email"
-            hint="Když účet ještě nemáš, založí se sám. Nic z telefonu se tím nesmaže."
-          >
+        {off ? (
+          <div className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
+            Účty zatím nejsou napojené na databázi. Appka mezitím jede dál bez účtu a data zůstávají
+            v tomhle zařízení.
+          </div>
+        ) : null}
+
+        <Field label="E-mail" htmlFor="login-email">
+          <Input
+            id="login-email"
+            type="email"
+            inputMode="email"
+            autoComplete="email"
+            autoCapitalize="none"
+            spellCheck={false}
+            enterKeyHint="next"
+            value={email}
+            placeholder="jmeno@example.cz"
+            disabled={off}
+            onChange={(e) => {
+              setEmail(e.target.value);
+              setError(null);
+            }}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter") return;
+              if (password === "") passwordRef.current?.focus();
+              else void submit();
+            }}
+          />
+        </Field>
+
+        <Field
+          label="Heslo"
+          htmlFor="login-password"
+          hint={
+            signup
+              ? `Aspoň ${PASSWORD_MIN} znaků. Zapamatuj si ho - obnovit heslo e-mailem zatím nejde.`
+              : undefined
+          }
+        >
+          <div className="relative">
             <Input
-              id="login-email"
-              type="email"
-              inputMode="email"
-              autoComplete="email"
+              ref={passwordRef}
+              id="login-password"
+              type={visible ? "text" : "password"}
+              autoComplete={signup ? "new-password" : "current-password"}
               autoCapitalize="none"
               spellCheck={false}
-              enterKeyHint="send"
-              value={email}
-              placeholder="jmeno@example.cz"
+              enterKeyHint="go"
+              value={password}
               disabled={off}
               onChange={(e) => {
-                setEmail(e.target.value);
+                setPassword(e.target.value);
                 setError(null);
               }}
               onKeyDown={(e) => {
-                if (e.key === "Enter") void send();
+                if (e.key === "Enter") void submit();
               }}
+              className="pr-10"
             />
-          </Field>
-
-          {error ? <p className="text-xs text-destructive">{error}</p> : null}
-
-          {/* Kdo dialog zavřel a otevřel znovu, má kód už v mailu - posílat
-              nový by jen spálilo minutu čekání a starý by přestal platit. */}
-          {validEmail && !off ? (
             <button
               type="button"
-              onClick={() => {
-                setError(null);
-                setStep("code");
-              }}
-              className="self-start text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+              onClick={() => setVisible((v) => !v)}
+              disabled={off}
+              aria-label={visible ? "Skrýt heslo" : "Ukázat heslo"}
+              aria-pressed={visible}
+              className="absolute right-1 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-md text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
             >
-              Kód už mi přišel
+              {visible ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
             </button>
-          ) : null}
-        </div>
-      ) : (
-        <div className="flex flex-col gap-3">
-          <Field label="Kód" htmlFor="login-code">
-            <Input
-              ref={codeRef}
-              id="login-code"
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              enterKeyHint="done"
-              value={code}
-              placeholder={"0".repeat(CODE_LENGTH)}
-              aria-invalid={error !== null}
-              onChange={(e) => {
-                // Vložený text z mailu ("Kód: 123 456") se očistí na číslice
-                // a plný kód se rovnou ověří - bez dalšího ťuknutí.
-                const next = normalizeCode(e.target.value);
-                setCode(next);
-                setError(null);
-                if (next.length === CODE_LENGTH) void verify(next);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void verify(code);
-              }}
-              className={cn(
-                "tabular h-12 text-center text-2xl font-semibold tracking-[0.5em] placeholder:tracking-[0.5em] placeholder:text-muted-foreground/40",
-                error && "border-destructive",
-              )}
-            />
-          </Field>
-
-          {error ? <p className="text-xs text-destructive">{error}</p> : null}
-
-          <div className="flex items-center justify-between gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 px-2"
-              onClick={() => {
-                setError(null);
-                setStep("email");
-              }}
-            >
-              <ArrowLeft className="size-3.5" /> Jiný e-mail
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="tabular h-7 px-2"
-              disabled={cooldown > 0 || busy}
-              onClick={send}
-            >
-              <RotateCw className="size-3.5" />
-              {cooldown > 0 ? `Poslat znovu za ${cooldown} s` : "Poslat znovu"}
-            </Button>
           </div>
+        </Field>
 
-          <p className="text-xs text-muted-foreground">Nepřišel? Mrkni i do spamu.</p>
-        </div>
-      )}
+        {error ? (
+          <div className="flex flex-col items-start gap-1">
+            <p className="text-xs text-destructive">{error}</p>
+            {/* Nejčastější omyl: zakládá účet, který už má - nebo se hlásí do
+                účtu, který ještě nezaložil. Jedno ťuknutí na druhou cestu. */}
+            {signup && error === ACCOUNT_EXISTS ? (
+              <button
+                type="button"
+                onClick={() => switchTo("signin")}
+                className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+              >
+                Přepnout na přihlášení
+              </button>
+            ) : !signup && error === WRONG_PASSWORD ? (
+              <button
+                type="button"
+                onClick={() => switchTo("signup")}
+                className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+              >
+                Ještě nemáš účet? Založ si ho
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
     </Dialog>
   );
 }

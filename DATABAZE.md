@@ -27,7 +27,7 @@ appka mluví s databází napřímo a databáze sama pohlídá, že každý vid�
 | | **Supabase** | Firebase | PocketBase | vlastní server (SQLite + Prisma) |
 |---|---|---|---|---|
 | Kde běží | hostované | hostované | vlastní VPS | vlastní VPS |
-| Účty | v ceně (e-mail, kód, Google, Apple) | v ceně | v ceně | napsat |
+| Účty | v ceně (e-mail a heslo, Google, Apple) | v ceně | v ceně | napsat |
 | Data | Postgres (SQL, JSON) | dokumenty (NoSQL) | SQLite | SQLite |
 | Bez vlastního serveru | ano (RLS) | ano (pravidla) | ne | ne |
 | Zdarma | 500 MB, 50 000 aktivních uživatelů / měsíc | ano, s limity čtení | platí se VPS | platí se VPS |
@@ -146,44 +146,42 @@ převzetí (kap. 5) bude o to míň konfliktů, které se musí řešit naslepo.
 
 ### Přihlášení
 
-- **Kód z e-mailu** (6 číslic, Supabase Auth OTP). Bez hesla a hlavně **bez
-  odkazu v mailu**: magic link i přihlášení přes Google musí po přihlášení
-  otevřít appku, a to znamená nativní nastavení (deep link) = nové APK. Kód se
-  opíše do appky a nativní část se nemění. Google/Apple se dá přidat později
+- **E-mail a heslo, žádné e-maily.** Účet vznikne hned při registraci, bez
+  potvrzovacího mailu, a rovnou se do něj přihlásí. Proto v Supabase musí být
+  vypnuté **Confirm email** (viz níž). Rozhodnuto 30. 9. 2026.
+- Proč ne odkaz v mailu nebo Google: po přihlášení by musely otevřít appku,
+  a to je nativní nastavení (deep link) = nové APK. Dá se přidat později
   spolu s nějakým APK, které půjde ven stejně.
 - Veřejný (publishable) klíč v balíku je v pořádku — je veřejný z principu,
   přístup hlídá RLS. **Tajný klíč (`sb_secret_…` / `service_role`) nesmí do
   repozitáře nikdy**: repo i OTA balíky jsou veřejné.
 - Účet je volitelný: Nastavení → Účet. Kdo ho nechce, nic se mu nemění.
-- **Hotové:** dialog v Nastavení → Hlavní → Účet (`components/account/login-dialog.tsx`,
-  logika v `lib/account.ts`). Dokud v `lib/account.ts` chybí adresa projektu
-  a veřejný klíč, řekne, že účty ještě nejsou napojené, a nic neposílá.
+- **Hotové:** dialog v Nastavení → Hlavní → Účet se záložkami Přihlásit se /
+  Nový účet (`components/account/login-dialog.tsx`, logika v `lib/account.ts`).
+  Dokud v `lib/account.ts` chybí adresa projektu a veřejný klíč, řekne, že
+  účty ještě nejsou napojené, a nic neposílá.
 
-### Nastavení e-mailů v Supabase
+**Co tím odpadá a co to stojí:**
 
-Kód místo odkazu posílá Supabase jen tehdy, když ho šablona e-mailu obsahuje:
+- Žádné šablony e-mailů ani SMTP - Supabase nic neposílá, takže ani limit
+  vestavěného e-mailu (2 zprávy za hodinu, jen členům týmu) se nás netýká.
+- **Zapomenuté heslo si člověk sám neobnoví** - obnova chodí mailem. Do té
+  doby jde heslo změnit jen ručně v dashboardu. Dialog to při registraci říká.
+- **Adresa se neověřuje.** Kdokoli může založit účet na cizí e-mail; skutečný
+  majitel pak na něj účet nezaloží. U appky, kde účet slouží jen k přenosu
+  vlastních dat, je to přijatelné. Kdyby to začalo vadit, zapne se Confirm
+  email a přidá SMTP - kód appky se nemění.
 
-1. **Authentication → Email Templates** → šablony **Magic link or OTP**
-   a **Confirm sign up**: místo `{{ .ConfirmationURL }}` dát `{{ .Token }}`,
-   třeba takhle:
+### Nastavení v Supabase
 
-   ```html
-   <h2>Přihlášení do MicroWins</h2>
-   <p>Tvůj kód: <strong style="font-size:24px;letter-spacing:4px">{{ .Token }}</strong></p>
-   <p>Platí hodinu. Když ses nepřihlašoval, e-mail klidně smaž.</p>
-   ```
+**Authentication → Sign In / Providers:**
 
-   Předmět třeba „Kód do MicroWins". Obě šablony proto, že nový účet může
-   dostat „Confirm sign up" a existující „Magic link or OTP" - kód má být v obou.
-2. **Vlastní odesílání (SMTP) je pro ostrý provoz nutnost.** Vestavěný e-mail
-   Supabase pošle **2 zprávy za hodinu** a jen na adresy **členů týmu
-   projektu** - kohokoli jiného odmítne („Email address not authorized",
-   appka to řekne česky). Na zkoušení se svým e-mailem to stačí; pro ostatní
-   je potřeba SMTP od poskytovatele (Resend, Brevo, Postmark, AWS SES …) v
-   **Authentication → SMTP**. S vlastním SMTP je výchozí limit 30 e-mailů za
-   hodinu a jde zvednout v **Authentication → Rate Limits**.
-3. Kód platí hodinu a nový jde pro stejnou adresu vyžádat nejdřív po minutě -
-   dialog podle toho odpočítává tlačítko „Poslat znovu".
+- **Confirm email** - **vypnout** (přepínač v části User Signups, případně po
+  rozkliknutí providera Email). Jinak registrace skončí na čekání na mail,
+  který nikdo nepošle - appka to pozná a řekne, co přepnout.
+- **Allow new users to sign up** - nechat zapnuté.
+- Provider **Email** - zapnutý (výchozí).
+- Minimální délka hesla zůstává výchozích 6 znaků; appka hlídá totéž.
 
 ### Komu data v telefonu patří
 
@@ -252,8 +250,8 @@ Napsané a otestované v [`src/lib/account-merge.ts`](src/lib/account-merge.ts):
 | Krok | Co | Stav |
 |---|---|---|
 | 0 | Pravidla převzetí dat do účtu + testy (`account-merge.ts`) | **hotovo** |
-| 1 | Nastavení → Účet: přihlášení kódem, odhlášení (`lib/account.ts`, `login-dialog.tsx`) | **hotovo**, čeká na adresu projektu |
-| 2 | Založit Supabase projekt, spustit `supabase/schema.sql`, šablony e-mailů | potřebuju tebe |
+| 1 | Nastavení → Účet: registrace a přihlášení heslem, odhlášení (`lib/account.ts`, `login-dialog.tsx`) | **hotovo**, čeká na adresu projektu |
+| 2 | Supabase projekt: spustit `supabase/schema.sql`, vypnout Confirm email | potřebuju tebe |
 | 3 | Deník změn v telefonu (`lib/changes.ts`, zápis v `commit`) | další na řadě |
 | 4 | `lib/sync.ts` — nahrání, stažení, náhrobky (čisté funkce + testy) | |
 | 5 | Převzetí dat po přihlášení: záloha, náhled, sloučení, případ E | |
@@ -264,7 +262,8 @@ Napsané a otestované v [`src/lib/account-merge.ts`](src/lib/account-merge.ts):
 1. Na [supabase.com](https://supabase.com) založit projekt (free plán stačí),
    region **Central EU (Frankfurt)**. Heslo k databázi si ulož, ale neposílej.
 2. **SQL Editor** → vložit celý `supabase/schema.sql` → **Run**.
-3. Šablony e-mailů podle „Nastavení e-mailů v Supabase" výš.
+3. **Authentication → Sign In / Providers** → vypnout **Confirm email**
+   (viz „Nastavení v Supabase" výš).
 4. Poslat mi obojí z tlačítka **Connect** nahoře v projektu (klíče jsou i
    v **Settings → API Keys**):
    - **Project URL** - `https://<něco>.supabase.co`

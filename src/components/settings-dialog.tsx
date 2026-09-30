@@ -70,7 +70,8 @@ import {
   pendingBundleVersion,
   setUpdateUrl,
 } from "@/lib/live-update";
-import { isNative, syncStatusBar } from "@/lib/native";
+import { isNative } from "@/lib/native";
+import { getServerTheme, getTheme, setTheme, subscribeTheme } from "@/lib/theme";
 import { cn, plural } from "@/lib/utils";
 
 export function SettingsDialog({
@@ -229,7 +230,14 @@ function AccountSection() {
         : "Data jsou jen v tomhle zařízení.";
 
   return (
-    <Section title="Účet">
+    <Section
+      title="Účet"
+      hint={
+        signedIn
+          ? "Mezi zařízeními se synchronizují data i nastavení appky. Klíč k AI a adresa aktualizací zůstávají jen v tomhle zařízení."
+          : undefined
+      }
+    >
       <div className="overflow-hidden rounded-lg border">
         <div className="flex items-center gap-3 px-3 py-2.5">
           <span
@@ -1141,20 +1149,10 @@ function HeaderLogoChoice() {
 }
 
 function ThemeChoice() {
-  const [dark, setDark] = React.useState(true);
-
-  React.useEffect(() => setDark(document.documentElement.classList.contains("dark")), []);
-
-  const set = (next: boolean) => {
-    setDark(next);
-    document.documentElement.classList.toggle("dark", next);
-    void syncStatusBar(next);
-    try {
-      localStorage.setItem("microwins:theme", next ? "dark" : "light");
-    } catch {
-      // soukromý režim - téma se nezapamatuje
-    }
-  };
+  /* Ze store, ne z vlastního stavu: téma může přepnout i synchronizace
+     z jiného zařízení a volba tu musí sedět. */
+  const dark = React.useSyncExternalStore(subscribeTheme, getTheme, getServerTheme) === "dark";
+  const set = (next: boolean) => setTheme(next ? "dark" : "light");
 
   return (
     <div className="grid grid-cols-2 gap-2">

@@ -4,6 +4,7 @@ import { todayISO } from "./date";
 import { isNative } from "./native";
 import { ALL_PARTS, isAllParts, isDataPart, pickParts, type DataPart } from "./parts";
 import { getPrefs, parsePrefs, replacePrefs, type Prefs } from "./prefs";
+import { setTheme, storedTheme } from "./theme";
 import { parseState } from "./storage";
 import { STATE_VERSION, type MicroWinsState } from "./types";
 
@@ -55,32 +56,20 @@ export interface BackupOptions {
   label?: string;
 }
 
-export const THEME_KEY = "microwins:theme";
+export { THEME_KEY } from "./theme";
 
 export function readSettings(): BackupSettings {
   if (typeof window === "undefined") return {};
   const out: BackupSettings = { prefs: getPrefs() };
-  try {
-    const theme = window.localStorage.getItem(THEME_KEY);
-    if (theme === "dark" || theme === "light") out.theme = theme;
-  } catch {
-    // soukromý režim - téma se do zálohy nedostane, data ale sedí
-  }
+  const theme = storedTheme();
+  if (theme) out.theme = theme;
   return out;
 }
 
 export function applySettings(settings: BackupSettings): void {
   if (typeof window === "undefined") return;
-
   if (settings.prefs) replacePrefs(settings.prefs);
-  if (!settings.theme) return;
-
-  try {
-    window.localStorage.setItem(THEME_KEY, settings.theme);
-  } catch {
-    // soukromý režim - téma se nezapamatuje, data ale sedí
-  }
-  document.documentElement.classList.toggle("dark", settings.theme === "dark");
+  if (settings.theme) setTheme(settings.theme);
 }
 
 export function buildBackup(state: MicroWinsState, options: BackupOptions = {}): Backup {

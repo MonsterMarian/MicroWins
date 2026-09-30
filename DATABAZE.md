@@ -255,7 +255,7 @@ Napsané a otestované v [`src/lib/account-merge.ts`](src/lib/account-merge.ts):
 | 3 | Deník změn (`journal` v `sync-engine.ts`, volá ho `commit` ve StoreProvideru) | **hotovo** |
 | 4 | Synchronizace: `lib/sync.ts` (záznamy, rozdíly), `lib/sync-engine.ts` (pravidla), `lib/sync-runtime.ts` (Supabase, kdy se synchronizuje) | **hotovo**, ověřeno proti podvrženému serveru |
 | 5 | Převzetí dat po přihlášení (`components/account/adopt-dialog.tsx`): Spojit / Teď ne / vzít jen účet, případ E | **hotovo** |
-| 6 | Nastavení appky (`prefs`) mezi zařízeními | zatím ne - každé zařízení má svoje |
+| 6 | Nastavení appky mezi zařízeními (volba po volbě, `settings:<volba>`, i téma) | **hotovo** |
 | 7 | Živé změny z jiného zařízení (Supabase Realtime) | volitelné |
 
 **Jak to teď běží:**
@@ -273,6 +273,13 @@ Napsané a otestované v [`src/lib/account-merge.ts`](src/lib/account-merge.ts):
   nejde nic). Před každou volbou se data zařízení odloží do
   `localStorage["microwins:pre-account"]` a jdou uložit i do souboru.
 - Prázdné zařízení převezme účet bez ptaní.
+- **Nastavení appky** (vzhled, addony, pořadí záložek, rychlé termíny, time
+  box …) jde do účtu po jednotlivých volbách - `settings:accent`,
+  `settings:tabOrder`, `settings:theme` - takže změny různých voleb na dvou
+  zařízeních přežijí obě. Při prvním přihlášení vyhrává nastavení účtu;
+  prázdný účet si ho vezme ze zařízení. Stažené volby prochází stejnou
+  kontrolou jako záloha (`parsePrefs`). **Klíč k AI a adresa aktualizací se
+  nesynchronizují** - zůstávají v zařízení.
 - Když se kontrola po přihlášení nepovede (bez signálu), zkusí se znovu při
   dalším připojení nebo návratu do appky.
 

@@ -4,6 +4,7 @@ import {
   diffStates,
   fromRecords,
   isEmptyState,
+  isStateRecordKind,
   parseRecordId,
   recordFromState,
   recordId,
@@ -88,6 +89,15 @@ export interface SyncDeps {
   now(): Date;
   /** Průběh přenosu; `null` = hotovo. */
   onProgress?(progress: SyncProgress | null): void;
+  /**
+   * Záznamy, které nejsou ve stavu appky - nastavení. Motor je jen přenáší:
+   * `extraRecords` = všechny, jak jsou v zařízení teď (první nahrání do
+   * účtu), `readExtra` = jeden k odeslání z fronty, `applyExtra` = propsat
+   * stažené (bez zápisu do deníku). Bez nich se synchronizují jen data.
+   */
+  extraRecords?(): SyncRecord[];
+  readExtra?(kind: string, key: string): SyncRecord | null;
+  applyExtra?(records: SyncRecord[]): void;
 }
 
 /**
@@ -97,7 +107,7 @@ export interface SyncDeps {
  * - `merge`: data bez účtu (nebo z dřívějška tohoto účtu) - spojí se s účtem.
  * - `foreign`: data patří **jinému** účtu - samo se nic neslučuje.
  */
-export type AdoptionPlan =
+export type AdoptionPlan = (
   | { kind: "fresh"; userId: string; account: MicroWinsState; cursor: string | null }
   | {
       kind: "merge";
@@ -114,7 +124,15 @@ export type AdoptionPlan =
       account: MicroWinsState;
       local: MicroWinsState;
       cursor: string | null;
-    };
+    }
+) & {
+  /**
+   * Nastavení uložené v účtu. Prázdné = účet ho ještě nemá a vezme si ho
+   * z tohohle zařízení; jinak vyhrává účet - je to to, co už vidí ostatní
+   * zařízení.
+   */
+  extras: SyncRecord[];
+};
 
 export interface SyncOutcome {
   pulled: number;
@@ -156,6 +174,20 @@ export class SyncEngine {
     return Object.keys(this.deps.loadMeta().outbox).length;
   }
 
+  /**
+   * Zapíše do deníku změnu mimo stav appky (nastavení) - `ids` jsou
+   * `druh:klíč`. Stejně jako u dat: bez účtu se nezapisuje nic.
+   */
+  touch(ids: readonly string[]): number {
+    const meta = this.deps.loadMeta();
+    if (meta.owner === null || ids.length === 0) return 0;
+    const at = this.deps.now().toISOString();
+    const outbox = { ...meta.outbox };
+    for (const id of ids) outbox[id] = at;
+    this.deps.saveMeta({ ...meta, outbox });
+    return ids.length;
+  }
+
   /** Zapíše změnu stavu do deníku. Data bez účtu se nezapisují - převezmou se celá. */
   journal(prev: MicroWinsState, next: MicroWinsState): number {
     if (prev === next) return 0;
@@ -179,13 +211,15 @@ export class SyncEngine {
     if (meta.owner === userId) return null;
 
     const rows = await this.pullReporting(null);
-    const account = fromRecords(toRecords(rows));
+    const records = toRecords(rows);
+    const account = fromRecords(records.filter((r) => isStateRecordKind(r.kind)));
+    const extras = records.filter((r) => !isStateRecordKind(r.kind) && r.data !== null);
     const cursor = latest(rows, null);
     const local = this.deps.getState();
 
-    if (isEmptyState(local)) return { kind: "fresh", userId, account, cursor };
+    if (isEmptyState(local)) return { kind: "fresh", userId, account, cursor, extras };
     if (meta.owner !== null) {
-      return { kind: "foreign", userId, owner: meta.owner, account, local, cursor };
+      return { kind: "foreign", userId, owner: meta.owner, account, local, cursor, extras };
     }
     return {
       kind: "merge",
@@ -194,6 +228,7 @@ export class SyncEngine {
       local,
       merged: mergeIntoAccount(account, local),
       cursor,
+      extras,
     };
   }
 
@@ -205,16 +240,24 @@ export class SyncEngine {
    * v telefonu zůstane všechno, jak bylo, a převzetí jde pustit znovu.
    */
   async adopt(plan: AdoptionPlan): Promise<void> {
+    const at = this.deps.now().toISOString();
+    const rows: OutgoingRow[] = [];
     let next = plan.account;
     if (plan.kind === "merge") {
       // Slučuje se znovu s tím, co v zařízení je teď - dialog mohl být
       // otevřený déle a mezitím něco přibylo.
       next = mergeIntoAccount(plan.account, this.deps.getState()).state;
-      const at = this.deps.now().toISOString();
-      const rows = diffStates(plan.account, next).map((r) => ({ ...r, changed_at: at }));
-      await this.pushAll(rows);
+      rows.push(...diffStates(plan.account, next).map((r) => ({ ...r, changed_at: at })));
     }
+    // Nastavení: účet, který ho ještě nemá, si ho vezme odsud.
+    if (plan.extras.length === 0) {
+      rows.push(...(this.deps.extraRecords?.() ?? []).map((r) => ({ ...r, changed_at: at })));
+    }
+    await this.pushAll(rows);
+
+    // Až po úspěšném odeslání - jinak zůstane zařízení, jak bylo.
     this.deps.replaceState(next);
+    if (plan.extras.length > 0) this.deps.applyExtra?.(plan.extras);
     this.deps.saveMeta({ owner: plan.userId, cursor: plan.cursor, outbox: {} });
   }
 
@@ -240,10 +283,17 @@ export class SyncEngine {
       return false;
     };
 
+    const records = toRecords(rows);
     const current = this.deps.getState();
-    const next = applyRecords(current, toRecords(rows), accept);
+    const next = applyRecords(
+      current,
+      records.filter((r) => isStateRecordKind(r.kind)),
+      accept,
+    );
     const applied = next !== current;
     if (applied) this.deps.replaceState(next);
+    const extras = records.filter((r) => !isStateRecordKind(r.kind) && accept(r));
+    if (extras.length > 0) this.deps.applyExtra?.(extras);
 
     const cursor = latest(rows, meta.cursor);
     // Mezitím mohla přibýt další změna - bere se čerstvá fronta, jen bez
@@ -268,7 +318,8 @@ export class SyncEngine {
     const rows: OutgoingRow[] = [];
     for (const [id, at] of entries) {
       const { kind, key } = parseRecordId(id);
-      const record = recordFromState(state, kind, key);
+      const record =
+        recordFromState(state, kind, key) ?? this.deps.readExtra?.(kind, key) ?? null;
       if (record) rows.push({ ...record, changed_at: at });
     }
     await this.pushAll(rows);

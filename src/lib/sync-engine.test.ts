@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { addCategory, reorderNodes } from "./actions";
 import { createProject, createTask, updateTask } from "./project-actions";
-import { recordId } from "./sync";
+import { recordId, type SyncRecord } from "./sync";
 import {
   SyncEngine,
   type OutgoingRow,
@@ -58,9 +58,16 @@ class Device {
   meta: SyncMeta = { owner: null, cursor: null, outbox: {} };
   engine: SyncEngine;
   progress: (SyncProgress | null)[] = [];
+  /** Nastavení zařízení - v appce `prefs` a téma, tady prostá mapa. */
+  settings: Record<string, unknown>;
 
-  constructor(server: FakeServer, state: MicroWinsState = EMPTY_STATE) {
+  constructor(
+    server: FakeServer,
+    state: MicroWinsState = EMPTY_STATE,
+    settings: Record<string, unknown> = { accent: "green", plan: "day" },
+  ) {
     this.state = state;
+    this.settings = { ...settings };
     this.engine = new SyncEngine({
       transport: server.transport(),
       loadMeta: () => this.meta,
@@ -75,7 +82,22 @@ class Device {
       onProgress: (p) => {
         this.progress.push(p);
       },
+      extraRecords: () =>
+        Object.entries(this.settings).map(([key, data]) => ({ kind: "settings", key, data })),
+      readExtra: (kind, key) =>
+        kind === "settings" && key in this.settings
+          ? { kind: "settings", key, data: this.settings[key] }
+          : null,
+      applyExtra: (records: SyncRecord[]) => {
+        for (const r of records) if (r.kind === "settings") this.settings[r.key] = r.data;
+      },
     });
+  }
+
+  /** Jako přepnutí v Nastavení: změna jde do nastavení i do deníku. */
+  setSetting(key: string, value: unknown): void {
+    this.settings[key] = value;
+    this.engine.touch([recordId("settings", key)]);
   }
 
   /** Jako `commit` ve StoreProvideru: změna jde do deníku a do stavu. */
@@ -301,5 +323,87 @@ describe("průběh přenosu", () => {
 
     await expect(phone.engine.sync()).rejects.toThrow();
     expect(phone.progress).toEqual([null]);
+  });
+});
+
+describe("nastavení appky", () => {
+  it("nový účet si vezme nastavení z telefonu", async () => {
+    const phone = new Device(server, withProject("Telefon"), { accent: "white", plan: "week" });
+    await phone.signIn("u1");
+
+    expect(server.live("settings").sort()).toEqual(["week", "white"]);
+  });
+
+  /* Účet s nastavením je to, co už vidí ostatní zařízení - nové zařízení se
+     přizpůsobí jemu, ne naopak. */
+  it("další zařízení převezme nastavení z účtu", async () => {
+    const phone = new Device(server, withProject("Telefon"), { accent: "white", plan: "week" });
+    await phone.signIn("u1");
+    const tablet = new Device(server, EMPTY_STATE, { accent: "green", plan: "day" });
+    await tablet.signIn("u1");
+
+    expect(tablet.settings).toEqual({ accent: "white", plan: "week" });
+  });
+
+  it("i zařízení s daty, která se spojují, vezme nastavení z účtu a svoje neposílá", async () => {
+    const phone = new Device(server, withProject("Telefon"), { accent: "white", plan: "week" });
+    await phone.signIn("u1");
+    const tablet = new Device(server, withProject("Tablet"), { accent: "green", plan: "day" });
+    await tablet.signIn("u1");
+
+    expect(tablet.settings).toEqual({ accent: "white", plan: "week" });
+    expect(server.live("settings").sort()).toEqual(["week", "white"]);
+  });
+
+  it("přepnutí na telefonu dorazí do tabletu a zpátky se neposílá", async () => {
+    const phone = new Device(server, withProject("Telefon"));
+    await phone.signIn("u1");
+    const tablet = new Device(server);
+    await tablet.signIn("u1");
+
+    phone.setSetting("accent", "white");
+    await phone.engine.sync();
+    await tablet.engine.sync();
+
+    expect(tablet.settings.accent).toBe("white");
+    expect(tablet.engine.pending()).toBe(0);
+  });
+
+  /* Po volbách, ne jako balík: jinak by jedna změna přebila druhou. */
+  it("různé volby změněné na dvou zařízeních přežijí obě", async () => {
+    const phone = new Device(server, withProject("Telefon"));
+    await phone.signIn("u1");
+    const tablet = new Device(server);
+    await tablet.signIn("u1");
+
+    phone.setSetting("accent", "white");
+    tablet.setSetting("plan", "week");
+    await phone.engine.sync();
+    await tablet.engine.sync();
+    await phone.engine.sync();
+
+    for (const device of [phone, tablet]) {
+      expect(device.settings).toEqual({ accent: "white", plan: "week" });
+    }
+  });
+
+  it("stejná volba na obou - vyhraje novější", async () => {
+    const phone = new Device(server, withProject("Telefon"));
+    await phone.signIn("u1");
+    const tablet = new Device(server);
+    await tablet.signIn("u1");
+
+    phone.setSetting("plan", "month");
+    tablet.setSetting("plan", "week");
+    await tablet.engine.sync();
+    await phone.engine.sync();
+
+    expect(phone.settings.plan).toBe("week");
+  });
+
+  it("bez účtu se změna nastavení do deníku nepíše", () => {
+    const loose = new Device(server, withProject("Bez účtu"));
+    loose.setSetting("accent", "white");
+    expect(loose.engine.pending()).toBe(0);
   });
 });

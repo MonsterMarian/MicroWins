@@ -35,7 +35,10 @@ export const SYNC_KINDS: readonly StateKey[] = [
 export const NODE_ORDER_KIND = "nodeOrder";
 export const NODE_ORDER_KEY = "nodes";
 
-export type RecordKind = StateKey | typeof NODE_ORDER_KIND;
+/** Nastavení appky - mimo stav, přenáší ho `sync-runtime.ts` (volba po volbě). */
+export const SETTINGS_KIND = "settings";
+
+export type RecordKind = StateKey | typeof NODE_ORDER_KIND | typeof SETTINGS_KIND;
 
 export interface SyncRecord {
   kind: RecordKind;
@@ -56,6 +59,14 @@ export function parseRecordId(id: string): { kind: string; key: string } {
 
 function isSyncKind(kind: string): kind is StateKey {
   return (SYNC_KINDS as readonly string[]).includes(kind);
+}
+
+/**
+ * Patří záznam do stavu appky? Ostatní (nastavení) žijí jinde a synchronizace
+ * je předává přes `SyncDeps.applyExtra` / `readExtra`.
+ */
+export function isStateRecordKind(kind: string): boolean {
+  return kind === NODE_ORDER_KIND || isSyncKind(kind);
 }
 
 function keyed(kind: StateKey, items: readonly unknown[]): Map<string, unknown> {

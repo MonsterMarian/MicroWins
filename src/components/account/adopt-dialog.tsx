@@ -33,10 +33,16 @@ export function SyncDialogs() {
       merged={plan.merged.state}
       local={plan.local}
       conflicts={plan.merged.conflicts.length}
+      settingsInAccount={plan.extras.length > 0}
       message={sync.message}
     />
   ) : (
-    <ForeignDialog account={plan.account} local={plan.local} message={sync.message} />
+    <ForeignDialog
+      account={plan.account}
+      local={plan.local}
+      settingsInAccount={plan.extras.length > 0}
+      message={sync.message}
+    />
   );
 }
 
@@ -45,12 +51,14 @@ function MergeDialog({
   local,
   merged,
   conflicts,
+  settingsInAccount,
   message,
 }: {
   account: MicroWinsState;
   local: MicroWinsState;
   merged: MicroWinsState;
   conflicts: number;
+  settingsInAccount: boolean;
   message?: string;
 }) {
   const me = useAccount();
@@ -136,6 +144,8 @@ function MergeDialog({
           )}
         </div>
 
+        <SettingsNote inAccount={settingsInAccount} />
+
         {conflicts > 0 && !dropLocal ? (
           <p className="text-xs text-muted-foreground">
             {conflicts} {plural(conflicts, "věc je", "věci jsou", "věcí je")} v zařízení i v účtu, ale
@@ -172,10 +182,12 @@ function MergeDialog({
 function ForeignDialog({
   account,
   local,
+  settingsInAccount,
   message,
 }: {
   account: MicroWinsState;
   local: MicroWinsState;
+  settingsInAccount: boolean;
   message?: string;
 }) {
   const { toast } = useToast();
@@ -221,10 +233,26 @@ function ForeignDialog({
           Nahrazením se data v zařízení přepíšou tím, co je v účtu. Pokud je chceš mít u sebe,
           ulož si je napřed do souboru.
         </p>
+        <SettingsNote inAccount={settingsInAccount} />
         <BackupNote />
         {message ? <p className="text-xs text-destructive">{message}</p> : null}
       </div>
     </Dialog>
+  );
+}
+
+/**
+ * Co se stane s nastavením. Účet, který ho už má, vyhrává - je to to, co
+ * vidí ostatní zařízení. Prázdný účet si ho vezme odsud.
+ */
+function SettingsNote({ inAccount }: { inAccount: boolean }) {
+  return (
+    <p className="text-xs text-muted-foreground">
+      {inAccount
+        ? "Nastavení appky (vzhled, addony, pořadí záložek) se převezme z účtu."
+        : "Nastavení appky z tohohle zařízení se uloží do účtu."}{" "}
+      Klíč k AI zůstává jen tady.
+    </p>
   );
 }
 

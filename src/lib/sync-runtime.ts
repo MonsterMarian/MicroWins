@@ -1,5 +1,15 @@
 import { describeAuthError, getAccount, getClient, initAccount, subscribeAccount } from "./account";
+import { same } from "./account-merge";
 import { serializeBackup } from "./backup";
+import {
+  DEFAULT_PREFS,
+  getPrefs,
+  parsePrefs,
+  setPrefs,
+  subscribePrefs,
+  type Prefs,
+} from "./prefs";
+import { recordId, SETTINGS_KIND, type SyncRecord } from "./sync";
 import {
   SyncEngine,
   type AdoptionPlan,
@@ -9,6 +19,7 @@ import {
   type SyncProgress,
   type SyncTransport,
 } from "./sync-engine";
+import { setTheme, storedTheme, subscribeTheme } from "./theme";
 import type { MicroWinsState } from "./types";
 import { createId } from "./utils";
 
@@ -110,6 +121,78 @@ const transport: SyncTransport = {
   },
 };
 
+// --- nastavení ---------------------------------------------------------------
+
+/**
+ * Nastavení appky jde do účtu po jednotlivých volbách (`settings:accent`,
+ * `settings:tabOrder`, `settings:theme` …), ne jako jeden balík. Kdo na
+ * telefonu přepne barvu a na tabletu mezitím pořadí záložek, má pak obojí -
+ * jako balík by jedna změna přebila druhou.
+ *
+ * Klíč k AI ani adresa aktualizací v `prefs` nejsou a nesynchronizují se:
+ * klíč nemá opustit zařízení, adresu si každé nastavuje samo.
+ */
+const THEME_SETTING = "theme";
+const PREF_KEYS = Object.keys(DEFAULT_PREFS) as (keyof Prefs)[];
+
+function isPrefKey(key: string): key is keyof Prefs {
+  return (PREF_KEYS as string[]).includes(key);
+}
+
+function settingsRecords(): SyncRecord[] {
+  const prefs = getPrefs();
+  const out: SyncRecord[] = PREF_KEYS.map((key) => ({ kind: SETTINGS_KIND, key, data: prefs[key] }));
+  // Téma se posílá, jen když ho někdo vybral - jinak se řídí systémem zařízení.
+  const theme = storedTheme();
+  if (theme) out.push({ kind: SETTINGS_KIND, key: THEME_SETTING, data: theme });
+  return out;
+}
+
+function readSetting(kind: string, key: string): SyncRecord | null {
+  if (kind !== SETTINGS_KIND) return null;
+  if (key === THEME_SETTING) {
+    const theme = storedTheme();
+    return theme ? { kind, key, data: theme } : null;
+  }
+  return isPrefKey(key) ? { kind, key, data: getPrefs()[key] } : null;
+}
+
+/** Běží propsání ze sítě - změny se pak nesmějí vrátit do deníku. */
+let applyingRemote = false;
+
+/**
+ * Nastavení z jiného zařízení. Prochází stejnou kontrolou jako záloha
+ * (`parsePrefs`), takže nesmysl nebo volba z novější verze appky nic
+ * nerozbije - spadne na to, co tu bylo.
+ */
+function applySettings(records: SyncRecord[]): void {
+  const patch: Record<string, unknown> = {};
+  let theme: "dark" | "light" | null = null;
+  for (const r of records) {
+    if (r.kind !== SETTINGS_KIND || r.data === null || r.data === undefined) continue;
+    if (r.key === THEME_SETTING) {
+      if (r.data === "dark" || r.data === "light") theme = r.data;
+    } else if (isPrefKey(r.key)) {
+      patch[r.key] = r.data;
+    }
+  }
+
+  applyingRemote = true;
+  try {
+    if (Object.keys(patch).length > 0) {
+      const current = getPrefs();
+      const checked = parsePrefs({ ...current, ...patch });
+      const changed = PREF_KEYS.filter((key) => !same(current[key], checked[key]));
+      if (changed.length > 0) {
+        setPrefs(Object.fromEntries(changed.map((key) => [key, checked[key]])) as Partial<Prefs>);
+      }
+    }
+    if (theme && theme !== storedTheme()) setTheme(theme);
+  } finally {
+    applyingRemote = false;
+  }
+}
+
 // --- napojení na stav appky -------------------------------------------------
 
 interface StoreBridge {
@@ -128,6 +211,9 @@ const engine = new SyncEngine({
   replaceState: (next) => bridge!.replace(next),
   now: () => new Date(),
   onProgress: (progress) => publish({ progress: progress ?? undefined }),
+  extraRecords: settingsRecords,
+  readExtra: readSetting,
+  applyExtra: applySettings,
 });
 
 // --- stav pro obrazovku -----------------------------------------------------
@@ -262,8 +348,38 @@ function schedule(ms: number): void {
 export function journalCommit(prev: MicroWinsState, next: MicroWinsState): void {
   if (!bridge) return;
   if (engine.journal(prev, next) === 0) return;
+  afterLocalChange();
+}
+
+function afterLocalChange(): void {
   publish({});
   if (signedInUser()) schedule(AFTER_CHANGE_MS);
+}
+
+/**
+ * Hlídá změny nastavení a tématu. Porovnává volbu po volbě, takže do fronty
+ * jde jen to, na co se sáhlo. Změny ze sítě (`applyingRemote`) se jen
+ * zapamatují jako nový výchozí stav.
+ */
+function watchSettings(): void {
+  let lastPrefs = getPrefs();
+  let lastTheme = storedTheme();
+
+  subscribePrefs(() => {
+    const next = getPrefs();
+    const changed = PREF_KEYS.filter((key) => !same(lastPrefs[key], next[key]));
+    lastPrefs = next;
+    if (applyingRemote || changed.length === 0) return;
+    if (engine.touch(changed.map((key) => recordId(SETTINGS_KIND, key))) > 0) afterLocalChange();
+  });
+
+  subscribeTheme(() => {
+    const next = storedTheme();
+    const changed = next !== lastTheme;
+    lastTheme = next;
+    if (applyingRemote || !changed || !next) return;
+    if (engine.touch([recordId(SETTINGS_KIND, THEME_SETTING)]) > 0) afterLocalChange();
+  });
 }
 
 /** Po přihlášení: synchronizace, nebo nejdřív převzetí dat do účtu. */
@@ -307,7 +423,13 @@ export async function confirmAdoption(mode: "merge" | "account" = "merge"): Prom
   try {
     await engine.adopt(
       mode === "account" && plan.kind === "merge"
-        ? { kind: "fresh", userId: plan.userId, account: plan.account, cursor: plan.cursor }
+        ? {
+            kind: "fresh",
+            userId: plan.userId,
+            account: plan.account,
+            cursor: plan.cursor,
+            extras: plan.extras,
+          }
         : plan,
     );
     publish({ phase: "idle", plan: undefined, lastSyncAt: new Date().toISOString() });
@@ -340,6 +462,7 @@ function watch(): void {
   if (watching) return;
   watching = true;
   initAccount();
+  watchSettings();
 
   let lastUser: string | null = null;
   const onAccount = () => {

@@ -157,6 +157,44 @@ function readSetting(kind: string, key: string): SyncRecord | null {
   return isPrefKey(key) ? { kind, key, data: getPrefs()[key] } : null;
 }
 
+/**
+ * Zařízení spojená s účtem ještě před synchronizací nastavení převzetím
+ * prošla, takže jejich nastavení v účtu není - a do fronty by se dostalo až
+ * s první změnou nějaké volby. Jednou po aktualizaci se proto podívá, co
+ * v účtu je: když nic, pošle tam svoje; když něco, vezme si ho (vyhrává účet,
+ * stejně jako při prvním přihlášení). Celé, ne od kurzoru - starší verze
+ * appky záznamy nastavení stáhla, neznala je a kurzor posunula za ně.
+ */
+const SETTINGS_SEEDED_KEY = "microwins:settings-seeded";
+
+async function seedSettingsOnce(userId: string): Promise<void> {
+  try {
+    if (window.localStorage.getItem(SETTINGS_SEEDED_KEY) === userId) return;
+  } catch {
+    return;
+  }
+  const supabase = await getClient();
+  const { data, error } = await supabase
+    .from("records")
+    .select("kind,key,data")
+    .eq("kind", SETTINGS_KIND);
+  if (error) return; // zkusí se příště
+  const rows = (data ?? []) as SyncRecord[];
+  if (rows.length === 0) {
+    const ids = settingsRecords().map((r) => recordId(r.kind, r.key));
+    if (engine.touch(ids) > 0) schedule(0);
+  } else {
+    // Co se tu mezitím přepnulo a čeká na odeslání, má přednost.
+    const pending = loadMeta().outbox;
+    applySettings(rows.filter((r) => !(recordId(r.kind, r.key) in pending)));
+  }
+  try {
+    window.localStorage.setItem(SETTINGS_SEEDED_KEY, userId);
+  } catch {
+    // soukromý režim - zeptá se znovu příště, nic se nerozbije
+  }
+}
+
 /** Běží propsání ze sítě - změny se pak nesmějí vrátit do deníku. */
 let applyingRemote = false;
 
@@ -325,6 +363,7 @@ export async function syncNow(): Promise<void> {
   try {
     await engine.sync();
     publish({ phase: "idle", lastSyncAt: new Date().toISOString(), message: undefined });
+    void seedSettingsOnce(user);
   } catch (e) {
     publish(failed(e));
   } finally {

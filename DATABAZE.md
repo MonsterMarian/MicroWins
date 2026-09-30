@@ -252,10 +252,29 @@ Napsané a otestované v [`src/lib/account-merge.ts`](src/lib/account-merge.ts):
 | 0 | Pravidla převzetí dat do účtu + testy (`account-merge.ts`) | **hotovo** |
 | 1 | Nastavení → Účet: registrace a přihlášení heslem, odhlášení (`lib/account.ts`, `login-dialog.tsx`) | **hotovo** |
 | 2 | Supabase projekt `mgxbvayypbrrbdzurgcj`: schéma spuštěné, Confirm email vypnuté | **hotovo** (ověřeno 30. 9. 2026) |
-| 3 | Deník změn v telefonu (`lib/changes.ts`, zápis v `commit`) | další na řadě |
-| 4 | `lib/sync.ts` — nahrání, stažení, náhrobky (čisté funkce + testy) | |
-| 5 | Převzetí dat po přihlášení: záloha, náhled, sloučení, případ E | |
-| 6 | Živé změny z jiného zařízení (Supabase Realtime) | volitelné |
+| 3 | Deník změn (`journal` v `sync-engine.ts`, volá ho `commit` ve StoreProvideru) | **hotovo** |
+| 4 | Synchronizace: `lib/sync.ts` (záznamy, rozdíly), `lib/sync-engine.ts` (pravidla), `lib/sync-runtime.ts` (Supabase, kdy se synchronizuje) | **hotovo**, ověřeno proti podvrženému serveru |
+| 5 | Převzetí dat po přihlášení (`components/account/adopt-dialog.tsx`): Spojit / Teď ne / vzít jen účet, případ E | **hotovo** |
+| 6 | Nastavení appky (`prefs`) mezi zařízeními | zatím ne - každé zařízení má svoje |
+| 7 | Živé změny z jiného zařízení (Supabase Realtime) | volitelné |
+
+**Jak to teď běží:**
+
+- Synchronizuje se po přihlášení, po startu appky, 2 s po každé změně, po
+  návratu do appky, po obnovení připojení a každé 2 minuty, dokud je appka
+  vidět. Ručně jde Nastavení → Účet → Synchronizovat.
+- Pořadí ve stromu má vlastní záznam `nodeOrder:nodes` (pořadí uzlů je pořadí
+  v poli, uzly samy o něm nevědí).
+- Stahuje se s minutovým přesahem za kurzor - co už v zařízení je, se znovu
+  nepropíše.
+- Po přihlášení se zařízením s daty vyskočí okno „Spojit data s účtem" s
+  náhledem. Volby: **Spojit**, **Teď ne** (v Nastavení → Účet pak zůstane
+  tlačítko), nebo **vzít jen data z účtu** (pro zkušební data - do účtu z nich
+  nejde nic). Před každou volbou se data zařízení odloží do
+  `localStorage["microwins:pre-account"]` a jdou uložit i do souboru.
+- Prázdné zařízení převezme účet bez ptaní.
+- Když se kontrola po přihlášení nepovede (bez signálu), zkusí se znovu při
+  dalším připojení nebo návratu do appky.
 
 **Ke kroku 2 - co udělat a co poslat:**
 

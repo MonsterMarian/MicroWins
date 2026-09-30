@@ -184,7 +184,10 @@ src/lib/
   import.ts           slučování zálohy se stavem (části + přidat/nahradit, mapy atomů)
   parts.ts            části dat k samostatnému uložení (strom, projekty, addony)
   account.ts          účet e-mailem a heslem přes Supabase (knihovna se načítá až při použití)
-  account-merge.ts    převzetí dat ze zařízení do účtu (připraveno, viz DATABAZE.md)
+  account-merge.ts    spojení dat zařízení s účtem (id se nepřerážejí, konflikty, listy dne)
+  sync.ts             stav jako záznamy do databáze, rozdíly dvou stavů, propsání záznamů
+  sync-engine.ts      pravidla synchronizace a převzetí (testováno proti serveru v paměti)
+  sync-runtime.ts     Supabase, localStorage, kdy synchronizovat, stav pro obrazovku
   live-update.ts      živé aktualizace balíku z GitHubu
 ```
 

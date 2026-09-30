@@ -17,6 +17,7 @@ import { graftTaskTrees, mergeState, type ImportMode } from "@/lib/import";
 import { ALL_PARTS, isAllParts, type DataPart } from "@/lib/parts";
 import { todoTtlMs } from "@/lib/prefs";
 import { loadState, saveState } from "@/lib/storage";
+import { connectStore, journalCommit } from "@/lib/sync-runtime";
 import * as blockActions from "@/lib/timeblocks";
 import * as sheetActions from "@/lib/timebox";
 import * as todoActions from "@/lib/todos";
@@ -183,7 +184,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   // Nejnovější stav i mimo render - akce potřebují číst synchronně.
   const ref = React.useRef(state);
+  /* Každá změna jde do deníku synchronizace (bez účtu se nezapíše nic) -
+     kromě těch, které přišly ze sítě: ty jdou přes `connectStore` níž. */
   const commit = React.useCallback((next: MicroWinsState) => {
+    journalCommit(ref.current, next);
     ref.current = next;
     setState(next);
   }, []);
@@ -197,6 +201,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setState(loaded);
     setToday(todayISO());
     setHydrated(true);
+    // Synchronizace smí sahat na stav až po načtení - dřív by stáhnuté
+    // záznamy přistály do prázdného stavu a načtená data je přepsala.
+    connectStore({
+      get: () => ref.current,
+      replace: (next) => {
+        ref.current = next;
+        setState(next);
+      },
+    });
   }, []);
 
   React.useEffect(() => {

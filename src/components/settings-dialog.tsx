@@ -8,6 +8,7 @@ import {
   ListChecks,
   LogIn,
   LogOut,
+  Merge,
   Moon,
   RefreshCw,
   Save,
@@ -24,8 +25,10 @@ import { useStore } from "@/components/providers/store-provider";
 import { usePrefs, setPrefs } from "@/components/providers/use-prefs";
 import { useToast } from "@/components/providers/toast-provider";
 import { useAccount } from "@/components/providers/use-account";
+import { useSyncStatus } from "@/components/providers/use-sync";
 import { LoginDialog } from "@/components/account/login-dialog";
 import { signOut } from "@/lib/account";
+import { reopenAdoption, syncNow, type SyncStatus } from "@/lib/sync-runtime";
 import { ADDON_PART, describePart, type DataPart } from "@/lib/parts";
 import { ACCENTS, ADDONS, PLAN_VIEWS, TIMEBOX_LAYOUTS, TODO_TTL_CHOICES } from "@/lib/prefs";
 import { timeboxRowCount } from "@/lib/timebox";
@@ -198,72 +201,133 @@ const TABS: { id: Tab; label: string }[] = [
 
 /**
  * Účet. Nahoře v Nastavení, protože s ním souvisí všechno pod ním - záloha
- * je dnes jediná cesta, jak dostat data z telefonu, účet bude ta druhá.
+ * je jedna cesta, jak dostat data z telefonu, účet je ta druhá.
  *
- * Odhlášení se neptá: nic nemaže, data v telefonu zůstávají.
+ * Odhlášení se neptá: nic nemaže, data v telefonu zůstávají a změny z doby
+ * bez přihlášení odejdou po dalším přihlášení.
  */
 function AccountSection() {
   const account = useAccount();
+  const sync = useSyncStatus();
   const { toast } = useToast();
   const [loginOpen, setLoginOpen] = React.useState(false);
   const signedIn = account.status === "signed-in";
 
-  const line =
-    account.status === "signed-in"
-      ? "Synchronizace mezi zařízeními se teprve chystá - data jsou zatím jen tady."
-      : account.status === "off"
-        ? "Data jsou jen v tomhle zařízení. Účty se zapnou po napojení databáze."
-        : account.status === "loading"
-          ? "Zjišťuju přihlášení…"
-          : "Data jsou jen v tomhle zařízení.";
+  const line = signedIn
+    ? syncLine(sync)
+    : account.status === "off"
+      ? "Data jsou jen v tomhle zařízení. Účty se zapnou po napojení databáze."
+      : account.status === "loading"
+        ? "Zjišťuju přihlášení…"
+        : "Data jsou jen v tomhle zařízení.";
 
   return (
     <Section title="Účet">
-      <div className="flex items-center gap-3 rounded-lg border px-3 py-2.5">
-        <span
-          className={cn(
-            "grid size-9 shrink-0 place-items-center rounded-full text-sm font-semibold",
-            signedIn ? "bg-foreground text-background" : "bg-muted text-muted-foreground",
-          )}
-          aria-hidden
-        >
-          {signedIn && account.email ? (
-            account.email.slice(0, 1).toUpperCase()
-          ) : (
-            <UserRound className="size-4" />
-          )}
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-medium">
-            {signedIn ? account.email || "Přihlášeno" : "Bez účtu"}
+      <div className="overflow-hidden rounded-lg border">
+        <div className="flex items-center gap-3 px-3 py-2.5">
+          <span
+            className={cn(
+              "grid size-9 shrink-0 place-items-center rounded-full text-sm font-semibold",
+              signedIn ? "bg-foreground text-background" : "bg-muted text-muted-foreground",
+            )}
+            aria-hidden
+          >
+            {signedIn && account.email ? (
+              account.email.slice(0, 1).toUpperCase()
+            ) : (
+              <UserRound className="size-4" />
+            )}
           </span>
-          <span className="block text-xs text-muted-foreground">{line}</span>
-        </span>
-        {account.status === "loading" ? null : signedIn ? (
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={async () => {
-              await signOut();
-              toast({ tone: "info", title: "Odhlášeno", description: "Data v telefonu zůstala." });
-            }}
-          >
-            <LogOut /> Odhlásit
-          </Button>
-        ) : (
-          <Button
-            size="sm"
-            variant={account.status === "off" ? "outline" : "default"}
-            onClick={() => setLoginOpen(true)}
-          >
-            <LogIn /> Přihlásit
-          </Button>
-        )}
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-medium">
+              {signedIn ? account.email || "Přihlášeno" : "Bez účtu"}
+            </span>
+            <span
+              className={cn(
+                "block text-xs",
+                signedIn && sync.phase === "error" ? "text-destructive" : "text-muted-foreground",
+              )}
+            >
+              {line}
+            </span>
+          </span>
+          {account.status === "loading" ? null : signedIn ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={async () => {
+                await signOut();
+                toast({ tone: "info", title: "Odhlášeno", description: "Data v telefonu zůstala." });
+              }}
+            >
+              <LogOut /> Odhlásit
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              variant={account.status === "off" ? "outline" : "default"}
+              onClick={() => setLoginOpen(true)}
+            >
+              <LogIn /> Přihlásit
+            </Button>
+          )}
+        </div>
+
+        {/* Stejná patička jako u addonů - akce, které se nedělají každý den. */}
+        {signedIn && sync.phase !== "off" && sync.phase !== "checking" ? (
+          <div className="flex items-center gap-1 border-t px-1.5 py-1">
+            {sync.phase === "needs-adoption" ? (
+              <Button variant="ghost" size="sm" className="h-7 px-2" onClick={reopenAdoption}>
+                <Merge className="size-3.5" /> Spojit data s účtem
+              </Button>
+            ) : (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2"
+                disabled={sync.phase === "syncing"}
+                onClick={() => void syncNow()}
+              >
+                <RefreshCw className={cn("size-3.5", sync.phase === "syncing" && "animate-spin")} />
+                Synchronizovat
+              </Button>
+            )}
+          </div>
+        ) : null}
       </div>
 
       <LoginDialog open={loginOpen} onOpenChange={setLoginOpen} />
     </Section>
   );
+}
+
+/** Jedna věta o tom, jak na tom synchronizace je. */
+function syncLine(sync: SyncStatus): string {
+  const waiting =
+    sync.pending > 0
+      ? ` · ${sync.pending} ${plural(sync.pending, "změna čeká", "změny čekají", "změn čeká")}`
+      : "";
+  switch (sync.phase) {
+    case "checking":
+      return "Zjišťuju, co je v účtu…";
+    case "needs-adoption":
+      return "Data z tohohle zařízení ještě nejsou v účtu.";
+    case "syncing":
+      return "Synchronizuju…";
+    case "offline":
+      return `Bez připojení - změny odejdou později${waiting}`;
+    case "error":
+      return sync.message ?? "Synchronizace se nepovedla.";
+    case "idle":
+      return sync.lastSyncAt
+        ? `Synchronizováno v ${new Date(sync.lastSyncAt).toLocaleTimeString("cs-CZ", {
+            hour: "2-digit",
+            minute: "2-digit",
+          })}${waiting}`
+        : `Synchronizace zapnutá${waiting}`;
+    default:
+      return "Připojuju…";
+  }
 }
 
 /**

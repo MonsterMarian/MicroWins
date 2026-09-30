@@ -78,7 +78,8 @@ export function subscribeAccount(fn: () => void): () => void {
 
 let clientPromise: Promise<SupabaseClient> | null = null;
 
-function client(): Promise<SupabaseClient> {
+/** Klient Supabase - načte se při prvním použití (přihlášení, synchronizace). */
+export function getClient(): Promise<SupabaseClient> {
   clientPromise ??= import("@supabase/supabase-js").then(({ createClient }) => {
     const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
       auth: {
@@ -121,7 +122,7 @@ export function initAccount(): void {
   if (!accountsEnabled()) return publish({ status: "off" });
   if (!hasStoredSession()) return publish({ status: "signed-out" });
 
-  void client()
+  void getClient()
     .then((supabase) => supabase.auth.getSession())
     .then(({ data }) => {
       const user = data.session?.user;
@@ -149,7 +150,7 @@ export type AuthResult =
 export async function signIn(email: string, password: string): Promise<AuthResult> {
   if (!accountsEnabled()) return { ok: false, message: NOT_CONNECTED };
   try {
-    const supabase = await client();
+    const supabase = await getClient();
     const { data, error } = await supabase.auth.signInWithPassword({
       email: normalizeEmail(email),
       password,
@@ -171,7 +172,7 @@ export async function signIn(email: string, password: string): Promise<AuthResul
 export async function signUp(email: string, password: string): Promise<AuthResult> {
   if (!accountsEnabled()) return { ok: false, message: NOT_CONNECTED };
   try {
-    const supabase = await client();
+    const supabase = await getClient();
     const { data, error } = await supabase.auth.signUp({
       email: normalizeEmail(email),
       password,
@@ -203,7 +204,7 @@ function signedIn(user: { id: string; email?: string } | null): void {
 export async function signOut(): Promise<void> {
   if (!accountsEnabled()) return;
   try {
-    const supabase = await client();
+    const supabase = await getClient();
     const { error } = await supabase.auth.signOut();
     if (error) await supabase.auth.signOut({ scope: "local" });
   } catch {

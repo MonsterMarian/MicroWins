@@ -98,8 +98,8 @@ const IGNORED: Partial<Record<StateKey, readonly string[]>> = {
   todos: ["order"],
 };
 
-/** Porovnání záznamů bez ohledu na pořadí klíčů v objektu. */
-function same(a: unknown, b: unknown, ignore: readonly string[] = []): boolean {
+/** Porovnání záznamů bez ohledu na pořadí klíčů v objektu. Sdílí ho i `sync.ts`. */
+export function same(a: unknown, b: unknown, ignore: readonly string[] = []): boolean {
   return stable(a, ignore) === stable(b, ignore);
 }
 

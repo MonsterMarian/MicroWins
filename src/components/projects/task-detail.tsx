@@ -8,6 +8,7 @@ import {
   ChartLine,
   ChevronDown,
   Flag,
+  Layers,
   Minus,
   Pencil,
   Plus,
@@ -35,13 +36,17 @@ import {
   isBinaryTask,
   isTaskDone,
   milestonesOfProject,
+  ownPercent,
+  progressSourceOf,
   projectById,
   subtaskCounts,
   subtasksOf,
+  subtasksPercent,
   taskById,
   taskDeltaToday,
   taskPercent,
 } from "@/lib/projects";
+import type { ProgressSource } from "@/lib/types";
 import { tapFeedback, winFeedback } from "@/lib/native";
 import { cn, formatNumber, formatTenth, parseWhole, plural } from "@/lib/utils";
 
@@ -96,8 +101,8 @@ export function TaskDetail({ taskId }: { taskId: string }) {
   const percent = taskPercent(state, task);
   const done = isTaskDone(state, task);
   const milestones = project ? milestonesOfProject(state, project.id) : [];
-  /** Postup se počítá z podúkolů - vlastní hodnota úkolu se pak neuplatní. */
-  const controlled = children.length > 0;
+  /** Z čeho se procenta počítají: čísla, podúkoly, nebo obojí (dva pruhy). */
+  const source = progressSourceOf(state, task);
   const counts = subtaskCounts(state, task.id);
   const binary = isBinaryTask(state, task);
   const deltaToday = taskDeltaToday(state, task, today);
@@ -107,6 +112,17 @@ export function TaskDetail({ taskId }: { taskId: string }) {
     ? `/tasks?id=${task.parentId}`
     : `/projects?id=${task.projectId}`;
 
+  const ownText = `${formatNumber(task.current)} / ${formatNumber(task.target)}${
+    task.unit ? ` ${task.unit}` : ""
+  }`;
+  const subtasksText = `${counts.done} / ${counts.total} ${plural(
+    counts.total,
+    "podúkol",
+    "podúkoly",
+    "podúkolů",
+  )}`;
+  const childrenPercent = subtasksPercent(state, task);
+
   /* Krok hodnoty i s hmatovou odezvou. Doražení do cíle cvakne jinak než
      obyčejný krok - je to jediná chvíle, kdy se dá bez dívání poznat, že je
      úkol hotový. */
@@ -115,6 +131,54 @@ export function TaskDetail({ taskId }: { taskId: string }) {
     const reached = task.current + delta >= task.target;
     void (reached && delta > 0 ? winFeedback() : tapFeedback());
   };
+
+  /* Posuvník a +/- - stejné pro samotná čísla i pro čísla vedle podúkolů. */
+  const ownControls = (
+    <>
+      <Slider
+        value={task.current}
+        max={task.target}
+        step={1}
+        aria-label="Postup úkolu"
+        onChange={(v) => setTaskCurrent(task.id, v)}
+      />
+
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1 rounded-xl bg-muted p-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-11 rounded-lg transition-transform active:scale-90"
+            aria-label={`Ubrat ${task.step}`}
+            onClick={() => bump(-task.step)}
+          >
+            <Minus />
+          </Button>
+          <span className="tabular w-12 text-center text-xs text-muted-foreground">
+            {formatNumber(task.step)}
+          </span>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-11 rounded-lg transition-transform active:scale-90"
+            aria-label={`Přidat ${task.step}`}
+            onClick={() => bump(task.step)}
+          >
+            <Plus />
+          </Button>
+        </div>
+
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="Zadat hodnotu ručně"
+          onClick={() => setStepOpen(true)}
+        >
+          <SlidersHorizontal />
+        </Button>
+      </div>
+    </>
+  );
 
   return (
     <div className="flex flex-col gap-4">
@@ -176,14 +240,17 @@ export function TaskDetail({ taskId }: { taskId: string }) {
                     hodina ze tří set je "+1 H", kdežto "+0,3 %" nikomu nic
                     neřekne. Postup z podúkolů žádnou vlastní hodnotu nemá,
                     tam zbývají procenta. */}
-                {controlled ? (
-                  <DeltaBubble value={percent} format={formatTenth} className="-top-1" />
-                ) : (
+                {/* Klíč podle zdroje: přepnutí z procent na čísla není přírůstek
+                    a bublina by jinak hlásila "+214 km". */}
+                {source === "own" ? (
                   <DeltaBubble
+                    key="own"
                     value={task.current}
                     format={(n) => `${formatNumber(n)}${task.unit ? ` ${task.unit}` : ""}`}
                     className="-top-1"
                   />
+                ) : (
+                  <DeltaBubble key={source} value={percent} format={formatTenth} className="-top-1" />
                 )}
                 <AnimatedPercent
                   value={percent}
@@ -194,17 +261,11 @@ export function TaskDetail({ taskId }: { taskId: string }) {
                   )}
                 />
                 <p className="tabular text-sm text-muted-foreground">
-                  {controlled ? (
-                    <>
-                      {counts.done} / {counts.total}{" "}
-                      {plural(counts.total, "podúkol", "podúkoly", "podúkolů")} hotovo
-                    </>
-                  ) : (
-                    <>
-                      {formatNumber(task.current)} / {formatNumber(task.target)}
-                      {task.unit ? ` ${task.unit}` : ""}
-                    </>
-                  )}
+                  {source === "own"
+                    ? ownText
+                    : source === "subtasks"
+                      ? `${subtasksText} hotovo`
+                      : `${ownText} · ${subtasksText}`}
                 </p>
                 {/* Stejný údaj, jaký má u velkého čísla projekt: o kolik
                     procentních bodů se úkol dnes pohnul. */}
@@ -223,9 +284,9 @@ export function TaskDetail({ taskId }: { taskId: string }) {
                 </span>
               </div>
 
-              {controlled ? (
-                /* Posuvník by tu ukazoval vlastní hodnotu úkolu, kterou nikdo
-                   nepoužívá - u 66 % z podúkolů byl prázdný. Místo něj pruh
+              {source === "subtasks" ? (
+                /* Posuvník by tu ukazoval vlastní hodnotu úkolu, která se
+                   nepočítá - u 66 % z podúkolů byl prázdný. Místo něj pruh
                    se skutečným postupem. */
                 <>
                   <ProgressBar value={percent} size="xl" />
@@ -233,50 +294,34 @@ export function TaskDetail({ taskId }: { taskId: string }) {
                     Postup se počítá z podúkolů, ručně se posouvat nedá.
                   </p>
                 </>
-              ) : (
+              ) : source === "own" ? (
                 <>
-                  <Slider
-                    value={task.current}
-                    max={task.target}
-                    step={1}
-                    aria-label="Postup úkolu"
-                    onChange={(v) => setTaskCurrent(task.id, v)}
-                  />
-
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1 rounded-xl bg-muted p-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-11 rounded-lg transition-transform active:scale-90"
-                        aria-label={`Ubrat ${task.step}`}
-                        onClick={() => bump(-task.step)}
-                      >
-                        <Minus />
-                      </Button>
-                      <span className="tabular w-12 text-center text-xs text-muted-foreground">
-                        {formatNumber(task.step)}
-                      </span>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-11 rounded-lg transition-transform active:scale-90"
-                        aria-label={`Přidat ${task.step}`}
-                        onClick={() => bump(task.step)}
-                      >
-                        <Plus />
-                      </Button>
-                    </div>
-
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label="Zadat hodnotu ručně"
-                      onClick={() => setStepOpen(true)}
-                    >
-                      <SlidersHorizontal />
-                    </Button>
+                  {ownControls}
+                  {children.length > 0 ? (
+                    <p className="text-center text-xs text-muted-foreground">
+                      Podúkoly se do procent nepočítají - přepnout to jde v Nastavení úkolu.
+                    </p>
+                  ) : null}
+                </>
+              ) : (
+                /* Obojí: dva pruhy pod sebou, každý se svým číslem. Výsledek
+                   nahoře je jejich průměr, ať jde z obrazovky vyčíst proč. */
+                <>
+                  <div className="flex flex-col gap-3">
+                    <PartHeader label="Čísla" value={ownText} percent={ownPercent(task)} />
+                    {ownControls}
                   </div>
+                  <div className="flex flex-col gap-2 border-t pt-4">
+                    <PartHeader
+                      label="Podúkoly"
+                      value={`${subtasksText} hotovo`}
+                      percent={childrenPercent ?? 0}
+                    />
+                    <ProgressBar value={childrenPercent ?? 0} size="xl" />
+                  </div>
+                  <p className="text-center text-xs text-muted-foreground">
+                    Procenta úkolu jsou průměr obou pruhů.
+                  </p>
                 </>
               )}
             </>
@@ -297,6 +342,32 @@ export function TaskDetail({ taskId }: { taskId: string }) {
 
         {settingsOpen ? (
           <CardContent className="flex flex-col gap-4">
+            {children.length > 0 ? (
+              <Row icon={Layers} label="Postup z">
+                <div className="flex flex-wrap gap-1">
+                  {SOURCES.map((option) => {
+                    const active = source === option.id;
+                    return (
+                      <button
+                        key={option.id}
+                        type="button"
+                        onClick={() => updateTask(task.id, { progressFrom: option.id })}
+                        aria-pressed={active}
+                        className={cn(
+                          "rounded-md border px-2.5 py-1 text-xs transition-colors",
+                          active
+                            ? "border-foreground/40 bg-accent font-medium"
+                            : "text-muted-foreground hover:bg-accent/50",
+                        )}
+                      >
+                        {option.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </Row>
+            ) : null}
+
             {/* Odkaz na projekt tu byl zbytečný - vede tam šipka v hlavičce. */}
             <Row icon={Flag} label="Milník">
               <Select
@@ -480,6 +551,26 @@ export function TaskDetail({ taskId }: { taskId: string }) {
           </>
         }
       />
+    </div>
+  );
+}
+
+const SOURCES: { id: ProgressSource; label: string }[] = [
+  { id: "own", label: "Čísla" },
+  { id: "subtasks", label: "Podúkoly" },
+  { id: "both", label: "Obojí" },
+];
+
+/** Nadpis jednoho ze dvou pruhů: "ČÍSLA   50 / 250 ks · 20 %". */
+function PartHeader({ label, value, percent }: { label: string; value: string; percent: number }) {
+  return (
+    <div className="flex items-baseline gap-2">
+      <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        {label}
+      </span>
+      <span className="tabular ml-auto text-xs text-muted-foreground">
+        {value} · <span className="font-medium text-foreground">{displayPercent(percent)} %</span>
+      </span>
     </div>
   );
 }

@@ -129,3 +129,24 @@ describe("buňky mapy atomů v uloženém stavu", () => {
     expect("mapOffset" in bad).toBe(false);
   });
 });
+
+describe("zdroj postupu úkolu", () => {
+  const withTask = (progressFrom: unknown) =>
+    JSON.stringify({
+      version: 8,
+      nodes: [],
+      entries: [],
+      projects: [{ id: "p", name: "P", icon: "📁", startDate: "2026-09-01", deadline: null, description: "", order: 0, createdAt: "2026-09-01T00:00:00.000Z", archivedAt: null }],
+      tasks: [{ id: "t", projectId: "p", parentId: null, name: "Kliky", icon: "💪", target: 250, current: 50, step: 1, weight: 1, dueDate: null, milestoneId: null, description: "", order: 0, createdAt: "2026-09-01T00:00:00.000Z", completedAt: null, progressFrom }],
+    });
+
+  it("platná volba se načte", () => {
+    expect(parseState(withTask("both"))!.tasks[0].progressFrom).toBe("both");
+  });
+
+  /* Poškozená nebo budoucí hodnota nesmí úkol rozbít - spadne na výchozí. */
+  it("neznámá hodnota zmizí úplně, ne jako undefined", () => {
+    const task = parseState(withTask("napul"))!.tasks[0];
+    expect("progressFrom" in task).toBe(false);
+  });
+});

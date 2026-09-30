@@ -153,6 +153,13 @@ export interface Task {
    */
   tracker?: TaskTracker;
   /**
+   * Z čeho se počítají procenta úkolu, který má podúkoly: z vlastních čísel
+   * (`own`, 50 / 250), z podúkolů (`subtasks`), nebo z obojího (`both` - dva
+   * pruhy a výsledek je jejich průměr). Chybí = podle toho, jak to appka
+   * dělala vždycky: s podúkoly z podúkolů. Úkol bez podúkolů má jen čísla.
+   */
+  progressFrom?: ProgressSource;
+  /**
    * Ruční posun uzlu v mapě atomů proti místu, kam by ho postavilo
    * automatické rozmístění. Počítá se **od rodiče**, takže posunutý rodič
    * s sebou veze celý svůj podstrom. Chybí = uzel stojí, kde ho strom postaví.
@@ -161,6 +168,8 @@ export interface Task {
 }
 
 export type TaskTracker = "check" | "count" | "none";
+
+export type ProgressSource = "own" | "subtasks" | "both";
 
 export interface MapOffset {
   x: number;

@@ -11,6 +11,7 @@ import {
   displayPercent,
   isBinaryTask,
   isTaskDone,
+  progressSourceOf,
   subtasksOf,
   taskPercent,
   taskDeltaToday,
@@ -42,6 +43,14 @@ export function TaskRow({
   /* Cíl 1 bez podúkolů je jen "hotovo / nehotovo" - pruh ani "1 / 1" k tomu
      nic nedodají, takže zbyde samotný stav u ikony. */
   const binary = isBinaryTask(state, task);
+  const source = progressSourceOf(state, task);
+  const ownLabel = `${formatNumber(task.current)} / ${formatNumber(task.target)}${task.unit ? ` ${task.unit}` : ""}`;
+  const subtasksLabel = `${children.filter((c) => isTaskDone(state, c)).length} / ${children.length} ${plural(
+    children.length,
+    "podúkol",
+    "podúkoly",
+    "podúkolů",
+  )}`;
 
   return (
     <Link
@@ -73,15 +82,14 @@ export function TaskRow({
         </span>
         {!compact ? (
           <span className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
-            {binary ? null : children.length > 0 ? (
+            {/* Řádek říká totéž co detail: čísla, podúkoly, nebo obojí. */}
+            {binary ? null : (
               <span className="tabular">
-                {children.filter((c) => isTaskDone(state, c)).length} / {children.length}{" "}
-                {plural(children.length, "podúkol", "podúkoly", "podúkolů")}
-              </span>
-            ) : (
-              <span className="tabular">
-                {formatNumber(task.current)} / {formatNumber(task.target)}
-                {task.unit ? ` ${task.unit}` : ""}
+                {source === "own"
+                  ? ownLabel
+                  : source === "subtasks"
+                    ? subtasksLabel
+                    : `${ownLabel} · ${subtasksLabel}`}
               </span>
             )}
             {task.dueDate ? (

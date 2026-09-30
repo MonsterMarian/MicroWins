@@ -26,6 +26,9 @@ import {
   filterProjects,
   leavesOf,
   isBinaryTask,
+  ownPercent,
+  progressSourceOf,
+  subtasksPercent,
   isTaskDone,
   pace,
   portfolioStats,
@@ -899,5 +902,71 @@ describe("první podúkol a vlastní postup úkolu", () => {
     const sub = createTask(t.state, p.project.id, { name: "Poslat mail", target: 1, parentId: t.task.id, keepParentProgress: true }, DAY);
 
     expect(taskPercent(sub.state, taskById(sub.state, t.task.id)!)).toBe(50);
+  });
+});
+
+describe("z čeho se počítá úkol s podúkoly", () => {
+  const DAY = "2026-09-30";
+
+  /** Kliky 50 / 250 (20 %) a pod nimi jeden hotový a jeden nehotový podúkol (50 %). */
+  function mixed() {
+    const p = createProject(EMPTY_STATE, { name: "Fitness" }, DAY);
+    const t = createTask(p.state, p.project.id, { name: "Kliky", target: 250, current: 50 }, DAY);
+    const a = createTask(t.state, p.project.id, { name: "A", target: 1, current: 1, parentId: t.task.id }, DAY);
+    const b = createTask(a.state, p.project.id, { name: "B", target: 1, parentId: t.task.id }, DAY);
+    return { state: b.state, id: t.task.id };
+  }
+
+  const percentOf = (state: MicroWinsState, id: string) => taskPercent(state, taskById(state, id)!);
+
+  it("bez volby se s podúkoly počítá z podúkolů - jako dřív", () => {
+    const { state, id } = mixed();
+    expect(progressSourceOf(state, taskById(state, id)!)).toBe("subtasks");
+    expect(percentOf(state, id)).toBe(50);
+  });
+
+  it("obojí je průměr čísel a podúkolů", () => {
+    const { state, id } = mixed();
+    const both = updateTask(state, id, { progressFrom: "both" }, DAY);
+    const task = taskById(both, id)!;
+
+    expect(ownPercent(task)).toBe(20);
+    expect(subtasksPercent(both, task)).toBe(50);
+    expect(percentOf(both, id)).toBe(35);
+  });
+
+  it("jen čísla podúkoly do procent nepouští", () => {
+    const { state, id } = mixed();
+    expect(percentOf(updateTask(state, id, { progressFrom: "own" }, DAY), id)).toBe(20);
+  });
+
+  it("úkol bez podúkolů má vždycky jen čísla, ať je volba jakákoli", () => {
+    const p = createProject(EMPTY_STATE, { name: "X" }, DAY);
+    const t = createTask(p.state, p.project.id, { name: "Kliky", target: 250, current: 50 }, DAY);
+    const both = updateTask(t.state, t.task.id, { progressFrom: "both" }, DAY);
+
+    expect(progressSourceOf(both, taskById(both, t.task.id)!)).toBe("own");
+    expect(percentOf(both, t.task.id)).toBe(20);
+  });
+
+  /* Podúkoly se samými nulovými vahami nemají z čeho průměrovat - úkol pak
+     řídí čísla, jinak by navždy visel na nule. Platí i pro "obojí". */
+  it("podúkoly bez váhy předají slovo číslům", () => {
+    const p = createProject(EMPTY_STATE, { name: "X" }, DAY);
+    const t = createTask(p.state, p.project.id, { name: "Kliky", target: 250, current: 50 }, DAY);
+    const sub = createTask(t.state, p.project.id, { name: "Poznámka", target: 1, weight: 0, parentId: t.task.id }, DAY);
+    const both = updateTask(sub.state, t.task.id, { progressFrom: "both" }, DAY);
+
+    expect(percentOf(sub.state, t.task.id)).toBe(20);
+    expect(percentOf(both, t.task.id)).toBe(20);
+  });
+
+  it("přepnutí zdroje pohne procenty projektu a zapíše otisk", () => {
+    const { state, id } = mixed();
+    const both = updateTask(state, id, { progressFrom: "both" }, DAY);
+    const projectId = taskById(both, id)!.projectId;
+
+    expect(projectPercent(both, projectId)).toBe(35);
+    expect(both.snapshots.find((s) => s.projectId === projectId && s.date === DAY)?.percent).toBe(35);
   });
 });

@@ -39,13 +39,15 @@ function normalizeTask(task: Task): Task {
   const weight = task.weight === undefined ? 1 : whole(task.weight, 0);
   const tracker = isTracker(task.tracker) ? task.tracker : undefined;
   const mapOffset = isOffset(task.mapOffset) ? task.mapOffset : undefined;
+  const progressFrom = isProgressSource(task.progressFrom) ? task.progressFrom : undefined;
   if (
     target === task.target &&
     current === task.current &&
     step === task.step &&
     weight === task.weight &&
     tracker === task.tracker &&
-    mapOffset === task.mapOffset
+    mapOffset === task.mapOffset &&
+    progressFrom === task.progressFrom
   ) {
     return task;
   }
@@ -53,9 +55,15 @@ function normalizeTask(task: Task): Task {
   // Neplatné hodnoty se nepíšou jako `undefined` - klíč zmizí úplně.
   delete next.tracker;
   delete next.mapOffset;
+  delete next.progressFrom;
   if (tracker) next.tracker = tracker;
   if (mapOffset) next.mapOffset = mapOffset;
+  if (progressFrom) next.progressFrom = progressFrom;
   return next;
+}
+
+function isProgressSource(value: unknown): value is Task["progressFrom"] {
+  return value === "own" || value === "subtasks" || value === "both";
 }
 
 function isTracker(value: unknown): value is Task["tracker"] {

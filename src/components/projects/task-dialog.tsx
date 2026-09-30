@@ -40,7 +40,7 @@ export function TaskDialog({
   const [milestoneId, setMilestoneId] = React.useState("");
   const [description, setDescription] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
-  /** Viz `keepParentProgress` - výchozí je postup nechat, ztratit ho je horší. */
+  /** Nechat rodiči i jeho čísla (`progressFrom: "both"`) - výchozí je nechat, ztratit je horší. */
   const [keepProgress, setKeepProgress] = React.useState(true);
 
   React.useEffect(() => {
@@ -61,7 +61,7 @@ export function TaskDialog({
 
   const milestones = milestonesOfProject(state, projectId);
   /* První podúkol pod úkolem s vlastním postupem by ten postup přebil -
-     úkol s podúkoly počítá procenta jen z nich. Nabídne se převod. */
+     úkol s podúkoly se jinak počítá jen z nich. Nabídne se nechat obojí. */
   const parent = !task && parentId ? taskById(state, parentId) : undefined;
   const atRisk = parent ? hasOwnProgress(state, parent) : false;
 
@@ -96,6 +96,7 @@ export function TaskDialog({
         description,
       });
     } else {
+      if (parent && atRisk && keepProgress) updateTask(parent.id, { progressFrom: "both" });
       createTask(projectId, {
         name: trimmed,
         icon,
@@ -108,7 +109,6 @@ export function TaskDialog({
         milestoneId: milestoneId || null,
         description,
         parentId,
-        keepParentProgress: atRisk && keepProgress,
       });
     }
     onOpenChange(false);
@@ -249,13 +249,13 @@ export function TaskDialog({
           >
             <span className="min-w-0">
               <span className="block text-sm font-medium">
-                Nechat dosavadní postup {formatNumber(parent.current)} / {formatNumber(parent.target)}
+                Nechat i čísla {formatNumber(parent.current)} / {formatNumber(parent.target)}
                 {parent.unit ? ` ${parent.unit}` : ""}
               </span>
               <span className="block text-xs text-muted-foreground">
                 {keepProgress
-                  ? `Přesune se do podúkolu „${parent.name}“ vedle nového, takže procenta nespadnou na nulu.`
-                  : "Postup se začne počítat jen z podúkolů. Dosavadní hodnota zůstane schovaná a vrátí se, když podúkoly smažeš."}
+                  ? "Úkol bude mít dva pruhy - čísla a podúkoly - a procenta budou jejich průměr."
+                  : "Procenta se začnou počítat jen z podúkolů. Čísla zůstanou schovaná, přepnout to jde v Nastavení úkolu."}
               </span>
             </span>
             <span

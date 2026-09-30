@@ -2,6 +2,7 @@ import { addDays, diffDays, toISODate, todayISO } from "./date";
 import type {
   ISODate,
   MicroWinsState,
+  ProgressSource,
   Milestone,
   Project,
   Snapshot,
@@ -144,18 +145,46 @@ export function milestonesOfProject(state: MicroWinsState, projectId: string): M
 
 // --- procenta ---------------------------------------------------------------
 
-export function taskPercent(state: MicroWinsState, task: Task): number {
-  const children = subtasksOf(state, task.id);
-  if (children.length > 0) {
-    const totalWeight = children.reduce((s, c) => s + weightOf(c), 0);
-    // Samé nuly = není z čeho průměrovat. Postup pak řídí vlastní hodnota
-    // úkolu, ne prázdný průměr - jinak by úkol navždy visel na nule.
-    if (totalWeight === 0) return task.target > 0 ? clampPercent((task.current / task.target) * 100) : 0;
-    const sum = children.reduce((s, c) => s + taskPercent(state, c) * weightOf(c), 0);
-    return clampPercent(sum / totalWeight);
-  }
+/**
+ * Z čeho se úkol počítá. Bez podúkolů vždycky z vlastních čísel - volba
+ * `progressFrom` se uplatní, až když má úkol z čeho vybírat.
+ */
+export function progressSourceOf(state: MicroWinsState, task: Task): ProgressSource {
+  if (!state.tasks.some((t) => t.parentId === task.id)) return "own";
+  return task.progressFrom ?? "subtasks";
+}
+
+/** Vlastní čísla úkolu: 50 / 250 = 20 %. */
+export function ownPercent(task: Task): number {
   if (task.target <= 0) return task.current > 0 ? 100 : 0;
   return clampPercent((task.current / task.target) * 100);
+}
+
+/**
+ * Vážený průměr podúkolů. `null` = není z čeho průměrovat (žádné podúkoly,
+ * nebo samé nulové váhy) - volající pak spadne na vlastní čísla, jinak by
+ * úkol navždy visel na nule.
+ */
+export function subtasksPercent(state: MicroWinsState, task: Task): number | null {
+  const children = subtasksOf(state, task.id);
+  const totalWeight = children.reduce((s, c) => s + weightOf(c), 0);
+  if (totalWeight === 0) return null;
+  const sum = children.reduce((s, c) => s + taskPercent(state, c) * weightOf(c), 0);
+  return clampPercent(sum / totalWeight);
+}
+
+/**
+ * Procenta úkolu podle `progressSourceOf`. U "obojího" je výsledek průměr
+ * obou pruhů, které detail úkolu kreslí vedle sebe - každý má polovinu,
+ * ať se dá z obrazovky spočítat, proč je úkol tam, kde je.
+ */
+export function taskPercent(state: MicroWinsState, task: Task): number {
+  const source = progressSourceOf(state, task);
+  if (source === "own") return ownPercent(task);
+  const fromChildren = subtasksPercent(state, task);
+  if (fromChildren === null) return ownPercent(task);
+  if (source === "subtasks") return fromChildren;
+  return clampPercent((ownPercent(task) + fromChildren) / 2);
 }
 
 export function projectPercent(state: MicroWinsState, projectId: string): number {

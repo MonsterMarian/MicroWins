@@ -6,9 +6,10 @@ import { Dialog } from "@/components/ui/dialog";
 import { IconField } from "@/components/ui/icon-picker";
 import { Field, Input, Select } from "@/components/ui/input";
 import { useStore } from "@/components/providers/store-provider";
-import { milestonesOfProject } from "@/lib/projects";
+import { hasOwnProgress } from "@/lib/project-actions";
+import { milestonesOfProject, taskById } from "@/lib/projects";
 import type { Task } from "@/lib/types";
-import { parseWhole } from "@/lib/utils";
+import { cn, formatNumber, parseWhole } from "@/lib/utils";
 
 const QUICK_ICONS = ["lucide:CheckCircle2", "lucide:Target", "lucide:Zap", "💪", "🏃", "🧠", "🎯"];
 
@@ -39,6 +40,8 @@ export function TaskDialog({
   const [milestoneId, setMilestoneId] = React.useState("");
   const [description, setDescription] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
+  /** Viz `keepParentProgress` - výchozí je postup nechat, ztratit ho je horší. */
+  const [keepProgress, setKeepProgress] = React.useState(true);
 
   React.useEffect(() => {
     if (!open) return;
@@ -53,9 +56,14 @@ export function TaskDialog({
     setMilestoneId(task?.milestoneId ?? "");
     setDescription(task?.description ?? "");
     setError(null);
+    setKeepProgress(true);
   }, [open, task]);
 
   const milestones = milestonesOfProject(state, projectId);
+  /* První podúkol pod úkolem s vlastním postupem by ten postup přebil -
+     úkol s podúkoly počítá procenta jen z nich. Nabídne se převod. */
+  const parent = !task && parentId ? taskById(state, parentId) : undefined;
+  const atRisk = parent ? hasOwnProgress(state, parent) : false;
 
   const submit = () => {
     const trimmed = name.trim();
@@ -100,6 +108,7 @@ export function TaskDialog({
         milestoneId: milestoneId || null,
         description,
         parentId,
+        keepParentProgress: atRisk && keepProgress,
       });
     }
     onOpenChange(false);
@@ -227,6 +236,43 @@ export function TaskDialog({
             autoComplete="off"
           />
         </Field>
+
+        {parent && atRisk ? (
+          <button
+            type="button"
+            onClick={() => setKeepProgress((v) => !v)}
+            aria-pressed={keepProgress}
+            className={cn(
+              "flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors",
+              keepProgress ? "border-foreground/40 bg-accent" : "hover:bg-accent/50",
+            )}
+          >
+            <span className="min-w-0">
+              <span className="block text-sm font-medium">
+                Nechat dosavadní postup {formatNumber(parent.current)} / {formatNumber(parent.target)}
+                {parent.unit ? ` ${parent.unit}` : ""}
+              </span>
+              <span className="block text-xs text-muted-foreground">
+                {keepProgress
+                  ? `Přesune se do podúkolu „${parent.name}“ vedle nového, takže procenta nespadnou na nulu.`
+                  : "Postup se začne počítat jen z podúkolů. Dosavadní hodnota zůstane schovaná a vrátí se, když podúkoly smažeš."}
+              </span>
+            </span>
+            <span
+              className={cn(
+                "relative h-6 w-11 shrink-0 rounded-full transition-colors",
+                keepProgress ? "bg-progress" : "bg-muted-foreground/30",
+              )}
+            >
+              <span
+                className={cn(
+                  "absolute top-1 size-4 rounded-full bg-card shadow transition-[left] duration-200",
+                  keepProgress ? "left-6" : "left-1",
+                )}
+              />
+            </span>
+          </button>
+        ) : null}
 
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
         <button type="submit" className="hidden" aria-hidden />

@@ -242,6 +242,53 @@ export interface TaskInput {
   milestoneId?: string | null;
   description?: string;
   parentId?: string | null;
+  /**
+   * Jen u podúkolu: má-li rodič vlastní postup (50 / 250) a tohle je jeho
+   * první podúkol, přesune se ten postup napřed do podúkolu - viz
+   * `carryProgressToSubtask`. Bez toho by procenta rodiče spadla na nulu.
+   */
+  keepParentProgress?: boolean;
+}
+
+/**
+ * Hrozí, že první podúkol přebije vlastní postup úkolu? Úkol s podúkoly počítá
+ * procenta jen z nich, takže dosavadních 50 / 250 by se z výpočtu vytratilo
+ * a úkol by skočil na 0 %.
+ */
+export function hasOwnProgress(state: MicroWinsState, task: Task): boolean {
+  return task.current > 0 && !state.tasks.some((t) => t.parentId === task.id);
+}
+
+/**
+ * Vlastní postup úkolu se přesune do podúkolu se stejným jménem, cílem
+ * a hodnotou. Úkol se tím nic nenaučí ani nezapomene - z "50 / 250" se stane
+ * jeden z jeho kusů, vedle kterého se dají přidávat další, a procenta
+ * nespadnou na nulu.
+ *
+ * Vlastní hodnoty rodiče zůstávají uložené: když se podúkoly později smažou,
+ * úkol ukáže zase svých 50 / 250, jako by se nic nestalo.
+ */
+export function carryProgressToSubtask(
+  state: MicroWinsState,
+  taskId: string,
+  today: ISODate = todayISO(),
+): MicroWinsState {
+  const parent = taskById(state, taskId);
+  if (!parent || !hasOwnProgress(state, parent)) return state;
+  return createTask(
+    state,
+    parent.projectId,
+    {
+      name: parent.name,
+      icon: parent.icon,
+      target: parent.target,
+      current: parent.current,
+      unit: parent.unit,
+      step: parent.step,
+      parentId: parent.id,
+    },
+    today,
+  ).state;
 }
 
 export function createTask(
@@ -250,6 +297,9 @@ export function createTask(
   input: TaskInput,
   today: ISODate = todayISO(),
 ): { state: MicroWinsState; task: Task } {
+  if (input.parentId && input.keepParentProgress) {
+    state = carryProgressToSubtask(state, input.parentId, today);
+  }
   const siblings = state.tasks.filter(
     (t) => t.projectId === projectId && t.parentId === (input.parentId ?? null),
   );

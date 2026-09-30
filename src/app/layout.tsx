@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { AppShell } from "@/components/app-shell";
 import { SyncDialogs } from "@/components/account/adopt-dialog";
+import { SyncProgressBar } from "@/components/account/sync-progress";
 import { StoreProvider } from "@/components/providers/store-provider";
 import { ToastProvider } from "@/components/providers/toast-provider";
 
@@ -72,6 +73,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <ToastProvider>
             <AppShell>{children}</AppShell>
             <SyncDialogs />
+            <SyncProgressBar />
           </ToastProvider>
         </StoreProvider>
       </body>

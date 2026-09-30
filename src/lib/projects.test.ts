@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   adjustTask,
+  carryProgressToSubtask,
   clearTaskMap,
   createProject,
   createTask,
   deleteProject,
   deleteTask,
+  hasOwnProgress,
   moveTask,
   reorderProjects,
   reorderTasks,
@@ -824,5 +826,78 @@ describe("buňky mapy atomů", () => {
     expect(taskById(tidy, child.task.id)!.mapOffset).toBeUndefined();
     // Nulový posun se neukládá vůbec.
     expect(taskById(setTaskMapOffset(moved, child.task.id, { x: 0, y: 0 }), child.task.id)!.mapOffset).toBeUndefined();
+  });
+});
+
+describe("první podúkol a vlastní postup úkolu", () => {
+  const DAY = "2026-09-30";
+
+  /** Úkol "Kliky" s postupem 50 / 250, zatím bez podúkolů. */
+  function klikyState() {
+    const p = createProject(EMPTY_STATE, { name: "Fitness" }, DAY);
+    const t = createTask(p.state, p.project.id, { name: "Kliky", target: 250, current: 50, unit: "ks", step: 10 }, DAY);
+    return { state: t.state, projectId: p.project.id, task: t.task };
+  }
+
+  /* Hlášená chyba: 50 / 250, přidám podúkol - a úkol spadne na 0 % a ukazuje
+     jen "0 / 1 podúkolů". Úkol s podúkoly počítá procenta jen z nich. */
+  it("bez převodu první podúkol vlastní postup přebije - tak to bylo", () => {
+    const { state, projectId, task } = klikyState();
+    const sub = createTask(state, projectId, { name: "Strečink", target: 1, parentId: task.id }, DAY);
+
+    expect(taskPercent(sub.state, taskById(sub.state, task.id)!)).toBe(0);
+  });
+
+  it("s převodem se 50 / 250 stane prvním podúkolem a procenta nespadnou na nulu", () => {
+    const { state, projectId, task } = klikyState();
+    const sub = createTask(
+      state,
+      projectId,
+      { name: "Strečink", target: 1, parentId: task.id, keepParentProgress: true },
+      DAY,
+    );
+    const children = subtasksOf(sub.state, task.id);
+
+    expect(children.map((c) => c.name)).toEqual(["Kliky", "Strečink"]);
+    expect(children[0]).toMatchObject({ current: 50, target: 250, unit: "ks", step: 10 });
+    // 20 % a 0 % v průměru - poctivě, úkol má teď dva kusy.
+    expect(taskPercent(sub.state, taskById(sub.state, task.id)!)).toBe(10);
+    // Vrácená hodnota je nový podúkol, ne ten převedený.
+    expect(sub.task.name).toBe("Strečink");
+  });
+
+  it("u dalšího podúkolu se už nic nepřevádí", () => {
+    const { state, projectId, task } = klikyState();
+    const first = createTask(state, projectId, { name: "A", target: 1, parentId: task.id, keepParentProgress: true }, DAY);
+    const second = createTask(first.state, projectId, { name: "B", target: 1, parentId: task.id, keepParentProgress: true }, DAY);
+
+    expect(subtasksOf(second.state, task.id).map((c) => c.name)).toEqual(["Kliky", "A", "B"]);
+  });
+
+  it("úkol bez postupu nemá co převádět", () => {
+    const p = createProject(EMPTY_STATE, { name: "X" }, DAY);
+    const t = createTask(p.state, p.project.id, { name: "Nula", target: 250 }, DAY);
+
+    expect(hasOwnProgress(t.state, t.task)).toBe(false);
+    expect(carryProgressToSubtask(t.state, t.task.id, DAY)).toBe(t.state);
+  });
+
+  /* Vlastní hodnoty rodiče zůstávají - smazáním podúkolů se úkol vrátí
+     ke svým 50 / 250, jako by se nic nestalo. */
+  it("po smazání podúkolů je úkol zpátky na svém postupu", () => {
+    const { state, projectId, task } = klikyState();
+    const sub = createTask(state, projectId, { name: "S", target: 1, parentId: task.id, keepParentProgress: true }, DAY);
+    let next = sub.state;
+    for (const child of subtasksOf(next, task.id)) next = deleteTask(next, child.id, DAY);
+
+    expect(taskPercent(next, taskById(next, task.id)!)).toBe(20);
+  });
+
+  it("odškrtnutý úkol se převede jako hotový podúkol", () => {
+    const p = createProject(EMPTY_STATE, { name: "X" }, DAY);
+    const t = createTask(p.state, p.project.id, { name: "Zavolat", target: 1, current: 1 }, DAY);
+    const sub = createTask(t.state, p.project.id, { name: "Poslat mail", target: 1, parentId: t.task.id, keepParentProgress: true }, DAY);
+
+    expect(taskPercent(sub.state, taskById(sub.state, t.task.id)!)).toBe(50);
   });
 });

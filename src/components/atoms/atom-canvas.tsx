@@ -767,7 +767,14 @@ function AddNode({
     const value = draft.trim();
     if (value && parent) {
       // Cíl 1 = zaškrtávátko. Počítadlo nebo poznámka se přepne v úpravě buňky.
-      createTask(parent.projectId, { name: value, target: 1, parentId: parent.id });
+      // Rozsekání kusu s rozdělanou prací ji nesmí smazat - přejde do prvního
+      // dílu (`keepParentProgress`), jinak by kus spadl na nulu.
+      createTask(parent.projectId, {
+        name: value,
+        target: 1,
+        parentId: parent.id,
+        keepParentProgress: true,
+      });
       void tapFeedback();
     }
     setDraft("");

@@ -7,7 +7,9 @@ import {
   type OutgoingRow,
   type RemoteRow,
   type SyncMeta,
+  type SyncProgress,
   type SyncTransport,
+  PUSH_BATCH,
 } from "./sync-engine";
 import { addTodo, deleteTodo, renameTodo } from "./todos";
 import { EMPTY_STATE, type MicroWinsState } from "./types";
@@ -55,6 +57,7 @@ class Device {
   state: MicroWinsState;
   meta: SyncMeta = { owner: null, cursor: null, outbox: {} };
   engine: SyncEngine;
+  progress: (SyncProgress | null)[] = [];
 
   constructor(server: FakeServer, state: MicroWinsState = EMPTY_STATE) {
     this.state = state;
@@ -69,6 +72,9 @@ class Device {
         this.state = s;
       },
       now: tick,
+      onProgress: (p) => {
+        this.progress.push(p);
+      },
     });
   }
 
@@ -269,5 +275,31 @@ describe("běžná synchronizace", () => {
     const loose = new Device(server, withProject("Bez účtu"));
     loose.change(addTodo(loose.state, "x").state);
     expect(loose.engine.pending()).toBe(0);
+  });
+});
+
+describe("průběh přenosu", () => {
+  /* Pruh nahoře potřebuje vědět, kolik je hotovo z kolika - a kdy je konec. */
+  it("nahrávání hlásí dávky z celku a nakonec konec", async () => {
+    let state = withProject("Hodně");
+    for (let i = 0; i < PUSH_BATCH + 20; i++) state = addTodo(state, `položka ${i}`).state;
+    const phone = new Device(server, state);
+    await phone.signIn("u1");
+
+    const up = phone.progress.filter((p): p is SyncProgress => p?.direction === "up");
+    const total = up[0].total!;
+    expect(total).toBeGreaterThan(PUSH_BATCH);
+    expect(up.map((p) => p.done)).toEqual([0, PUSH_BATCH, total]);
+    expect(phone.progress[phone.progress.length - 1]).toBeNull();
+  });
+
+  it("stahování se ohlásí a skončí i při chybě sítě", async () => {
+    const phone = new Device(server, withProject("Telefon"));
+    await phone.signIn("u1");
+    phone.progress = [];
+    server.down = true;
+
+    await expect(phone.engine.sync()).rejects.toThrow();
+    expect(phone.progress).toEqual([null]);
   });
 });

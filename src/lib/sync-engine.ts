@@ -49,9 +49,24 @@ export interface OutgoingRow {
 }
 
 export interface SyncTransport {
-  /** Záznamy účtu změněné po `since` (bez udání všechny), seřazené podle příchodu. */
-  pull(since: string | null): Promise<RemoteRow[]>;
+  /**
+   * Záznamy účtu změněné po `since` (bez udání všechny), seřazené podle
+   * příchodu. `onProgress` dostává, kolik už dorazilo a kolik jich je celkem
+   * (když to server řekne).
+   */
+  pull(
+    since: string | null,
+    onProgress?: (done: number, total: number | null) => void,
+  ): Promise<RemoteRow[]>;
   push(rows: OutgoingRow[]): Promise<void>;
+}
+
+/** Kolik se toho zrovna stahuje nebo nahrává - pro pruh na obrazovce. */
+export interface SyncProgress {
+  direction: "down" | "up";
+  done: number;
+  /** null = server počet neřekl. */
+  total: number | null;
 }
 
 export interface SyncMeta {
@@ -71,6 +86,8 @@ export interface SyncDeps {
   /** Nahradí stav appky **bez** zápisu do deníku. */
   replaceState(next: MicroWinsState): void;
   now(): Date;
+  /** Průběh přenosu; `null` = hotovo. */
+  onProgress?(progress: SyncProgress | null): void;
 }
 
 /**
@@ -161,7 +178,7 @@ export class SyncEngine {
     const meta = this.deps.loadMeta();
     if (meta.owner === userId) return null;
 
-    const rows = await this.deps.transport.pull(null);
+    const rows = await this.pullReporting(null);
     const account = fromRecords(toRecords(rows));
     const cursor = latest(rows, null);
     const local = this.deps.getState();
@@ -207,7 +224,7 @@ export class SyncEngine {
     const since = meta.cursor
       ? new Date(Date.parse(meta.cursor) - PULL_OVERLAP_MS).toISOString()
       : null;
-    const rows = await this.deps.transport.pull(since);
+    const rows = await this.pullReporting(since);
 
     // Stažené, novější než neodeslaná změna v telefonu, frontu vyřadí.
     const outbox = { ...this.deps.loadMeta().outbox };
@@ -264,9 +281,27 @@ export class SyncEngine {
     return rows.length;
   }
 
+  private async pullReporting(since: string | null): Promise<RemoteRow[]> {
+    const report = this.deps.onProgress;
+    try {
+      return await this.deps.transport.pull(since, (done, total) =>
+        report?.({ direction: "down", done, total }),
+      );
+    } finally {
+      report?.(null);
+    }
+  }
+
   private async pushAll(rows: OutgoingRow[]): Promise<void> {
-    for (let i = 0; i < rows.length; i += PUSH_BATCH) {
-      await this.deps.transport.push(rows.slice(i, i + PUSH_BATCH));
+    const report = this.deps.onProgress;
+    try {
+      for (let i = 0; i < rows.length; i += PUSH_BATCH) {
+        report?.({ direction: "up", done: i, total: rows.length });
+        await this.deps.transport.push(rows.slice(i, i + PUSH_BATCH));
+      }
+      if (rows.length > 0) report?.({ direction: "up", done: rows.length, total: rows.length });
+    } finally {
+      report?.(null);
     }
   }
 }

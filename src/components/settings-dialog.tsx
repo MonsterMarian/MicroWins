@@ -28,7 +28,14 @@ import { useAccount } from "@/components/providers/use-account";
 import { useSyncStatus } from "@/components/providers/use-sync";
 import { LoginDialog } from "@/components/account/login-dialog";
 import { signOut } from "@/lib/account";
-import { reopenAdoption, syncNow, type SyncStatus } from "@/lib/sync-runtime";
+import {
+  progressLabel,
+  progressPercent,
+  reopenAdoption,
+  syncNow,
+  type SyncStatus,
+} from "@/lib/sync-runtime";
+import { ProgressBar } from "@/components/ui/progress";
 import { ADDON_PART, describePart, type DataPart } from "@/lib/parts";
 import { ACCENTS, ADDONS, PLAN_VIEWS, TIMEBOX_LAYOUTS, TODO_TTL_CHOICES } from "@/lib/prefs";
 import { timeboxRowCount } from "@/lib/timebox";
@@ -273,6 +280,13 @@ function AccountSection() {
           )}
         </div>
 
+        {/* Průběh přenosu i tady - kdo se dívá do Nastavení, chce vidět, kolik zbývá. */}
+        {signedIn && sync.progress && progressPercent(sync.progress) !== null ? (
+          <div className="px-3 pb-2.5">
+            <ProgressBar value={progressPercent(sync.progress) ?? 0} size="sm" quiet />
+          </div>
+        ) : null}
+
         {/* Stejná patička jako u addonů - akce, které se nedělají každý den. */}
         {signedIn && sync.phase !== "off" && sync.phase !== "checking" ? (
           <div className="flex items-center gap-1 border-t px-1.5 py-1">
@@ -309,11 +323,11 @@ function syncLine(sync: SyncStatus): string {
       : "";
   switch (sync.phase) {
     case "checking":
-      return "Zjišťuju, co je v účtu…";
+      return sync.progress ? progressLabel(sync.progress) : "Zjišťuju, co je v účtu…";
     case "needs-adoption":
       return "Data z tohohle zařízení ještě nejsou v účtu.";
     case "syncing":
-      return "Synchronizuju…";
+      return sync.progress ? progressLabel(sync.progress) : "Synchronizuju…";
     case "offline":
       return `Bez připojení - změny odejdou později${waiting}`;
     case "error":

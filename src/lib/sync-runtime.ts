@@ -6,6 +6,7 @@ import {
   type OutgoingRow,
   type RemoteRow,
   type SyncMeta,
+  type SyncProgress,
   type SyncTransport,
 } from "./sync-engine";
 import type { MicroWinsState } from "./types";
@@ -76,20 +77,26 @@ function deviceId(): string {
 // --- síť --------------------------------------------------------------------
 
 const transport: SyncTransport = {
-  async pull(since) {
+  async pull(since, onProgress) {
     const supabase = await getClient();
     const out: RemoteRow[] = [];
+    let total: number | null = null;
     for (let from = 0; ; from += PAGE) {
-      let query = supabase.from("records").select("kind,key,data,changed_at,updated_at");
+      // Počet stačí zjistit jednou - kvůli pruhu "stahuju 1 000 / 2 400".
+      let query = supabase
+        .from("records")
+        .select("kind,key,data,changed_at,updated_at", from === 0 ? { count: "exact" } : undefined);
       if (since) query = query.gt("updated_at", since);
-      const { data, error } = await query
+      const { data, error, count } = await query
         .order("updated_at")
         .order("kind")
         .order("key")
         .range(from, from + PAGE - 1);
       if (error) throw error;
+      if (from === 0) total = count ?? null;
       const rows = (data ?? []) as RemoteRow[];
       out.push(...rows);
+      onProgress?.(out.length, total);
       if (rows.length < PAGE) return out;
     }
   },
@@ -120,6 +127,7 @@ const engine = new SyncEngine({
   getState: () => bridge!.get(),
   replaceState: (next) => bridge!.replace(next),
   now: () => new Date(),
+  onProgress: (progress) => publish({ progress: progress ?? undefined }),
 });
 
 // --- stav pro obrazovku -----------------------------------------------------
@@ -146,6 +154,21 @@ export interface SyncStatus {
   plan?: AdoptionPlan;
   /** Dialog převzetí je otevřený (po "Teď ne" se schová, plán zůstane). */
   asking?: boolean;
+  /** Právě běžící přenos - pro pruh nahoře a v Nastavení. */
+  progress?: SyncProgress;
+}
+
+/** "Nahrávám do účtu 500 / 843" - jedna věta pro pruh i Nastavení. */
+export function progressLabel(progress: SyncProgress): string {
+  const verb = progress.direction === "up" ? "Nahrávám do účtu" : "Stahuju z účtu";
+  if (progress.total === null || progress.total === 0) return `${verb}…`;
+  return `${verb} ${Math.min(progress.done, progress.total)} / ${progress.total}`;
+}
+
+/** Podíl hotového 0-100; `null` = neví se, kolik zbývá. */
+export function progressPercent(progress: SyncProgress): number | null {
+  if (!progress.total) return null;
+  return Math.min(100, (progress.done / progress.total) * 100);
 }
 
 let status: SyncStatus = { phase: "off", pending: 0, lastSyncAt: null };

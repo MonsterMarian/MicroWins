@@ -419,6 +419,21 @@
     animation: mw-fab-in 0.22s ease-out both;
   }
 
+  /* Přenos s neznámým koncem: kus pruhu jezdí zleva doprava, dokud server
+     neřekne, kolik toho je. */
+  @keyframes mw-indeterminate {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(340%);
+    }
+  }
+
+  .mw-indeterminate {
+    animation: mw-indeterminate 1.1s ease-in-out infinite;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .animate-in-up,
     .mw-shine,

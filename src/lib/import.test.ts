@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { addCategory, addCheck, addEntry, addMetric, deleteEntry } from "./actions";
-import { countState, hasScope, mergeState } from "./import";
+import { countState, graftTaskTrees, hasScope, mergeState } from "./import";
+import { pickTaskTree } from "./parts";
+import { setPriority } from "./timebox";
 import { createProject, createTask } from "./project-actions";
 import { addTodo, toggleTodo } from "./todos";
 import { addBlock } from "./timeblocks";
@@ -385,5 +387,163 @@ describe("poškozená záloha", () => {
 
     expect(merged.snapshots).toHaveLength(1);
     expect(merged.snapshots[0].percent).toBe(40);
+  });
+});
+
+describe("import po částech", () => {
+  /** Všechno naráz: strom, projekt, položka ToDo, blok na ni a list dne. */
+  function everything(label: string): MicroWinsState {
+    const base = addTodo(stateWith({ tree: `${label} strom`, project: `${label} projekt` }), `${label} položka`);
+    const todo = base.todo!;
+    const sheet = setPriority(base.state, TODAY, 0, `${label} hlavní věc`);
+    return addBlock(sheet, {
+      date: TODAY,
+      start: 540,
+      duration: 30,
+      title: todo.text,
+      todoId: todo.id,
+    }).state;
+  }
+
+  const mine = everything("Můj");
+  const theirs = everything("Cizí");
+
+  it("jen ToDo nesáhne na plán, projekty ani strom", () => {
+    const merged = mergeState(mine, theirs, ["todo"], "add");
+
+    expect(merged.todos.map((t) => t.text)).toEqual(["Můj položka", "Cizí položka"]);
+    expect(merged.timeBlocks).toBe(mine.timeBlocks);
+    expect(merged.projects).toBe(mine.projects);
+    expect(merged.daySheets).toBe(mine.daySheets);
+    expect(merged.nodes).toBe(mine.nodes);
+  });
+
+  it("jen plán přidá bloky a na položky, které tu nejsou, přestane ukazovat", () => {
+    const merged = mergeState(mine, theirs, ["plan"], "add");
+
+    expect(merged.todos).toBe(mine.todos);
+    expect(merged.timeBlocks).toHaveLength(2);
+    // Cizí položka se nenačítala, takže odkaz by vedl do prázdna.
+    expect(merged.timeBlocks[1].todoId).toBeNull();
+    expect(merged.timeBlocks[1].title).toBe("Cizí položka");
+  });
+
+  /* Blok uložený a načtený na stejném telefonu: položka ToDo tu pořád je
+     (stejné náhodné id), takže odkaz nemá důvod padnout. */
+  it("odkaz na položku, která v appce je, zůstane", () => {
+    const merged = mergeState(mine, mine, ["plan"], "add");
+
+    expect(merged.timeBlocks).toHaveLength(2);
+    expect(merged.timeBlocks[1].todoId).toBe(mine.todos[0].id);
+    expect(merged.timeBlocks[1].id).not.toBe(mine.timeBlocks[0].id);
+  });
+
+  it("time box nahradí listy dne i mřížku - ta jsou bloky plánu", () => {
+    const merged = mergeState(mine, theirs, ["timebox"], "replace");
+
+    expect(merged.daySheets).toEqual(theirs.daySheets);
+    expect(merged.timeBlocks).toHaveLength(1);
+    expect(merged.todos).toBe(mine.todos);
+  });
+
+  /* Při přidávání vyhrává list, který už v appce je. Blok ze zálohy navázaný
+     na "1. hlavní věc dne" by pak ukazoval cizí prioritu - odkaz proto padne
+     a blok si nechá svůj popisek. */
+  it("blok navázaný na prioritu dne, kterou tu přebil jiný list, odkaz pustí", () => {
+    const linked: MicroWinsState = {
+      ...theirs,
+      timeBlocks: theirs.timeBlocks.map((b) => ({ ...b, priorityId: `${TODAY}#0` })),
+    };
+    const merged = mergeState(mine, linked, ["timebox"], "add");
+
+    expect(merged.daySheets).toEqual(mine.daySheets);
+    expect(merged.timeBlocks[1].priorityId).toBeNull();
+    // Nahrazením přijde list i s prioritou, takže odkaz sedí.
+    expect(mergeState(mine, linked, ["timebox"], "replace").timeBlocks[0].priorityId).toBe(
+      `${TODAY}#0`,
+    );
+  });
+
+  it("time box se počítá do projektové poloviny i ve starších zkratkách", () => {
+    const onlySheet = setPriority(EMPTY_STATE, TODAY, 0, "jen priorita");
+    const counts = countState(onlySheet);
+
+    expect(counts.sheets).toBe(1);
+    expect(hasScope(counts, "projects")).toBe(true);
+    expect(mergeState(EMPTY_STATE, onlySheet, "projects", "add").daySheets).toHaveLength(1);
+  });
+});
+
+describe("načtení mapy atomů", () => {
+  const TOMORROW = "2026-08-11";
+
+  /** Projekt s úkolem rozsekaným do dvou pater. */
+  function mapState(project: string): MicroWinsState {
+    const prj = createProject(EMPTY_STATE, { name: project }, TODAY);
+    const root = createTask(prj.state, prj.project.id, { name: "Spustit web", target: 1 }, TODAY);
+    const part = createTask(
+      root.state,
+      prj.project.id,
+      { name: "Obsah", target: 1, parentId: root.task.id },
+      TODAY,
+    );
+    return createTask(
+      part.state,
+      prj.project.id,
+      { name: "Texty", target: 1, parentId: part.task.id },
+      TODAY,
+    ).state;
+  }
+
+  const source = mapState("Nápady");
+  const rootId = source.tasks.find((t) => t.parentId === null)!.id;
+  const file = pickTaskTree(source, rootId);
+  const home = createProject(EMPTY_STATE, { name: "Web" }, TODAY);
+  const existing = createTask(home.state, home.project.id, { name: "Doména", target: 1 }, TODAY);
+
+  it("přiroubuje úkol i s celým podstromem pod vybraný projekt", () => {
+    const res = graftTaskTrees(existing.state, file, [rootId], home.project.id, TOMORROW);
+    const added = res.state.tasks.filter((t) => !existing.state.tasks.includes(t));
+
+    expect(added.map((t) => t.name).sort()).toEqual(["Obsah", "Spustit web", "Texty"]);
+    expect(added.every((t) => t.projectId === home.project.id)).toBe(true);
+    const root = added.find((t) => t.id === res.rootIds[0])!;
+    const obsah = added.find((t) => t.name === "Obsah")!;
+    expect(root.parentId).toBeNull();
+    expect(obsah.parentId).toBe(root.id);
+    expect(added.find((t) => t.name === "Texty")!.parentId).toBe(obsah.id);
+  });
+
+  it("nová mapa se řadí za úkoly, které v projektu už jsou", () => {
+    const res = graftTaskTrees(existing.state, file, [rootId], home.project.id, TOMORROW);
+    const root = res.state.tasks.find((t) => t.id === res.rootIds[0])!;
+
+    expect(root.order).toBe(existing.task.order + 1);
+  });
+
+  it("dvakrát načtená mapa jsou dvě kopie, žádné sdílené id", () => {
+    const once = graftTaskTrees(existing.state, file, [rootId], home.project.id, TOMORROW);
+    const twice = graftTaskTrees(once.state, file, [rootId], home.project.id, TOMORROW);
+    const ids = twice.state.tasks.map((t) => t.id);
+
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(twice.state.tasks.filter((t) => t.name === "Texty")).toHaveLength(2);
+  });
+
+  it("historie postupu jde s mapou a projekt dostane dnešní otisk", () => {
+    const res = graftTaskTrees(existing.state, file, [rootId], home.project.id, TOMORROW);
+    const ids = new Set(res.state.tasks.filter((t) => t.projectId === home.project.id).map((t) => t.id));
+
+    expect(res.state.taskSnapshots.some((s) => s.date === TODAY && ids.has(s.taskId))).toBe(true);
+    expect(
+      res.state.snapshots.some((s) => s.projectId === home.project.id && s.date === TOMORROW),
+    ).toBe(true);
+  });
+
+  it("do projektu, který tu není, se nenačte nic", () => {
+    const res = graftTaskTrees(existing.state, file, [rootId], "neexistuje", TOMORROW);
+
+    expect(res.state).toBe(existing.state);
+    expect(res.rootIds).toEqual([]);
   });
 });

@@ -30,7 +30,7 @@ Aplikace **MicroWins** ve dvou částech:
 | Strom | `/tree` | dnešek + procházení složek s winy a jejich záznamy |
 | Analýza | `/stats` | série, pruh měsíce, kalendář roku, přehled winů, tempo projektů |
 
-Stack: Next.js 15 (App Router, vše klientské) · React 19 · TypeScript strict · Tailwind 4 · Vitest. Data v `localStorage`, export/import JSON. Grafy jsou vlastní SVG bez knihoven. 322 testů nad doménovou logikou.
+Stack: Next.js 15 (App Router, vše klientské) · React 19 · TypeScript strict · Tailwind 4 · Vitest. Data v `localStorage`, export/import JSON. Grafy jsou vlastní SVG bez knihoven. 366 testů nad doménovou logikou.
 
 ---
 
@@ -59,7 +59,9 @@ Věci, které ze zadání jednoznačně nevyplývaly a musely se dořešit:
 | **Do složek se vchází, nerozbalují se** | Rozbalený strom byl s pár desítkami winů nečitelný. Vidět je vždy obsah jedné složky, cesta ven je v liště nad ní. Rozbalují se jen samotné winy - ty už další úroveň nemají. |
 | **Několik pohledů na winy místo jedné tabulky** | Pětisloupcová tabulka odpovídala na všechny otázky naráz a na žádnou pořádně. Pohledy (Stručně / Postup / Dnešek / Žebříček / Úplná tabulka) se přepínají v Nastavení, výchozí je nejstručnější. |
 | **Kalendář po celých rocích** | "Posledních 53 týdnů" začínalo uprostřed loňska a nešlo se podle toho zorientovat. Rok je pevná jednotka, mřížka se sama posune na dnešek. |
-| **Import po částech, ne všechno naráz** | Appka má dvě nezávislé poloviny (strom a projekty). Kdo si tahá projekty odjinud, nesmí tím smazat strom, co si vede měsíce. Proto se u zálohy vybírá rozsah a jestli se přidává nebo nahrazuje — a napřed se ukáže náhled se skutečnými počty "po načtení". |
+| **Záloha i import po částech, ne všechno naráz** | Strom, projekty a každý addon žijí svým životem. Kdo si tahá projekty odjinud, nesmí tím smazat strom, co si vede měsíce, a kdo si přenáší ToDo do tabletu, nemá kvůli tomu přepsat plán. Části jsou v `lib/parts.ts` (strom, projekty a atomy, ToDo, plán, time box); ukládají se ze Zálohy v Nastavení (celé i výběr) a z řádku každého addonu, načítá se vybráním částí a režimem přidat/nahradit — a napřed se ukáže náhled se skutečnými počty "po načtení". |
+| **Time box se ukládá i s bloky plánu** | Mřížka time boxu nemá vlastní data, políčka jsou bloky plánu. Bez nich by z uloženého time boxu zbyly jen priority a brain dump. Části se proto smějí překrývat a skládá se sjednocení kolekcí. Blok, jehož úkol nebo položka ToDo v souboru není, si do souboru nese dnešní popisek a odkaz po načtení drží jen tehdy, když stejné id v appce opravdu je. |
+| **Mapa atomů jde uložit zvlášť** | Atomy vlastní data nemají (jsou to podúkoly), takže celé jdou s projekty. Rozsekání je ale práce sama o sobě - mapa se proto ukládá i po jedné (ikona nad mapou) a načítá se pod libovolný projekt jako nová kopie (`graftTaskTrees`). Soubor mapy je obyčejná záloha s jedním projektem, takže ho přečte i obnova v Nastavení. |
 | **Ikona jako string s předponou** | Emoji se ukládá rovnou, kreslená ikona jako `lucide:Dumbbell`. Stará data zůstala platná a nic se nemigrovalo. Komponenty se importují jmenovitě, aby v balíku neskončilo všech 1500 ikon knihovny. |
 | **Ikonu má jen složka, ne win** | Winy poznává oko podle druhu (měrák / fajfka / hvězda) a vlastní ikona by ten rozdíl zakryla. Složka bez vybrané ikony zůstává kresleným `Folder`, takže strom bez jediné ikony vypadá jako dřív a nic se nemigrovalo. |
 | **ToDo je samostatný seznam, ne třetí pohled na projekty** | Kdo si chce odškrtnout, co má koupit, nemá kvůli tomu zakládat projekt s procenty a deadlinem. Položka umí napsat, odškrtnout, přepsat a smazat; jediné nepovinné navíc je termín, a i ten se přidává až dodatečně. Žádná procenta, cíle ani jednotky - to už je úkol a ten v appce je. |
@@ -107,7 +109,7 @@ Věci, které ze zadání jednoznačně nevyplývaly a musely se dořešit:
 ## 4. Známá omezení
 
 - **Data jsou vázaná na prohlížeč a zařízení.** Jiný počítač = jiná data. Záloha je ruční přes export JSON.
-- **Bez přihlášení a bez synchronizace.**
+- **Bez přihlášení a bez synchronizace.** Návrh účtů a databáze je v [DATABAZE.md](DATABAZE.md).
 - **Bez undo.** Smazání uzlu/projektu je nevratné (dialog aspoň ukáže, co všechno zmizí).
 - **Přetahovat jde jen ve vlastním pořadí** — v řazení podle názvu nebo postupu úchyty zmizí, protože puštěný řádek by okamžitě odskočil zpátky.
 - **Ploché „Úkoly" napříč projekty se přetahovat nedají** — míchají rodiče i podúkoly do jednoho seznamu, takže pořadí v nich nemá kam se uložit.
@@ -123,68 +125,13 @@ Věci, které ze zadání jednoznačně nevyplývaly a musely se dořešit:
 
 ## 5. Návrhy do budoucna
 
-### 5.1 Migrace na SQLite (hlavní kandidát)
+### 5.1 Databáze a účty
 
-Sedí to na stack z `ToDo` (Prisma + `better-sqlite3`) a řeší zálohu i práci z víc zařízení. Doménová vrstva je čistá, takže se nemění — mění se jen to, odkud stav přichází.
-
-**Schéma zhruba 1:1 s `src/lib/types.ts`:**
-
-```prisma
-model TreeNode {
-  id          String   @id
-  parentId    String?
-  kind        String   // "category" | "metric"
-  name        String
-  unit        String?
-  aggregation String?  // "sum" | "max"
-  createdAt    DateTime
-  parent      TreeNode?  @relation("tree", fields: [parentId], references: [id], onDelete: Cascade)
-  children    TreeNode[] @relation("tree")
-  entries     Entry[]
-  microwins   Microwin[]
-}
-
-model Entry {
-  id        String   @id
-  metricId  String
-  date      String   // YYYY-MM-DD, lokální den
-  value     Float
-  note      String?
-  backdated Boolean
-  createdAt DateTime
-  metric    TreeNode @relation(fields: [metricId], references: [id], onDelete: Cascade)
-  @@index([metricId, date])
-}
-
-model Microwin {
-  id             String   @id
-  metricId       String
-  date           String
-  value          Float
-  previousRecord Float
-  firstEver      Boolean
-  createdAt      DateTime
-  metric         TreeNode @relation(fields: [metricId], references: [id], onDelete: Cascade)
-  @@unique([metricId, date])   // pravidlo "jeden microwin na metriku a den" vynutí databáze
-  @@index([date])
-}
-
-model Project  { /* name, icon, startDate, deadline, description, order, archivedAt */ }
-model Task     { /* projectId, parentId, name, icon, target, current, unit, step, weight, dueDate, milestoneId, description, order, completedAt */ }
-model Milestone{ /* projectId, name, date */ }
-model Snapshot { /* projectId, date, percent */  // @@unique([projectId, date]) }
-```
-
-**Postup:**
-
-1. `npm i prisma @prisma/client better-sqlite3` + `prisma/schema.prisma`, `npx prisma migrate dev`.
-2. `src/lib/repository.ts` — načtení celého stavu (`loadState()`) a zápis změn. Datové sady jsou malé (stovky řádků), takže „načti všechno do paměti, ulož diff" je v pohodě a `domain.ts` / `projects.ts` zůstanou beze změny.
-3. Akce z `actions.ts` a `project-actions.ts` obalit **Server Actions** — čisté funkce spočítají nový stav, server action ho uloží. Pravidla zůstávají otestovaná tam, kde jsou teď.
-4. `StoreProvider` místo `loadState()` z localStorage dostane počáteční stav ze serveru a po každé akci si vyžádá `revalidate`.
-5. **Migrace dat:** existující `localStorage` export (dialog Data → Exportovat JSON) nacpat do importního endpointu. Formát je stejný jako `MicroWinsState`, takže stačí `prisma.$transaction` s `createMany`.
-6. Nechat `localStorage` jako offline cache — aplikace pak funguje i bez běžícího serveru.
-
-**Pozor při migraci:** datum se všude drží jako `YYYY-MM-DD` string v *lokálním* čase. Nepřevádět na `DateTime`, jinak se přes půlnoc a přes letní čas rozjede „dnešek" a microwiny se začnou počítat ke špatnému dni.
+Samostatný návrh v [DATABAZE.md](DATABAZE.md): Supabase (Postgres + přihlášení
++ RLS), offline napřed, jedna tabulka záznamů s JSONem a pravidla, jak se data
+z telefonu převezmou do nově založeného účtu (`lib/account-merge.ts`, už
+napsané a otestované). Dřívější plán se SQLite, Prismou a Server Actions padl -
+statický export žádný server nemá.
 
 ### 5.2 Vizuál podle harnessu a 21st.dev
 
@@ -234,7 +181,9 @@ src/lib/
   backup.ts           záloha celé appky (stav + nastavení), sdílení souboru
   prefs.ts            nastavení zobrazení mimo hlavní stav
   icons.ts            katalog ikon pro projekty (emoji + lucide)
-  import.ts           slučování zálohy se stavem (rozsah + přidat/nahradit)
+  import.ts           slučování zálohy se stavem (části + přidat/nahradit, mapy atomů)
+  parts.ts            části dat k samostatnému uložení (strom, projekty, addony)
+  account-merge.ts    převzetí dat ze zařízení do účtu (připraveno, viz DATABAZE.md)
   live-update.ts      živé aktualizace balíku z GitHubu
 ```
 

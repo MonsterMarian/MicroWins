@@ -2,23 +2,28 @@ import { Directory, Encoding, Filesystem } from "@capacitor/filesystem";
 import { Share } from "@capacitor/share";
 import { todayISO } from "./date";
 import { isNative } from "./native";
+import { ALL_PARTS, isAllParts, isDataPart, pickParts, type DataPart } from "./parts";
 import { getPrefs, parsePrefs, replacePrefs, type Prefs } from "./prefs";
 import { parseState } from "./storage";
 import { STATE_VERSION, type MicroWinsState } from "./types";
 
 /**
- * Záloha celé appky.
+ * Záloha appky - celá, nebo jen vybrané části.
  *
- * Obsahuje úplně všechno, co appka drží: strom (složky, číselné winy,
+ * Úplná záloha obsahuje všechno, co appka drží: strom (složky, číselné winy,
  * zaškrtávací i jednorázové), záznamy, microwiny, projekty, úkoly, milníky,
- * denní otisky postupu - a k tomu nastavení, které žije mimo hlavní stav.
+ * denní otisky postupu, ToDo, plán i time box - a k tomu nastavení, které
+ * žije mimo hlavní stav. Záloha části (jen ToDo, jen jedna mapa atomů) nese
+ * jen svoje kolekce; ostatní jsou v souboru prázdné a `parts` říká, které
+ * v něm opravdu jsou.
  *
  * Formát je nadmnožina samotného stavu, takže starší export appky (holý
  * `MicroWinsState`) se načte taky.
  */
 
 export const BACKUP_FORMAT = "microwins-backup";
-export const BACKUP_VERSION = 1;
+/** v2: přibylo `parts` - záloha nemusí být celá. */
+export const BACKUP_VERSION = 2;
 
 export interface BackupSettings {
   theme?: "dark" | "light";
@@ -32,8 +37,22 @@ export interface Backup {
   /** Verze datového modelu, ze kterého záloha vznikla. */
   stateVersion: number;
   exportedAt: string;
+  /** Části, které soubor nese. Starší zálohy ho nemají - ty jsou vždy celé. */
+  parts: DataPart[];
   settings: BackupSettings;
   state: MicroWinsState;
+}
+
+export interface BackupOptions {
+  /** Které části do souboru jdou; bez udání všechny. */
+  parts?: readonly DataPart[];
+  /**
+   * Přibalit nastavení? Bez udání jen k úplné záloze - nastavení time boxu
+   * v souboru se samotným ToDo by po načtení překvapilo.
+   */
+  settings?: boolean;
+  /** Kousek do jména souboru, ať se zálohy částí nepletou s tou celou. */
+  label?: string;
 }
 
 export const THEME_KEY = "microwins:theme";
@@ -64,24 +83,37 @@ export function applySettings(settings: BackupSettings): void {
   document.documentElement.classList.toggle("dark", settings.theme === "dark");
 }
 
-export function buildBackup(state: MicroWinsState): Backup {
+export function buildBackup(state: MicroWinsState, options: BackupOptions = {}): Backup {
+  const parts = ALL_PARTS.filter((p) => (options.parts ?? ALL_PARTS).includes(p));
+  const withSettings = options.settings ?? isAllParts(parts);
   return {
     format: BACKUP_FORMAT,
     backupVersion: BACKUP_VERSION,
     stateVersion: STATE_VERSION,
     exportedAt: new Date().toISOString(),
-    settings: readSettings(),
-    state,
+    parts,
+    settings: withSettings ? readSettings() : {},
+    state: pickParts(state, parts),
   };
 }
 
-export function serializeBackup(state: MicroWinsState): string {
-  return JSON.stringify(buildBackup(state), null, 2);
+export function serializeBackup(state: MicroWinsState, options: BackupOptions = {}): string {
+  return JSON.stringify(buildBackup(state, options), null, 2);
 }
 
 export interface ParsedBackup {
   state: MicroWinsState;
   settings: BackupSettings;
+  /**
+   * Části, které soubor podle sebe nese; `null` = starší záloha bez údaje,
+   * tedy celá. Co v nich opravdu je, řekne až `partsIn` ze stavu.
+   */
+  parts: DataPart[] | null;
+}
+
+/** Nese záloha nějaké nastavení, které jde převzít? */
+export function hasSettings(settings: BackupSettings): boolean {
+  return settings.prefs !== undefined || settings.theme !== undefined;
 }
 
 /** Ze zálohy bere jen známé volby - cizí nebo poškozené se zahodí. */
@@ -107,20 +139,24 @@ export function parseBackup(text: string): ParsedBackup | null {
   const record = data as Record<string, unknown>;
   const inner = record.state;
 
-  // Nový formát: { format, state, settings }
+  // Nový formát: { format, state, settings, parts }
   if (inner && typeof inner === "object") {
     const state = parseState(JSON.stringify(inner));
     if (!state) return null;
-    return { state, settings: parseSettings(record.settings) };
+    return {
+      state,
+      settings: parseSettings(record.settings),
+      parts: Array.isArray(record.parts) ? record.parts.filter(isDataPart) : null,
+    };
   }
 
   // Starší export: rovnou MicroWinsState
   const state = parseState(text);
-  return state ? { state, settings: {} } : null;
+  return state ? { state, settings: {}, parts: null } : null;
 }
 
-export function backupFilename(): string {
-  return `microwins-${todayISO()}.json`;
+export function backupFilename(label?: string): string {
+  return label ? `microwins-${label}-${todayISO()}.json` : `microwins-${todayISO()}.json`;
 }
 
 /**
@@ -161,9 +197,10 @@ function isCancelled(e: unknown): boolean {
 export async function exportBackup(
   state: MicroWinsState,
   target: ExportTarget = "share",
+  options: BackupOptions = {},
 ): Promise<ExportOutcome> {
-  const json = serializeBackup(state);
-  const name = backupFilename();
+  const json = serializeBackup(state, options);
+  const name = backupFilename(options.label);
 
   if (!isNative()) {
     try {

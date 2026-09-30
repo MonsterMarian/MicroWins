@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { addCategory, addCheck, addMetric, addOnce, toggleCheck } from "./actions";
 import { parseBackup, serializeBackup } from "./backup";
+import { partsIn, pickParts, pickTaskTree } from "./parts";
 import { DEFAULT_ADDONS, DEFAULT_PREFS, parseTabOrder } from "./prefs";
 import { createProject, createTask } from "./project-actions";
 import { EMPTY_STATE, STATE_VERSION, type MicroWinsState } from "./types";
@@ -117,8 +118,10 @@ describe("záloha", () => {
     const parsed = JSON.parse(serializeBackup(fullState()));
 
     expect(parsed.format).toBe("microwins-backup");
-    expect(parsed.backupVersion).toBe(1);
+    expect(parsed.backupVersion).toBe(2);
     expect(typeof parsed.exportedAt).toBe("string");
+    // Úplná záloha říká, že je úplná - obnova podle toho nabídne všechno.
+    expect(parsed.parts).toEqual(["tree", "projects", "todo", "plan", "timebox"]);
   });
 });
 
@@ -268,5 +271,98 @@ describe("záloha nese úplně všechno", () => {
     // Schovaný projekt zůstane schovaný i po načtení zálohy.
     expect(out.projects.find((p) => p.id === "p_3")!.hidden).toBe(true);
     expect(out.projects.find((p) => p.id === "p_1")!.hidden).toBe(false);
+  });
+});
+
+describe("záloha jen části", () => {
+  it("nese jen svoje kolekce a řekne, které to jsou", () => {
+    const out = JSON.parse(serializeBackup(maximalState(), { parts: ["todo"] }));
+
+    expect(out.parts).toEqual(["todo"]);
+    expect(out.state.todos).toHaveLength(3);
+    expect(out.state.nodes).toEqual([]);
+    expect(out.state.projects).toEqual([]);
+    expect(out.state.timeBlocks).toEqual([]);
+  });
+
+  it("načtená záloha části pozná, co v ní je", () => {
+    const parsed = parseBackup(serializeBackup(maximalState(), { parts: ["todo", "tree"] }))!;
+
+    // Pořadí částí je pevné, ne podle toho, jak se odklikávaly.
+    expect(parsed.parts).toEqual(["tree", "todo"]);
+    expect(partsIn(parsed.state)).toEqual(["tree", "todo"]);
+  });
+
+  it("starší záloha bez údaje o částech je celá", () => {
+    const old = JSON.stringify({ format: "microwins-backup", backupVersion: 1, state: maximalState() });
+    expect(parseBackup(old)!.parts).toBeNull();
+  });
+
+  /* Mřížka time boxu nemá vlastní data - políčka jsou bloky plánu. Bez nich
+     by z uloženého time boxu zbyly jen priority a brain dump. */
+  it("time box s sebou bere bloky plánu", () => {
+    const picked = pickParts(maximalState(), ["timebox"]);
+
+    expect(picked.daySheets).toHaveLength(2);
+    expect(picked.timeBlocks).toHaveLength(4);
+    expect(picked.todos).toEqual([]);
+  });
+
+  it("time box se v souboru pozná podle listů dne, ne podle bloků", () => {
+    expect(partsIn(pickParts(maximalState(), ["plan"]))).toEqual(["plan"]);
+    expect(partsIn(pickParts(maximalState(), ["timebox"]))).toEqual(["plan", "timebox"]);
+  });
+
+  /* Blok bez svého úkolu v souboru po načtení odkaz ztratí - a zbyl by mu
+     popisek z doby, kdy vznikl. Do souboru jde ten, který ukazuje teď. */
+  it("blok bez úkolu v souboru si nese jeho dnešní jméno", () => {
+    const state = maximalState();
+    const renamed: MicroWinsState = {
+      ...state,
+      tasks: state.tasks.map((t) => (t.id === "t_1" ? { ...t, name: "kliky nově" } : t)),
+    };
+    const picked = pickParts(renamed, ["plan"]);
+
+    expect(picked.timeBlocks.find((b) => b.id === "b_3")!.title).toBe("kliky nově");
+    // Úplná záloha zůstává do písmene stejná jako stav.
+    expect(pickParts(renamed, ["tree", "projects", "todo", "plan", "timebox"])).toBe(renamed);
+  });
+});
+
+describe("mapa atomů v souboru", () => {
+  function withMap(): MicroWinsState {
+    const state = maximalState();
+    return {
+      ...state,
+      tasks: [
+        ...state.tasks,
+        { ...state.tasks[1], id: "t_3", parentId: "t_2", name: "atom", order: 0 },
+        { ...state.tasks[0], id: "t_other", name: "jiný úkol", milestoneId: null, order: 1 },
+      ],
+    };
+  }
+
+  it("nese úkol s celým podstromem, jeho projekt a historii - nic víc", () => {
+    const map = pickTaskTree(withMap(), "t_1");
+
+    expect(map.tasks.map((t) => t.id)).toEqual(["t_1", "t_2", "t_3"]);
+    expect(map.projects.map((p) => p.id)).toEqual(["p_1"]);
+    expect(map.taskSnapshots.map((s) => s.taskId).sort()).toEqual(["t_1", "t_2"]);
+    expect(map.milestones).toEqual([]);
+    expect(map.snapshots).toEqual([]);
+    expect(map.nodes).toEqual([]);
+  });
+
+  it("vazba na milník se utrhne - milníky patří projektu, ne mapě", () => {
+    const map = pickTaskTree(withMap(), "t_1");
+    expect(map.tasks.every((t) => t.milestoneId === null)).toBe(true);
+  });
+
+  it("uložená mapa projde zálohou beze ztráty", () => {
+    const map = pickTaskTree(withMap(), "t_1");
+    const back = parseBackup(serializeBackup(map, { parts: ["projects"], settings: false }))!;
+
+    expect(back.state.tasks.map((t) => t.name)).toEqual(["kliky", "podúkol", "atom"]);
+    expect(back.parts).toEqual(["projects"]);
   });
 });

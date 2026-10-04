@@ -13,7 +13,6 @@ import { usePrefs, setPrefs } from "@/components/providers/use-prefs";
 import { ADDON_TAB, HUB_TABS, type HubTab } from "@/lib/prefs";
 import { Overview } from "./overviews";
 import { AtomsPanel } from "@/components/atoms/atoms-panel";
-import { PlanPanel } from "@/components/plan/plan-panel";
 import { TimeboxPanel } from "@/components/timebox/timebox-panel";
 import { ProjectDialog } from "./project-dialog";
 import { ProjectRow } from "./project-row";
@@ -33,9 +32,9 @@ import { cn } from "@/lib/utils";
  * a počtvrté - úkoly jsou v projektu, dnešek v přehledu - a zmizely.
  *
  * Seznam i výchozí pořadí bydlí v `lib/prefs.ts`: uživatel si je přeskládá
- * přímo tady tažením a ToDo i Plán se dají vypnout jako addony. První záložka
- * zleva je zároveň ta, na které se appka otevírá - proto se pořadí vyplatí
- * brát vážně.
+ * přímo tady tažením a ToDo i Time box se dají vypnout jako addony. První
+ * záložka zleva je zároveň ta, na které se appka otevírá - proto se pořadí
+ * vyplatí brát vážně.
  */
 type Tab = HubTab;
 
@@ -46,7 +45,7 @@ function isTab(value: string | null): value is Tab {
 }
 
 /** Záložky, které se obejdou bez jediného projektu. */
-const STANDALONE_TABS: Tab[] = ["todo", "plan", "timebox", "atoms"];
+const STANDALONE_TABS: Tab[] = ["todo", "timebox", "atoms"];
 
 export function ProjectsHub() {
   const { state } = useStore();
@@ -124,7 +123,7 @@ export function ProjectsHub() {
     : (tabs[0]?.id ?? "overview");
 
   /* Prázdná výzva k založení projektu platí jen tam, kde jsou projekty vidět.
-     Na ToDo, v plánu ani v time boxu by zakryla obrazovku, se kterou projekty
+     Na ToDo ani v time boxu by zakryla obrazovku, se kterou projekty
      nemají nic společného; atomizér si prázdný stav vysvětluje sám. */
   const noProjects = state.projects.length === 0 && !STANDALONE_TABS.includes(tab);
 
@@ -184,8 +183,6 @@ export function ProjectsHub() {
         </Card>
       ) : tab === "todo" ? (
         <TodoPanel />
-      ) : tab === "plan" ? (
-        <PlanPanel />
       ) : tab === "timebox" ? (
         <TimeboxPanel />
       ) : tab === "atoms" ? (

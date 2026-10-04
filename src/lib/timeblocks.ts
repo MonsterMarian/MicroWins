@@ -480,16 +480,41 @@ export function daySummary(state: MicroWinsState, date: ISODate): DaySummary {
   };
 }
 
-// --- co ještě není v plánu --------------------------------------------------
+// --- otevřené ToDo nad listem dne -------------------------------------------
 
-/** Otevřené položky ToDo, které v daném dni ještě nemají blok. */
-export function unplannedTodos(state: MicroWinsState, date: ISODate): Todo[] {
-  const planned = new Set(
-    state.timeBlocks.filter((b) => b.date === date && b.todoId).map((b) => b.todoId),
-  );
+/** Otevřená položka ToDo s tím, jestli (a kdy) dnes stojí v mřížce. */
+export interface QueuedTodo {
+  todo: Todo;
+  /** Nejstarší začátek bloku s touto položkou dnes; null = v mřížce ještě není. */
+  plannedStart: number | null;
+}
+
+/**
+ * Všechny položky ToDo (otevřené i hotové) v pořadí seznamu, každá s časem,
+ * kdy ji dnes kryje blok.
+ *
+ * Pás nad listem dne ukazuje VŠECHNY položky - otevřené i hotové. Hotové
+ * zůstávají viditelné (přeškrtnuté, šedé) aby bylo vidět co bylo splněno.
+ * Rozplánovaná položka se jen ztlumí a ukáže čas.
+ */
+export function allTodosToday(state: MicroWinsState, date: ISODate): QueuedTodo[] {
+  const starts = new Map<string, number>();
+  for (const block of state.timeBlocks) {
+    if (block.date !== date || !block.todoId) continue;
+    const known = starts.get(block.todoId);
+    if (known === undefined || block.start < known) starts.set(block.todoId, block.start);
+  }
   return state.todos
-    .filter((t) => !t.doneAt && !planned.has(t.id))
-    .sort((a, b) => a.order - b.order || a.createdAt.localeCompare(b.createdAt));
+    .sort((a, b) => a.order - b.order || a.createdAt.localeCompare(b.createdAt))
+    .map((todo) => ({ todo, plannedStart: starts.get(todo.id) ?? null }));
+}
+
+/**
+ * Otevřené položky ToDo (bez hotových) - pro kompatibilitu.
+ * @deprecated Použij `allTodosToday` pro zobrazení všech položek.
+ */
+export function openTodosToday(state: MicroWinsState, date: ISODate): QueuedTodo[] {
+  return allTodosToday(state, date).filter((item) => !item.todo.doneAt);
 }
 
 /**

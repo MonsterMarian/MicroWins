@@ -37,7 +37,7 @@ import {
 } from "@/lib/sync-runtime";
 import { ProgressBar } from "@/components/ui/progress";
 import { ADDON_PART, describePart, type DataPart } from "@/lib/parts";
-import { ACCENTS, ADDONS, PLAN_VIEWS, TIMEBOX_LAYOUTS, TODO_TTL_CHOICES } from "@/lib/prefs";
+import { ACCENTS, ADDONS, TIMEBOX_LAYOUTS, TODO_TTL_CHOICES } from "@/lib/prefs";
 import { timeboxRowCount } from "@/lib/timebox";
 import {
   AI_PROVIDERS,
@@ -145,7 +145,6 @@ export function SettingsDialog({
               <AccentChoice />
             </Section>
 
-            <PlanChoice />
             <TimeboxLayoutChoice />
           </div>
         ) : (
@@ -161,6 +160,7 @@ export function SettingsDialog({
             <AiKeySection />
             <TodoExpirySection />
             <TodoDueSection />
+            <TodoTimeboxLinkSection />
           </div>
         )}
       </div>
@@ -558,8 +558,8 @@ function Section({
 /**
  * Addony - vypínač a pod ním uložení a načtení jen jejich dat.
  *
- * Každý addon si ukládá svoje: ToDo seznam, Plán bloky, Time box priority
- * s brain dumpem i mřížkou. Atomy jsou úkoly, takže jdou s projekty; jednu
+ * Každý addon si ukládá svoje: ToDo seznam, Time box priority s brain dumpem
+ * i mřížkou (časové bloky). Atomy jsou úkoly, takže jdou s projekty; jednu
  * mapu uložíš i přímo nad ní. Přehled nic vlastního nemá, jen počítá.
  */
 function AddonChoice({ onImported }: { onImported: () => void }) {
@@ -922,72 +922,52 @@ function TodoExpirySection() {
 }
 
 /**
- * Podoba plánu dne. Obě verze umí totéž a pracují se stejnými bloky, jen se
- * ptají jinak - proto volba, ne dvě obrazovky vedle sebe.
+ * Propojení ToDo s time boxem. Otevřené položky se ukazují v pásu nad listem
+ * dne a ťuknutím se plánují do mřížky; kdo chce list čistý - jen věci, které
+ * si nadiktoval sám - propojení vypne. Data se nemažou, jen se přestanou
+ * nabízet. Viditelné jen s oběma zapnutými addony.
  */
-function PlanChoice() {
-  const { addons, plan } = usePrefs();
-  if (!addons.plan) return null;
+function TodoTimeboxLinkSection() {
+  const { addons, todoInTimebox } = usePrefs();
+  if (!addons.todo || !addons.timebox) return null;
 
   return (
-    <Section title="Plán dne">
-      <div className="flex flex-col gap-2">
-        {PLAN_VIEWS.map((view) => {
-          const active = plan === view.id;
-          return (
-            <button
-              key={view.id}
-              type="button"
-              onClick={() => setPrefs({ plan: view.id })}
-              aria-pressed={active}
-              className={cn(
-                "flex items-start gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors",
-                active ? "border-foreground/40 bg-accent" : "hover:bg-accent/50",
-              )}
-            >
-              <PlanPreview view={view.id} active={active} />
-              <span className="min-w-0 flex-1">
-                <span className="flex items-center gap-2 text-sm font-medium">
-                  {view.label}
-                  {active ? <Check className="ml-auto size-3.5 opacity-60" /> : null}
-                </span>
-                <span className="block text-xs text-muted-foreground">{view.hint}</span>
-              </span>
-            </button>
-          );
-        })}
-      </div>
-    </Section>
-  );
-}
-
-/** Drobná kresba místo screenshotu - rozdíl mezi verzemi je v rozvržení. */
-function PlanPreview({ view, active }: { view: string; active: boolean }) {
-  const bar = cn("rounded-[2px]", active ? "bg-foreground/70" : "bg-muted-foreground/40");
-  return (
-    <span
-      className={cn(
-        "grid h-10 w-10 shrink-0 gap-[3px] rounded-md border p-1.5",
-        view === "week" ? "grid-cols-4 grid-rows-3" : "grid-cols-1 grid-rows-3",
-      )}
-      aria-hidden
+    <Section
+      title="Propojení s time boxem"
+      hint="Otevřené položky ToDo se ukazují v pásu nad listem dne time boxu."
     >
-      {view === "week" ? (
-        <>
-          <span className={cn(bar, "row-span-2")} />
-          <span className={bar} />
-          <span className={cn(bar, "row-span-3 self-start h-full")} />
-          <span className={bar} />
-          <span className={cn(bar, "col-start-2 row-start-3")} />
-        </>
-      ) : (
-        <>
-          <span className={bar} />
-          <span className={cn(bar, "opacity-40")} />
-          <span className={bar} />
-        </>
-      )}
-    </span>
+      <button
+        type="button"
+        onClick={() => setPrefs({ todoInTimebox: !todoInTimebox })}
+        aria-pressed={todoInTimebox}
+        className={cn(
+          "flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors",
+          todoInTimebox ? "border-foreground/40 bg-accent" : "hover:bg-accent/50",
+        )}
+      >
+        <span className="min-w-0">
+          <span className="block text-sm font-medium">Ukazovat ToDo v time boxu</span>
+          <span className="block text-xs text-muted-foreground">
+            {todoInTimebox
+              ? "Otevřené položky čekají v pásu nad listem dne."
+              : "List dne je čistý - jen to, co si napíšeš sám."}
+          </span>
+        </span>
+        <span
+          className={cn(
+            "relative h-6 w-11 shrink-0 rounded-full transition-colors",
+            todoInTimebox ? "bg-progress" : "bg-muted-foreground/30",
+          )}
+        >
+          <span
+            className={cn(
+              "absolute top-1 size-4 rounded-full bg-card shadow transition-[left] duration-200",
+              todoInTimebox ? "left-6" : "left-1",
+            )}
+          />
+        </span>
+      </button>
+    </Section>
   );
 }
 
@@ -1047,15 +1027,6 @@ function TimeboxPreview({ layout, active }: { layout: string; active: boolean })
           <span className={faint} />
           <span className={bar} />
         </span>
-      ) : layout === "tabs" ? (
-        <>
-          <span className="flex h-1 gap-[3px]">
-            <span className={cn(bar, "flex-1")} />
-            <span className={cn(faint, "flex-1")} />
-          </span>
-          <span className={cn(bar, "flex-1")} />
-          <span className={cn(faint, "flex-1")} />
-        </>
       ) : layout === "agenda" ? (
         <>
           <span className={cn(bar, "flex-1")} />

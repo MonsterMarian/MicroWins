@@ -407,7 +407,7 @@ export function ImportDialog({
           <Change label="Úkoly a atomy" from={before.tasks} to={after.tasks} touched={has("projects")} />
           <Change label="ToDo" from={before.todos} to={after.todos} touched={has("todo")} />
           <Change
-            label="Plán dne"
+            label="Časové bloky"
             from={before.blocks}
             to={after.blocks}
             touched={has("plan") || has("timebox")}
@@ -425,7 +425,7 @@ export function ImportDialog({
               ? "Všechna současná data zmizí."
               : `Zmizí současná data: ${labels.join(", ")}${
                   has("timebox") && !has("plan")
-                    ? " a s ním i bloky Plánu dne - mřížka time boxu jsou ony"
+                    ? " a s nimi i časové bloky - mřížka time boxu z nich stojí"
                     : ""
                 }.`}
           </p>

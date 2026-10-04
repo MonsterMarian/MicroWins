@@ -299,10 +299,19 @@ export interface TimeBlock {
  *
  * Prázdný list se neukládá - den, do kterého se nic nenapsalo, nemá mít řádek.
  */
-/** Jedna z hlavních věcí dne. Odškrtává se stejně jako zápis v mřížce. */
+/**
+ * Jedna z hlavních věcí dne. Odškrtává se stejně jako zápis v mřížce.
+ */
 export interface Priority {
   text: string;
   done: boolean;
+  /**
+   * Den, na který se věc přenesla ze sekce „Nestihl jsem". null/chybí = věc z
+   * dřívějších dnů ještě visí a nabídne se znovu. Odečítá se při přenosu do
+   * trojky či mřížky jiného dne; na původním dni zůstává text, ať se historie
+   * nepřepisuje.
+   */
+  carriedTo?: ISODate | null;
 }
 
 export interface DaySheet {

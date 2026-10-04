@@ -29,6 +29,12 @@ export interface PartInfo {
   label: string;
   hint: string;
   keys: readonly StateKey[];
+  /**
+   * Zrušená část, která se už nenabízí k uložení, ale pořád se čte ze souborů
+   * z dřívějška. Plán dne padl - jeho bloky dnes patří mřížce time boxu -
+   * ale záloha s částí „plan" se musí načíst celá, jinak by přišla o bloky.
+   */
+  legacy?: boolean;
 }
 
 export const DATA_PARTS: readonly PartInfo[] = [
@@ -45,14 +51,21 @@ export const DATA_PARTS: readonly PartInfo[] = [
     keys: ["projects", "tasks", "milestones", "snapshots", "taskSnapshots"],
   },
   { id: "todo", label: "ToDo", hint: "seznam i s termíny", keys: ["todos"] },
-  { id: "plan", label: "Plán dne", hint: "časové bloky", keys: ["timeBlocks"] },
   {
     id: "timebox",
     label: "Time box",
-    hint: "priority, brain dump a zápisy v mřížce (ty jsou bloky Plánu)",
+    hint: "priority, brain dump a zápisy v mřížce (bloky času)",
     keys: ["daySheets", "timeBlocks"],
   },
 ];
+
+/** Zrušené části - k uložení se nenabízí, ale staré soubory je obsahují. */
+const LEGACY_PARTS: readonly PartInfo[] = [
+  { id: "plan", label: "Plán dne", hint: "časové bloky", keys: ["timeBlocks"], legacy: true },
+];
+
+/** Všechno, co se umí přečíst ze souboru: dnešní i zrušené části. */
+const KNOWN_PARTS: readonly PartInfo[] = [...DATA_PARTS, ...LEGACY_PARTS];
 
 export const ALL_PARTS: readonly DataPart[] = DATA_PARTS.map((p) => p.id);
 
@@ -62,17 +75,16 @@ export const ALL_PARTS: readonly DataPart[] = DATA_PARTS.map((p) => p.id);
  */
 export const ADDON_PART: Partial<Record<AddonId, DataPart>> = {
   todo: "todo",
-  plan: "plan",
   timebox: "timebox",
   atoms: "projects",
 };
 
 export function partInfo(part: DataPart): PartInfo {
-  return DATA_PARTS.find((p) => p.id === part) as PartInfo;
+  return KNOWN_PARTS.find((p) => p.id === part) as PartInfo;
 }
 
 export function isDataPart(value: unknown): value is DataPart {
-  return DATA_PARTS.some((p) => p.id === value);
+  return KNOWN_PARTS.some((p) => p.id === value);
 }
 
 /** Jsou vybrané všechny části? Taková záloha je úplná a nese i nastavení. */
@@ -82,7 +94,7 @@ export function isAllParts(parts: readonly DataPart[]): boolean {
 
 /** Kolekce, které vybrané části pokrývají - bez opakování. */
 export function partKeys(parts: readonly DataPart[]): Set<StateKey> {
-  return new Set(DATA_PARTS.filter((p) => parts.includes(p.id)).flatMap((p) => p.keys));
+  return new Set(KNOWN_PARTS.filter((p) => parts.includes(p.id)).flatMap((p) => p.keys));
 }
 
 /**
@@ -108,12 +120,12 @@ export function pickParts(state: MicroWinsState, parts: readonly DataPart[]): Mi
 }
 
 /**
- * Které části ve stavu opravdu něco mají. Time box se počítá jen podle listů
- * dne - samotné bloky jsou Plán, a nabízet k načtení "time box", ve kterém
- * není jediná priorita ani brain dump, by bylo matoucí.
+ * Které části ve stavu opravdu něco mají. Zrušené části se počítají taky -
+ * náhled načtení má u starého souboru ukázat „Plán dne", ne prázdný seznam.
+ * U souborů z dneška se zrušená část odfiltruje přes seznam částí v souboru.
  */
 export function partsIn(state: MicroWinsState): DataPart[] {
-  return DATA_PARTS.filter((p) => partSize(state, p.id) > 0).map((p) => p.id);
+  return KNOWN_PARTS.filter((p) => partSize(state, p.id) > 0).map((p) => p.id);
 }
 
 function partSize(state: MicroWinsState, part: DataPart): number {
@@ -153,7 +165,7 @@ export function describePart(state: MicroWinsState, part: DataPart): string {
       return `${n} ${plural(n, "blok", "bloky", "bloků")}`;
     }
     case "timebox": {
-      // Mřížka jsou bloky plánu a jdou s ním - ať je z popisku vidět, že tam jsou.
+      // Bloky se počítají taky - mřížka time boxu z nich celá stojí.
       const n = state.daySheets.length;
       const b = state.timeBlocks.length;
       const days = `${n} ${plural(n, "den", "dny", "dnů")}`;

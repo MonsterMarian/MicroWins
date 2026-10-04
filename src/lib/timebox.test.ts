@@ -4,11 +4,14 @@ import { addBlock, blockTitle, linkBlockToPriority } from "./timeblocks";
 import {
   hasPriorityBlockAt,
   isSheetEmpty,
+  markPriorityCarried,
   normalizeSheet,
+  parseDumpTime,
   priorityRef,
   setBrainDump,
   setPriority,
   sheetOf,
+  splitDumpSchedule,
   swapPriorities,
   toggleBlockDone,
   togglePriority,
@@ -16,6 +19,7 @@ import {
   slotStart,
   timeboxRowCount,
   timeboxRows,
+  unfinishedCarryovers,
 } from "./timebox";
 import { EMPTY_STATE, type MicroWinsState } from "./types";
 
@@ -264,5 +268,94 @@ describe("list dne", () => {
     // Nesmyslné datum ani prázdný list se nenačítají.
     expect(normalizeSheet({ date: "kdysi", priorities: ["a"] }, isValidISODate)).toBe(null);
     expect(normalizeSheet({ date: DAY, priorities: [] }, isValidISODate)).toBe(null);
+  });
+
+  it("přenos na jiný den se z uložených dat dočte, nesmysl se zahodí", () => {
+    const sheet = normalizeSheet(
+      {
+        date: DAY,
+        priorities: [
+          { text: "a", done: false, carriedTo: NEXT },
+          { text: "b", carriedTo: "kdysi" },
+          "c",
+        ],
+      },
+      isValidISODate,
+    );
+
+    expect(sheet?.priorities[0].carriedTo).toBe(NEXT);
+    expect(sheet?.priorities[1].carriedTo).toBeUndefined();
+    expect(sheet?.priorities[2].carriedTo).toBeUndefined();
+  });
+});
+
+/* Řádek s časem dopředu je dohoda mezi člověkem a mřížkou: napíšu kdy, appka
+   to tam položí. Řádek pak v dumpu nezůstává - věc by ležela dvakrát. */
+describe("čas na začátku řádku brain dumpu", () => {
+  it("čas dopředu se stane blokem a z dumpu vypadne", () => {
+    const { rest, scheduled } = splitDumpSchedule("14:30 běh\nnápady\n 9:15 káva");
+
+    expect(scheduled).toEqual([
+      { start: 14 * 60 + 30, title: "běh" },
+      { start: 9 * 60 + 15, title: "káva" },
+    ]);
+    expect(rest).toBe("nápady");
+  });
+
+  it("nesmyslný čas i čas bez textu zůstávají obyčejným zápisem", () => {
+    expect(splitDumpSchedule("25:00 vlak\n14:30\n14:3 káva\nvlak 14:30").scheduled).toEqual([]);
+    expect(parseDumpTime("24:00 x")).toBe(null);
+    expect(parseDumpTime("14:30")).toBe(null);
+    expect(parseDumpTime("   ")).toBe(null);
+  });
+});
+
+describe("nestihl jsem", () => {
+  const EARLIER = "2026-09-25";
+  const YESTERDAY = "2026-09-26";
+  const TODAY = "2026-09-27";
+
+  it("nedokončené hlavní věci z dřívějších dnů se nabídnou od nejstarší", () => {
+    let s: MicroWinsState = EMPTY_STATE;
+    s = setPriority(s, YESTERDAY, 0, "Běh");
+    s = setPriority(s, EARLIER, 1, "GW");
+    s = setPriority(s, EARLIER, 2, "Uklidit");
+    s = togglePriority(s, EARLIER, 2);
+    s = setPriority(s, TODAY, 0, "dnešní");
+
+    expect(unfinishedCarryovers(s, TODAY)).toEqual([
+      { date: EARLIER, index: 1, text: "GW" },
+      { date: YESTERDAY, index: 0, text: "Běh" },
+    ]);
+  });
+
+  it("přenos věc ze seznamu sundá a cesta zpátky ji vrátí", () => {
+    const s = setPriority(EMPTY_STATE, YESTERDAY, 1, "Běh");
+
+    const carried = markPriorityCarried(s, YESTERDAY, 1, TODAY);
+    expect(unfinishedCarryovers(carried, TODAY)).toEqual([]);
+    // Přenést ještě jednou na týž den nemá co změnit.
+    expect(markPriorityCarried(carried, YESTERDAY, 1, TODAY)).toBe(carried);
+    expect(markPriorityCarried(s, YESTERDAY, 2, TODAY)).toBe(s);
+
+    const back = markPriorityCarried(carried, YESTERDAY, 1, null);
+    expect(unfinishedCarryovers(back, TODAY)).toEqual([
+      { date: YESTERDAY, index: 1, text: "Běh" },
+    ]);
+  });
+
+  it("přepsaný text přenos udrží, vygumovaný řádek ho s sebou vezme", () => {
+    const carried = markPriorityCarried(
+      setPriority(EMPTY_STATE, YESTERDAY, 0, "Běh"),
+      YESTERDAY,
+      0,
+      TODAY,
+    );
+
+    expect(
+      sheetOf(setPriority(carried, YESTERDAY, 0, "Běh v parku"), YESTERDAY).priorities[0]
+        .carriedTo,
+    ).toBe(TODAY);
+    expect(setPriority(carried, YESTERDAY, 0, "").daySheets).toHaveLength(0);
   });
 });

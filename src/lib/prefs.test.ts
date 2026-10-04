@@ -93,6 +93,20 @@ describe("nastavení ze starší verze", () => {
 
     expect(prefs).toEqual({ ...DEFAULT_PREFS, accent: "white" });
   });
+
+  /* Plán dne padl jako addon - jeho podoba i záložka v uloženém pořadí jsou
+     od té doby mrtvá data, nikoliv chyba. */
+  it("zrušený Plán se zahodí, i když ho uložené nastavení ještě zmiňuje", () => {
+    const prefs = parsePrefs({
+      plan: "week",
+      addons: { ...DEFAULT_ADDONS, plan: false },
+      tabOrder: ["plan", "todo", "timebox"],
+    });
+
+    expect("plan" in prefs).toBe(false);
+    expect("plan" in prefs.addons).toBe(false);
+    expect(prefs.tabOrder).not.toContain("plan");
+  });
 });
 
 describe("rozvržení time boxu", () => {
@@ -104,5 +118,22 @@ describe("rozvržení time boxu", () => {
   it("starší nastavení bez volby dostane jednosloupcový seznam", () => {
     expect(parsePrefs({}).timeboxLayout).toBe("list");
     expect(parsePrefs({ timeboxLayout: "grid" }).timeboxLayout).toBe("list");
+  });
+
+  /* „Záložky" padly - schovávaly brain dump na vlastní obrazovce, takže list
+     vždy něčeho zbýval. Uložená volba nesmí nikoho rozbít. */
+  it("zrušené Záložky spadnou na Seznam", () => {
+    expect(parsePrefs({ timeboxLayout: "tabs" }).timeboxLayout).toBe("list");
+  });
+});
+
+/* Propojení ToDo s time boxem bylo dřív napevno - chybějící volba ze staršího
+   uloženého nastavení se nesmí přečíst jako vypnuté, jinak by z pásu nad
+   listem dne po aktualizaci zmizely položky, které tam člověk čeká. */
+describe("propojení ToDo a time boxu", () => {
+  it("chybějící volba nechává propojení zapnuté", () => {
+    expect(parsePrefs({}).todoInTimebox).toBe(true);
+    expect(parsePrefs({ todoInTimebox: false }).todoInTimebox).toBe(false);
+    expect(DEFAULT_PREFS.todoInTimebox).toBe(true);
   });
 });

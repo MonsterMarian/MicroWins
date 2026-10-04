@@ -5,11 +5,12 @@ import type { DaySheet, ISODate, MicroWinsState, TimeBlock } from "./types";
 /**
  * Time box - list dne rozkrájený po půlhodinách.
  *
- * Mřížka **nemá vlastní data**: políčko je obyčejný blok plánu
- * (`lib/timeblocks.ts`). Co se napíše do time boxu, stojí i v Plánu dne a
- * odškrtává se jen jednou. Dva seznamy o tomtéž dni, které o sobě nevědí, jsou
+ * Mřížka **nemá vlastní data**: políčko je obyčejný časový blok
+ * (`lib/timeblocks.ts`). Co se napíše do time boxu, je ten samý blok, který
+ * se odškrtává jen jednou. Dva seznamy o tomtéž dni, které o sobě nevědí, jsou
  * to nejhorší, co plánovač může mít - v jednom je schůzka, ve druhém ne a
- * člověk neví, čemu věřit.
+ * člověk neví, čemu věřit. (Kdysi měla bloky vlastní obrazovku Plán; ta padla,
+ * time box je od té doby jediný pohled na ně.)
  *
  * Ke dni ale patří ještě tři priority a brain dump. Ty v blocích bydlet
  * nemůžou (nemají čas ani délku), takže mají vlastní `DaySheet`.
@@ -193,7 +194,10 @@ function putSheet(state: MicroWinsState, sheet: DaySheet): MicroWinsState {
     current.brainDump === sheet.brainDump &&
     current.priorities.length === sheet.priorities.length &&
     current.priorities.every(
-      (p, i) => p.text === sheet.priorities[i].text && p.done === sheet.priorities[i].done,
+      (p, i) =>
+        p.text === sheet.priorities[i].text &&
+        p.done === sheet.priorities[i].done &&
+        (p.carriedTo ?? null) === (sheet.priorities[i].carriedTo ?? null),
     );
   if (same || (current === undefined && isSheetEmpty(sheet))) return state;
 
@@ -217,8 +221,114 @@ export function setPriority(
   const priorities = [...sheet.priorities];
   const value = text.slice(0, PRIORITY_MAX);
   // Vygumovaná priorita nezůstane odškrtnutá - na prázdném řádku nemá co dělat.
-  priorities[index] = { text: value, done: value.trim() === "" ? false : priorities[index].done };
+  // Přenos na jiný den se drží i přes přepsání textu: věc se přenesla, to se
+  // psaním nemění.
+  priorities[index] = {
+    text: value,
+    done: value.trim() === "" ? false : priorities[index].done,
+    ...(priorities[index].carriedTo ? { carriedTo: priorities[index].carriedTo } : {}),
+  };
   return putSheet(state, { ...sheet, priorities });
+}
+
+// --- nestihl jsem -----------------------------------------------------------
+
+/**
+ * Hlavní věc z dřívějšího dne, která nezůstala ležet zapomenutá.
+ *
+ * Sekce „Nestihl jsem" je trhlina mezi dny: včerejší list se už nepřepisuje,
+ * ale věc, která se nestihla, má člověka dohnát i dnes. Proto se nezakládá
+ * žádná kopie - položka jen ukazuje na prioritu původního dne a přenosem
+ * (do trojky, do mřížky, ťuknutím) se původní řádek označí `carriedTo`.
+ */
+export interface CarryoverItem {
+  date: ISODate;
+  index: number;
+  text: string;
+}
+
+/**
+ * Nedokončené hlavní věci z dnů před `today`, které ještě nikam neputovaly.
+ *
+ * Odshora od nejstarší: co čeká nejdéle, to si zaslouží jít nahoru. Bloky
+ * se sem neberou - zápis v mřížce je historie dne, ne úkol; nositelem „co
+ * jsem si slíbil" je trojka hlavních věcí.
+ */
+export function unfinishedCarryovers(state: MicroWinsState, today: ISODate): CarryoverItem[] {
+  const out: CarryoverItem[] = [];
+  for (const sheet of state.daySheets) {
+    if (sheet.date >= today) continue;
+    sheet.priorities.forEach((priority, index) => {
+      const text = priority.text.trim();
+      if (text === "" || priority.done || priority.carriedTo) return;
+      out.push({ date: sheet.date, index, text });
+    });
+  }
+  return out.sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/**
+ * Označí hlavní věc za přenesenou na jiný den (a tím ji sundá ze seznamu
+ * „Nestihl jsem"). `null` označení sundá - cesta zpátky pro hlášku Vrátit.
+ */
+export function markPriorityCarried(
+  state: MicroWinsState,
+  date: ISODate,
+  index: number,
+  carriedTo: ISODate | null,
+): MicroWinsState {
+  if (!isPriorityIndex(index)) return state;
+  const sheet = sheetOf(state, date);
+  const current = sheet.priorities[index];
+  // Prázdný řádek se přenést nedá a stejný cíl nic nezmění.
+  if (!current || current.text.trim() === "" || (current.carriedTo ?? null) === carriedTo)
+    return state;
+  const priorities = [...sheet.priorities];
+  priorities[index] = carriedTo ? { ...current, carriedTo } : { ...current, carriedTo: null };
+  return putSheet(state, { ...sheet, priorities });
+}
+
+// --- čas na začátku řádku brain dumpu ---------------------------------------
+
+/** Co se z řádku brain dumpu stane blokem: kdy začíná a co se bude dít. */
+export interface DumpSchedule {
+  start: number;
+  title: string;
+}
+
+const DUMP_TIME = /^\s*(\d{1,2}):(\d{2})\s+(\S.*)$/;
+
+/**
+ * „14:30 běh" → `{ start: 870, title: "běh" }`. Čas patří na začátek řádku,
+ * protože řádek se pak do mřížky posadí sám - psát čas na konec by znamenalo
+ * hledat ho pohledem uprostřed textu. Nesmyslný čas (25:00) i samotný čas
+ * bez textu se berou jako obyčejný zápis.
+ */
+export function parseDumpTime(line: string): DumpSchedule | null {
+  const match = DUMP_TIME.exec(line);
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours > 23 || minutes > 59) return null;
+  return { start: hours * 60 + minutes, title: match[3].trim() };
+}
+
+/**
+ * Rozdělí brain dump na řádky s časem (ty se stanou bloky) a zbytek.
+ *
+ * Řádek s časem se plánuje sám v okamžiku, kdy se od něj odejde - psaní tím
+ * neruší nic a věc v dumpu nezůstává stát dvakrát (jednou tady, jednou
+ * v mřížce). Prázdné řádky zůstávají prázdnými řádky.
+ */
+export function splitDumpSchedule(text: string): { rest: string; scheduled: DumpSchedule[] } {
+  const scheduled: DumpSchedule[] = [];
+  const rest: string[] = [];
+  for (const line of text.split("\n")) {
+    const hit = parseDumpTime(line);
+    if (hit) scheduled.push(hit);
+    else rest.push(line);
+  }
+  return { rest: rest.join("\n"), scheduled };
 }
 
 /**
@@ -340,7 +450,15 @@ export function normalizeSheet(raw: unknown, isDate: (value: string) => boolean)
     if (typeof item === "object" && item !== null) {
       const p = item as Record<string, unknown>;
       const text = typeof p.text === "string" ? p.text.slice(0, PRIORITY_MAX) : "";
-      return { text, done: text.trim() !== "" && p.done === true };
+      // Přenos na jiný den se drží, dokud text zůstává - jinak by se odškrtnutá
+      // věc po každém načtení znovu nabízela v „Nestihl jsem".
+      const carriedTo =
+        typeof p.carriedTo === "string" && isDate(p.carriedTo) ? p.carriedTo : null;
+      return {
+        text,
+        done: text.trim() !== "" && p.done === true,
+        ...(carriedTo ? { carriedTo } : {}),
+      };
     }
     return { text: "", done: false };
   });

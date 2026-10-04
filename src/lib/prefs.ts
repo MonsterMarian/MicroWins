@@ -41,30 +41,18 @@ export const OVERVIEWS: { id: Overview; label: string; hint: string }[] = [
 ];
 
 /**
- * Podoba plánu dne. Obě verze pracují se stejnými bloky, jen se ptají jinak:
- * osa na „jak vypadá dnešek", týden na „kdy v tom týdnu na to bude čas".
+ * Podoba time boxu. Data jsou pořád tatáž (bloky v mřížce, trojka a brain
+ * dump), mění se jen rozvržení - papírový list se dvěma sloupci je čitelný na
+ * tabletu, na telefonu se ale mačká, takže má na výběr i jednosloupcové
+ * verze. Všech pět sekcí (pás, Nestihl jsem, trojka, mřížka, brain dump) jsou
+ * přitom v každé z nich - „Záložky" s brain dumpem na vlastní obrazovce
+ * padly, protože v nich list vždy něčeho zbýval.
  */
-export type PlanView = "schedule" | "day" | "3day" | "week" | "month";
-
-export const PLAN_VIEWS: { id: PlanView; label: string; hint: string }[] = [
-  { id: "schedule", label: "Agenda", hint: "seznam naplánovaných dnů pod sebou" },
-  { id: "day", label: "Den", hint: "jeden den odshora dolů, bloky se tahají po čtvrthodinách" },
-  { id: "3day", label: "3 dny", hint: "tři dny vedle sebe, dobré pro telefony na šířku nebo detail" },
-  { id: "week", label: "Týden", hint: "sedm sloupců vedle sebe, blok jde přehodit i na jiný den" },
-  { id: "month", label: "Měsíc", hint: "plná mřížka měsíce s puntíky bloků" },
-];
-
-/**
- * Podoba time boxu. Data jsou pořád tatáž (bloky Plánu, trojka a brain dump),
- * mění se jen rozvržení - papírový list se dvěma sloupci je čitelný na tabletu,
- * na telefonu se ale mačká, takže má na výběr i jednosloupcové verze.
- */
-export type TimeboxLayout = "list" | "agenda" | "tabs" | "sheet";
+export type TimeboxLayout = "list" | "agenda" | "sheet";
 
 export const TIMEBOX_LAYOUTS: { id: TimeboxLayout; label: string; hint: string }[] = [
   { id: "list", label: "Seznam", hint: "půlhodina na řádek přes celou šířku, brain dump až pod dnem" },
   { id: "agenda", label: "Jen obsazené", hint: "prázdné půlhodiny se slijí do jednoho řádku volna" },
-  { id: "tabs", label: "Záložky", hint: "den a brain dump každý na své obrazovce" },
   { id: "sheet", label: "Papír", hint: "sloupce :00 a :30 vedle sebe jako na předloze - pro tablet" },
 ];
 
@@ -73,37 +61,28 @@ export const TIMEBOX_LAYOUTS: { id: TimeboxLayout; label: string; hint: string }
  * v Nastavení, takže seznam nemůže bydlet v komponentě, která je kreslí -
  * nastavení by na něj muselo sáhnout skrz.
  */
-export type HubTab = "overview" | "todo" | "plan" | "timebox" | "atoms" | "projects";
+export type HubTab = "overview" | "todo" | "timebox" | "atoms" | "projects";
 
 export const HUB_TABS: { id: HubTab; label: string }[] = [
   { id: "overview", label: "Přehled" },
   { id: "todo", label: "ToDo" },
-  { id: "plan", label: "Plán" },
   { id: "timebox", label: "Time box" },
   { id: "atoms", label: "Atomy" },
   { id: "projects", label: "Projekty" },
 ];
 
-export const DEFAULT_TAB_ORDER: HubTab[] = [
-  "overview",
-  "todo",
-  "plan",
-  "projects",
-  "timebox",
-  "atoms",
-];
+export const DEFAULT_TAB_ORDER: HubTab[] = ["overview", "todo", "projects", "timebox", "atoms"];
 
 /**
  * Vypínatelné části appky. Přidání dalšího addonu je jeden řádek v `ADDONS`
  * a jedna položka v `DEFAULT_ADDONS` - všechno ostatní (obrazovka v Nastavení,
  * načítání i ukládání) jede z tohohle seznamu.
  */
-export type AddonId = "overview" | "todo" | "plan" | "timebox" | "atoms";
+export type AddonId = "overview" | "todo" | "timebox" | "atoms";
 
 export const ADDONS: { id: AddonId; label: string; hint: string }[] = [
   { id: "overview", label: "Přehled", hint: "úvodní obrazovka s celkovou statistikou" },
   { id: "todo", label: "ToDo", hint: "krátký seznam na dnešek vedle projektů" },
-  { id: "plan", label: "Plán dne", hint: "časové bloky - kdy na co bude čas" },
   {
     id: "timebox",
     label: "Time box",
@@ -117,7 +96,6 @@ export type Addons = Record<AddonId, boolean>;
 export const DEFAULT_ADDONS: Addons = {
   overview: true,
   todo: true,
-  plan: true,
   timebox: true,
   atoms: true,
 };
@@ -126,7 +104,6 @@ export const DEFAULT_ADDONS: Addons = {
 export const ADDON_TAB: Partial<Record<AddonId, HubTab>> = {
   overview: "overview",
   todo: "todo",
-  plan: "plan",
   timebox: "timebox",
   atoms: "atoms",
 };
@@ -150,8 +127,6 @@ export interface Prefs {
   todoExpire: boolean;
   /** Za jak dlouho odškrtnutá položka zmizí, v minutách. */
   todoTtlMinutes: number;
-  /** Podoba plánu dne, viz `PLAN_VIEWS`. */
-  plan: PlanView;
   /**
    * Rozsah mřížky time boxu, celé hodiny 0-23. Konec **před** začátkem je
    * platná volba: mřížka pak přeteče přes půlnoc (7-1 pro noční ptáky) a
@@ -161,6 +136,12 @@ export interface Prefs {
   timeboxEnd: number;
   /** Rozvržení time boxu, viz `TIMEBOX_LAYOUTS`. */
   timeboxLayout: TimeboxLayout;
+  /**
+   * Mají se otevřené položky ToDo ukazovat v pásu nad listem dne time boxu?
+   * Kdo chce list čistý (jen vlastní hlavou napsané věci), propojení vypne -
+   * data se nemažou, jen se přestanou nabízet.
+   */
+  todoInTimebox: boolean;
   /** Tlačítka rychlých termínů v ToDo, viz `lib/due-rules.ts`. */
   dueRules: DueRule[];
 }
@@ -179,10 +160,10 @@ export const DEFAULT_PREFS: Prefs = {
   tabOrder: DEFAULT_TAB_ORDER,
   todoExpire: true,
   todoTtlMinutes: DEFAULT_TODO_TTL_MINUTES,
-  plan: "day",
   timeboxStart: DEFAULT_TIMEBOX_START,
   timeboxEnd: DEFAULT_TIMEBOX_END,
   timeboxLayout: "list",
+  todoInTimebox: true,
   dueRules: DEFAULT_DUE_RULES,
 };
 
@@ -198,10 +179,6 @@ function isOverview(value: unknown): value is Overview {
 
 function isTimeboxLayout(value: unknown): value is TimeboxLayout {
   return TIMEBOX_LAYOUTS.some((l) => l.id === value);
-}
-
-function isPlanView(value: unknown): value is PlanView {
-  return PLAN_VIEWS.some((v) => v.id === value);
 }
 
 /**
@@ -254,7 +231,6 @@ export function parsePrefs(raw: unknown): Prefs {
     // Chybějící volba = mizení zapnuté, jako to bylo napevno předtím.
     todoExpire: record.todoExpire !== false,
     todoTtlMinutes: parseTtlMinutes(record.todoTtlMinutes),
-    plan: isPlanView(record.plan) ? record.plan : DEFAULT_PREFS.plan,
     timeboxStart:
       typeof record.timeboxStart === "number"
         ? clampHour(record.timeboxStart)
@@ -266,6 +242,8 @@ export function parsePrefs(raw: unknown): Prefs {
     timeboxLayout: isTimeboxLayout(record.timeboxLayout)
       ? record.timeboxLayout
       : DEFAULT_PREFS.timeboxLayout,
+    // Chybějící volba = propojené, jako to bylo dřív napevno.
+    todoInTimebox: record.todoInTimebox !== false,
     dueRules: parseDueRules(record.dueRules),
   };
 }

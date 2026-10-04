@@ -102,7 +102,7 @@ export interface StoreApi {
   /** Termín položky; `null` ho sundá. Hodina bez data se zahodí. */
   setTodoDue: (id: string, dueDate: ISODate | null, dueTime?: string | null) => void;
 
-  /** Plán dne - blok času, do kterého se dá pověsit položka ToDo nebo úkol. */
+  /** Časový blok - blok času, do kterého se dá pověsit položka ToDo nebo úkol. */
   addBlock: (input: blockActions.BlockInput) => TimeBlock;
   updateBlock: (
     id: string,
@@ -121,8 +121,8 @@ export interface StoreApi {
   restoreBlock: (block: TimeBlock) => void;
 
   /**
-   * List time boxu. Mřížka hodin vlastní data nemá - je to plán dne z druhé
-   * strany - ale tři priority a brain dump patří ke dni a bydlí tady.
+   * List time boxu. Mřížka hodin vlastní data nemá - jedou na časových
+   * blocích - ale tři priority a brain dump patří ke dni a bydlí tady.
    */
   setPriority: (date: ISODate, index: number, text: string) => void;
   /** Odškrtne hlavní věc dne; prázdný řádek se odškrtnout nedá. */
@@ -130,6 +130,8 @@ export interface StoreApi {
   /** Prohodí dvě hlavní věci dne i s odkazy bloků, které z nich vznikly. */
   swapPriorities: (date: ISODate, a: number, b: number) => void;
   setBrainDump: (date: ISODate, text: string) => void;
+  /** Označí hlavní věc za přenesenou na jiný den (sekce „Nestihl jsem“). */
+  markPriorityCarried: (date: ISODate, index: number, carriedTo: ISODate | null) => void;
 
   createMilestone: (projectId: string, name: string, date: ISODate | null) => Milestone;
   updateMilestone: (id: string, patch: Partial<Pick<Milestone, "name" | "date">>) => void;
@@ -363,6 +365,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       swapPriorities: (date, a, b) =>
         commit(sheetActions.swapPriorities(ref.current, date, a, b)),
       setBrainDump: (date, text) => commit(sheetActions.setBrainDump(ref.current, date, text)),
+      markPriorityCarried: (date, index, carriedTo) =>
+        commit(sheetActions.markPriorityCarried(ref.current, date, index, carriedTo)),
 
       createMilestone: (projectId, name, date) => {
         const res = projectActions.createMilestone(ref.current, projectId, name, date);

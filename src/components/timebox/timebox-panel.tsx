@@ -6,6 +6,7 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  CornerUpRight,
   GripVertical,
   Loader2,
   Sparkles,
@@ -36,31 +37,33 @@ import {
 } from "@/lib/timeblocks";
 import {
   hasPriorityBlockAt,
+  parseDumpTime,
   PRIORITY_COUNT,
   PRIORITY_MAX,
   priorityRef,
   SHEET_SLOT,
   sheetOf,
+  unfinishedCarryovers,
+  type CarryoverItem,
+  type DumpSchedule,
 } from "@/lib/timebox";
 import type { ISODate } from "@/lib/types";
 import { cn, plural } from "@/lib/utils";
-import { Queue } from "@/components/plan/queue";
 import { AutoTextarea } from "./auto-textarea";
+import { Queue } from "./queue";
 import { TimeboxGrid } from "./timebox-grid";
 import { useTimeboxDrag, type DragSource, type TimeboxDrag } from "./use-timebox-drag";
 
 /**
  * Time box - papírový list dne přenesený do appky.
  *
- * Vlevo tři hlavní věci, pod nimi brain dump přes celou zbylou výšku a úplně
- * dole místo pro návrhy, které z brain dumpu vytáhne AI. Vpravo mřížka
- * půlhodin nad bloky Plánu dne.
+ * Vždycky obsahuje všech pět sekcí: pás rozdělané práce, Nestihl jsem,
+ * trojka hlavních věcí, mřížka časových bloků a brain dump.
  *
  * Tohle je rozvržení "Papír" - na tabletu čitelné, na telefonu se ale dva
  * sloupce mačkají na pár písmen a mřížka začíná až pod brain dumpem. Proto
  * jsou na výběr (Nastavení → Vzhled) i jednosloupcové verze: seznam
- * půlhodin, agenda jen s obsazenými půlhodinami a záložky, kde má den
- * a brain dump každý svou obrazovku. Data jsou ve všech stejná.
+ * půlhodin a agenda jen s obsazenými půlhodinami. Data jsou ve všech stejná.
  */
 export function TimeboxPanel() {
   const {
@@ -72,13 +75,18 @@ export function TimeboxPanel() {
     setPriority,
     swapPriorities,
     linkBlockToPriority,
+    markPriorityCarried,
     deleteBlock,
     restoreBlock,
   } = useStore();
-  const { timeboxStart, timeboxLayout } = usePrefs();
+  const { timeboxStart, timeboxLayout, todoInTimebox } = usePrefs();
   const { toast } = useToast();
   const [date, setDate] = React.useState<ISODate>(() => today);
-  const [pane, setPane] = React.useState<Pane>("day");
+
+  /* Brain dump drží rozepsané řádky sám u sebe, ale tah ven z něj (do mřížky,
+     do trojky, do koše) končí tady v panelu. BrainDump proto při každém
+     renderu podá do tohohle ref své funkce na práci s řádky. */
+  const dumpApi = React.useRef<DumpApi | null>(null);
 
   const planned = (start: number, title: string) =>
     toast({ tone: "info", title: `Naplánováno na ${formatMinutes(start)}`, description: title });
@@ -103,6 +111,24 @@ export function TimeboxPanel() {
         todoId: source.todoId ?? null,
         taskId: source.taskId ?? null,
       });
+      planned(target.start, source.title);
+      return;
+    }
+
+    // Řádek brain dumpu: padne kam ho člověk pustil a z dumpu zmizí - věc
+    // nesmí zůstat ležet dvakrát (jednou tady, jednou v mřížce).
+    if (source.kind === "dump") {
+      addBlock({ date: target.date, start: target.start, duration: SHEET_SLOT, title: source.title });
+      dumpApi.current?.remove(source.rowId);
+      planned(target.start, source.title);
+      return;
+    }
+
+    // Nestihnutá věc z dřívějšího dne se tu jen zaloguje; původní řádek
+    // zůstává na svém dni, jen se označí za přenesený.
+    if (source.kind === "carryover") {
+      addBlock({ date: target.date, start: target.start, duration: SHEET_SLOT, title: source.title });
+      markPriorityCarried(source.date, source.index, target.date);
       planned(target.start, source.title);
       return;
     }
@@ -139,6 +165,12 @@ export function TimeboxPanel() {
       return;
     }
 
+    // Řádek brain dumpu se do trojky napíše a z dumpu zmizí; věc z
+    // dřívějšího dne se naopak na svém dni označí za přenesenou. Jinak jde o
+    // společný konec: zapsat text, hláška, cesta zpátky.
+    if (source.kind === "dump") dumpApi.current?.remove(source.rowId);
+    if (source.kind === "carryover") markPriorityCarried(source.date, source.index, date);
+
     const previous = sheetOf(state, date).priorities[index]?.text ?? "";
     setPriority(date, index, source.title);
     // Zápis z mřížky zůstane navázaný, ať se odškrtává jen jednou.
@@ -167,6 +199,33 @@ export function TimeboxPanel() {
       });
       return;
     }
+    if (source.kind === "dump") {
+      const removed = dumpApi.current?.remove(source.rowId);
+      if (!removed) return;
+      toast({
+        tone: "info",
+        title: "Vyhozeno z brain dumpu",
+        description: source.title,
+        action: {
+          label: "Vrátit",
+          onClick: () => dumpApi.current?.restore(removed.row, removed.index),
+        },
+      });
+      return;
+    }
+    if (source.kind === "carryover") {
+      setPriority(source.date, source.index, "");
+      toast({
+        tone: "info",
+        title: "Hlavní věc je pryč",
+        description: `${source.title} · ${formatDate(source.date)}`,
+        action: {
+          label: "Vrátit",
+          onClick: () => setPriority(source.date, source.index, source.title),
+        },
+      });
+      return;
+    }
     if (source.kind !== "priority") return;
     setPriority(source.date, source.index, "");
     toast({
@@ -182,8 +241,8 @@ export function TimeboxPanel() {
 
   /**
    * Tažení po celém listu - proto bydlí tady, ne v mřížce: přetahuje se mezi
-   * pásem rozdělané práce, trojkou hlavních věcí a mřížkou, a to jsou tři různé
-   * části listu.
+   * pásem rozdělané práce, trojkou hlavních věcí, brain dumpem a mřížkou, a
+   * to jsou části listu, které spolu jinak nemají co dělat.
    */
   const drag = useTimeboxDrag((source, target) => {
     if (target.kind === "slot") return dropOnSlot(source, target);
@@ -193,14 +252,19 @@ export function TimeboxPanel() {
 
   /* Koš nemá být vidět pořád - je to cesta, jak sundat zápis navázaný na úkol
      nebo na položku ToDo, kterému se text v políčku přepsat nedá. */
-  const trashable = drag.ghost?.source.kind === "block" || drag.ghost?.source.kind === "priority";
+  const trashable =
+    drag.ghost?.source.kind === "block" ||
+    drag.ghost?.source.kind === "priority" ||
+    drag.ghost?.source.kind === "dump" ||
+    drag.ghost?.source.kind === "carryover";
 
   const queue = (
     /* Rozdělaná práce z ToDo a z projektů. Bez ní by se věc, která už někde
        leží, do listu musela přepsat rukou - a v appce by pak žila dvakrát. */
     <Queue
       date={date}
-      hint="Rozdělaná práce: ťukni a padne do nejbližšího volna, nebo si ji táhni do mřížky"
+      showTodos={todoInTimebox}
+      hint="Ťukni a padne do nejbližšího volna, nebo si ji táhni do mřížky"
       onDrop={(input) => {
         const start = nextFreeSlot(
           blocksOfDay(state, date),
@@ -222,32 +286,24 @@ export function TimeboxPanel() {
     />
   );
 
+  const carryover =
+    /* Nestihl jsem: nedokončené hlavní věci z dřívějších dnů. Stálá sekce
+       listu - když nic nevisí, jen to vypíše, ať má list pokaždé všech
+       pět částí na stejném místě. */
+    <Carryover date={date} today={today} drag={drag} />;
+
   return (
     <div className="flex flex-col gap-3">
       <DateBar date={date} today={today} onDate={setDate} />
 
-      {timeboxLayout === "tabs" ? (
-        <>
-          <PaneSwitch pane={pane} onPane={setPane} date={date} />
-          {/* Klíč podle dne: rozepsané texty patří tomu dni, ne políčku na obrazovce. */}
-          <div key={date} className="flex flex-col gap-3">
-            {pane === "day" ? (
-              <>
-                {queue}
-                <Priorities date={date} drag={drag} />
-                <TimeboxGrid date={date} today={today} drag={drag} layout="list" />
-              </>
-            ) : (
-              <>
-                <BrainDump date={date} size="screen" />
-                <AiSuggestions date={date} today={today} />
-              </>
-            )}
-          </div>
-        </>
-      ) : timeboxLayout === "sheet" ? (
+      {/* Vždycky všech pět sekcí: pás, Nestihl jsem, trojka, mřížka, brain
+          dump. Rozvržení mění jen to, jak se roztáhnou vedle sebe - schovávat
+          části listu podle vzhledu znamenalo hledat věc na obrazovce, na
+          které zrovna není. */}
+      {timeboxLayout === "sheet" ? (
         <>
           {queue}
+          {carryover}
           <div
             key={date}
             className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] sm:items-stretch"
@@ -256,7 +312,7 @@ export function TimeboxPanel() {
                 všechno, co zbyde - psát se má kam, ne do řádkového pole. */}
             <div className="flex min-w-0 flex-col gap-3">
               <Priorities date={date} drag={drag} />
-              <BrainDump date={date} size="fill" />
+              <BrainDump date={date} size="fill" drag={drag} dumpApi={dumpApi} />
               <AiSuggestions date={date} today={today} />
             </div>
             <TimeboxGrid date={date} today={today} drag={drag} />
@@ -265,6 +321,7 @@ export function TimeboxPanel() {
       ) : (
         <>
           {queue}
+          {carryover}
           {/* Na telefonu jde mřížka hned pod trojku a brain dump až pod ni -
               den je to, co se tu čte nejčastěji. Levý sloupec se proto na úzké
               obrazovce rozpustí (`contents`) a jeho části se seřadí přes
@@ -275,7 +332,13 @@ export function TimeboxPanel() {
           >
             <div className="contents sm:flex sm:min-w-0 sm:flex-col sm:gap-3">
               <Priorities date={date} drag={drag} className="order-1 sm:order-none" />
-              <BrainDump date={date} size="fixed" className="order-3 sm:order-none" />
+              <BrainDump
+                date={date}
+                size="fixed"
+                drag={drag}
+                dumpApi={dumpApi}
+                className="order-3 sm:order-none"
+              />
               <AiSuggestions date={date} today={today} className="order-4 sm:order-none" />
             </div>
             <TimeboxGrid
@@ -306,65 +369,17 @@ export function TimeboxPanel() {
 
       {drag.ghost ? (
         <div
-          className="pointer-events-none fixed z-50 max-w-[45vw] truncate rounded-md border bg-popover px-2 py-1 text-[11px] shadow-lg"
-          style={{ left: drag.ghost.x + 12, top: drag.ghost.y - 10 }}
+          /* Větší duch než na desktopu: na telefonu ho prst zakrývá, takže
+             aspoň vystoupí nad okolí a čte se, co se nese. */
+          className="pointer-events-none fixed z-50 max-w-[70vw] truncate rounded-lg border-2 bg-popover px-3 py-2 text-xs font-medium shadow-xl"
+          style={{ left: drag.ghost.x + 14, top: drag.ghost.y - 34 }}
         >
-          {drag.ghost.source.title}
+          {drag.ghost.source.kind === "dump" ? drag.ghost.source.label : drag.ghost.source.title}
         </div>
       ) : null}
     </div>
   );
 }
-
-type Pane = "day" | "head";
-
-/**
- * Přepínač v rozvržení "Záložky". Brain dump je na své obrazovce celý, takže
- * tečka u jeho záložky říká, že v něm něco leží - jinak by se na něj
- * zapomínalo.
- */
-function PaneSwitch({
-  pane,
-  onPane,
-  date,
-}: {
-  pane: Pane;
-  onPane: (pane: Pane) => void;
-  date: ISODate;
-}) {
-  const { state } = useStore();
-  const hasDump = sheetOf(state, date).brainDump.trim() !== "";
-  const tabs: { id: Pane; label: string }[] = [
-    { id: "day", label: "Den" },
-    { id: "head", label: "Brain dump" },
-  ];
-
-  return (
-    <div className="grid grid-cols-2 gap-1 rounded-lg bg-muted p-1" role="tablist">
-      {tabs.map((tab) => (
-        <button
-          key={tab.id}
-          type="button"
-          role="tab"
-          aria-selected={pane === tab.id}
-          onClick={() => onPane(tab.id)}
-          className={cn(
-            "flex items-center justify-center gap-1.5 rounded-md py-1.5 text-sm transition-colors",
-            pane === tab.id
-              ? "bg-background font-medium shadow-sm"
-              : "text-muted-foreground hover:text-foreground",
-          )}
-        >
-          {tab.label}
-          {tab.id === "head" && hasDump ? (
-            <span className="size-1.5 rounded-full bg-progress" aria-label="něco v něm je" />
-          ) : null}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 /**
  * Odkud hledat volné místo v mřížce. Dnes od nynějška - do minulosti se
  * neplánuje - jiný den od začátku mřížky.
@@ -452,6 +467,7 @@ function Priorities({
             date={date}
             value={sheet.priorities[i]?.text ?? ""}
             done={sheet.priorities[i]?.done ?? false}
+            carriedTo={sheet.priorities[i]?.carriedTo ?? null}
             drag={drag}
             onCommit={(text) => setPriority(date, i, text)}
             onToggle={() => togglePriority(date, i)}
@@ -471,6 +487,7 @@ function PriorityRow({
   date,
   value,
   done,
+  carriedTo,
   drag,
   onCommit,
   onToggle,
@@ -479,10 +496,14 @@ function PriorityRow({
   date: ISODate;
   value: string;
   done: boolean;
+  carriedTo: ISODate | null;
   drag: TimeboxDrag;
   onCommit: (text: string) => void;
   onToggle: () => void;
 }) {
+  const { state, today, addBlock } = useStore();
+  const { timeboxStart } = usePrefs();
+  const { toast } = useToast();
   const [draft, setDraft, flush] = useDraft(value, onCommit);
   const empty = draft.trim() === "";
   /* Vlastní řádek cíl není - puštění na sebe by nic neprohodilo, takže se ani
@@ -490,6 +511,25 @@ function PriorityRow({
   const source = drag.ghost?.source;
   const dragging = source?.kind === "priority" && source.index === index;
   const isTarget = !dragging && drag.target?.kind === "priority" && drag.target.index === index;
+
+  /* Ťuknutí na úchyt: tažení věci přes půlku obrazovky je na telefonu
+     nemotorné, ťuknutí ji posadí do nejbližšího volna mřížky. Už rozplánovaná
+     věc se nerozdvojuje - kdo chce jiný čas, táhne. */
+  const planNearest = () => {
+    const ref = priorityRef(date, index);
+    if (state.timeBlocks.some((b) => b.priorityId === ref)) {
+      toast({ tone: "info", title: "Už je v mřížce", description: draft });
+      return;
+    }
+    const start = nextFreeSlot(
+      blocksOfDay(state, date),
+      searchFrom(date, today, timeboxStart),
+      SHEET_SLOT,
+    );
+    addBlock({ date, start, duration: SHEET_SLOT, title: draft, priorityId: ref });
+    void tapFeedback();
+    toast({ tone: "info", title: `Naplánováno na ${formatMinutes(start)}`, description: draft });
+  };
 
   return (
     <div
@@ -538,18 +578,32 @@ function PriorityRow({
         )}
       />
 
+      {/* Věc přenesená ze staršího dne - na svém dni zůstala (historie se
+          nepřepisuje), ale už se nenabízí v „Nestihl jsem“. */}
+      {!done && carriedTo ? (
+        <span
+          title={`Přeneseno na ${formatDate(carriedTo)}`}
+          aria-label={`Přeneseno na ${formatDate(carriedTo)}`}
+          className="mt-1 shrink-0 text-muted-foreground/60"
+        >
+          <CornerUpRight className="size-3.5" />
+        </span>
+      ) : null}
+
       {/* Úchyt na tažení do mřížky. Psát a táhnout jedním místem nejde -
-          v textovém poli patří tah výběru textu. */}
+          v textovém poli patří tah výběru textu. Ťuknutí (bez tažení) věc
+          naplánuje do nejbližšího volna - cesta pro telefony. */}
       {empty ? null : (
         <button
           type="button"
           onPointerDown={(e) => drag.press({ kind: "priority", index, date, title: draft }, e)}
+          onClick={planNearest}
           onContextMenu={(e) => e.preventDefault()}
           aria-label={`Přetáhnout: ${draft}`}
-          title="Přetáhni do mřížky - vznikne blok navázaný na tuhle věc. Na jinou hlavní věc dne se prohodí."
-          className="mt-1 shrink-0 cursor-grab text-muted-foreground/50 hover:text-foreground [-webkit-touch-callout:none]"
+          title="Přetáhni do mřížky - vznikne blok navázaný na tuhle věc. Samotné ťuknutí ji posadí do nejbližšího volna."
+          className="mt-0.5 grid size-7 shrink-0 cursor-grab place-items-center rounded text-muted-foreground/50 hover:text-foreground [-webkit-touch-callout:none]"
         >
-          <GripVertical className="size-3.5" />
+          <GripVertical className="size-4" />
         </button>
       )}
     </div>
@@ -560,27 +614,197 @@ function PriorityRow({
 
 /**
  * Výška brain dumpu podle rozvržení: `fill` se na širší obrazovce natáhne na
- * výšku mřížky vedle, `fixed` má pod mřížkou pevnou plochu a `screen` bere
- * skoro celou obrazovku, protože ji v záložkách má jen pro sebe.
+ * výšku mřížky vedle, `fixed` má pod mřížkou pevnou plochu.
  */
 const DUMP_SIZE = {
   fill: "min-h-48 flex-1",
   fixed: "min-h-40 sm:min-h-48",
-  screen: "min-h-[60vh]",
 } as const;
+
+/** Jeden řádek brain dumpu. Id drží identitu řádku, i když jiné řádky
+ *  přibývají a mizí - fokus i tažení se pak nemíchají mezi řádky. */
+interface DumpRowData {
+  id: number;
+  text: string;
+}
+
+/** Funkce, kterými panel dostane k řádkům dumpu, když je někdo vytáhne
+ *  tažením mimo dump - mřížka a trojka přece jen nevědí, co je v něm napsáno. */
+type DumpApi = {
+  remove: (rowId: number) => { row: DumpRowData; index: number } | null;
+  restore: (row: DumpRowData, index: number) => void;
+};
+
+/** Text dumpu na řádky; prázdný dump má jeden prázdný řádek, ať se má kam psát. */
+function parseDumpRows(text: string): DumpRowData[] {
+  const lines = text === "" ? [] : text.split("\n");
+  const rows: DumpRowData[] = lines.map((line, i) => ({ id: i, text: line }));
+  if (rows.length === 0) rows.push({ id: 0, text: "" });
+  return rows;
+}
+
+/** Řádky zpět na text; prázdné řádky na konci se zahodí, uprostřed zůstávají. */
+function serializeDump(rows: DumpRowData[]): string {
+  const lines = rows.map((r) => r.text);
+  while (lines.length > 0 && lines[lines.length - 1].trim() === "") lines.pop();
+  return lines.join("\n");
+}
 
 function BrainDump({
   date,
   size,
   className,
+  drag,
+  dumpApi,
 }: {
   date: ISODate;
   size: keyof typeof DUMP_SIZE;
   className?: string;
+  drag: TimeboxDrag;
+  dumpApi: React.RefObject<DumpApi | null>;
 }) {
-  const { state, setBrainDump } = useStore();
-  const sheet = sheetOf(state, date);
-  const [draft, setDraft, flush] = useDraft(sheet.brainDump, (text) => setBrainDump(date, text));
+  const { state, today, addBlock, setBrainDump } = useStore();
+  const { timeboxStart } = usePrefs();
+  const { toast } = useToast();
+  const value = sheetOf(state, date).brainDump;
+
+  const [rows, setRows] = React.useState<DumpRowData[]>(() => parseDumpRows(value));
+  const [focusId, setFocusId] = React.useState<number | null>(null);
+  const ref = React.useRef({ rows, value });
+  ref.current = { rows, value };
+
+  /* Podržený úchyt patří řádku, který se táhne - ťuknutí na úchyt nejprve
+     odbluruje pole (a spustí by commit), ale o osudu právě stisknutého řádku
+     rozhodne puštění nebo ťuknutí, ne odchod z pole. Vydrží jen chvíli:
+     podržení do startu tažení trvá ~420 ms a čistý tah žádný další commit
+     nespouští, takže pozdější vypršení ničemu nevadí. */
+  const pressingId = React.useRef<number | null>(null);
+  const pressRow = (row: DumpRowData, event: React.PointerEvent<HTMLElement>) => {
+    pressingId.current = row.id;
+    window.setTimeout(() => {
+      if (pressingId.current === row.id) pressingId.current = null;
+    }, 700);
+    const timed = parseDumpTime(row.text);
+    drag.press(
+      {
+        kind: "dump",
+        rowId: row.id,
+        title: timed ? timed.title : row.text.trim(),
+        label: row.text.trim(),
+      },
+      event,
+    );
+  };
+
+  /* Externí změna (synchronizace, import) řádky přepíše. Vlastní uložení
+     nastaví hodnotu shodnou s řádky, takže se tudy při psaní nic neděje. */
+  React.useEffect(() => {
+    if (value !== serializeDump(ref.current.rows)) setRows(parseDumpRows(value));
+  }, [value]);
+
+  /** Řádky do stavu. Volá se při odchodu z pole, při zániku komponenty i po
+      každé akci, co řádky mění - rozmělněné ukládání po písmenu by přepisovalo
+      celý stav při každém stisku klávesy. */
+  const persist = (next: DumpRowData[]) => {
+    setRows(next);
+    const text = serializeDump(next);
+    if (text !== ref.current.value) setBrainDump(date, text);
+  };
+
+  /** Uložení s tím, že řádky s časem dopředu se stanou bloky. Řádek z dumpu
+      mizí, ať věc nezůstane ležet dvakrát - jednou tady, jednou v mřížce. */
+  const commit = (snapshot: DumpRowData[]) => {
+    const keep: DumpRowData[] = [];
+    const scheduled: DumpSchedule[] = [];
+    for (const row of snapshot) {
+      const hit = parseDumpTime(row.text);
+      // Právě stisknutý řádek se plánovat nesmí - čeká na puštění tažení.
+      if (hit && row.id !== pressingId.current) scheduled.push(hit);
+      else keep.push(row);
+    }
+    persist(keep);
+    if (scheduled.length === 0) return;
+    for (const item of scheduled) {
+      addBlock({ date, start: item.start, duration: SHEET_SLOT, title: item.title });
+    }
+    toast({
+      tone: "info",
+      title:
+        scheduled.length === 1
+          ? `Naplánováno na ${formatMinutes(scheduled[0].start)}`
+          : `Naplánováno: ${scheduled.length} ${plural(scheduled.length, "věc", "věci", "věcí")}`,
+      description: scheduled.map((s) => `${formatMinutes(s.start)} ${s.title}`).join(" · "),
+    });
+  };
+
+  /* Odchod ze záložky ani přepnutí dne text nezahodí - při zániku komponenty
+     se dump uloží (a rozplánované řádky z něj vypadnou). */
+  React.useEffect(
+    () => () => {
+      commit(ref.current.rows);
+    },
+    [],
+  );
+
+  const setText = (id: number, text: string) =>
+    setRows(ref.current.rows.map((r) => (r.id === id ? { ...r, text } : r)));
+
+  /** Enter na konci řádku přidá řádek nový, jinak jen skočí na další. */
+  const enter = (index: number) => {
+    const current = ref.current.rows;
+    if (index < current.length - 1) {
+      setFocusId(current[index + 1].id);
+      return;
+    }
+    const id = Math.max(0, ...current.map((r) => r.id)) + 1;
+    const next = [...current];
+    next.splice(index + 1, 0, { id, text: "" });
+    setRows(next);
+    setFocusId(id);
+  };
+
+  /** Backspace na prázdném řádku ho smaže a skočí na konec předchozího. */
+  const dropEmpty = (index: number) => {
+    const current = ref.current.rows;
+    if (index === 0 || current.length <= 1) return;
+    const row = current[index];
+    if (row.text !== "") return;
+    persist(current.filter((r) => r.id !== row.id));
+    setFocusId(current[index - 1].id);
+  };
+
+  /** Ťuknutí na úchyt: řádek s časem padne na svůj čas, jiný do nejbližšího
+      volna. Na telefonu je to jediný spolehlivý způsob, jak věc z dumpu
+      dostat do mřížky bez dlouhého tažení. */
+  const planRow = (row: DumpRowData) => {
+    const timed = parseDumpTime(row.text);
+    const title = timed ? timed.title : row.text.trim();
+    const start = timed
+      ? timed.start
+      : nextFreeSlot(blocksOfDay(state, date), searchFrom(date, today, timeboxStart), SHEET_SLOT);
+    addBlock({ date, start, duration: SHEET_SLOT, title });
+    persist(ref.current.rows.filter((r) => r.id !== row.id));
+    void tapFeedback();
+    toast({ tone: "info", title: `Naplánováno na ${formatMinutes(start)}`, description: title });
+  };
+
+  /* Panel tady hledá cestu ven pro tažení - proto se API hlásí při každém
+     renderu, jinak by pracovalo se zavřenýma očima. */
+  dumpApi.current = {
+    remove: (rowId) => {
+      const current = ref.current.rows;
+      const index = current.findIndex((r) => r.id === rowId);
+      if (index === -1) return null;
+      const row = current[index];
+      persist(current.filter((r) => r.id !== rowId));
+      return { row, index };
+    },
+    restore: (row, index) => {
+      const next = [...ref.current.rows];
+      next.splice(Math.min(index, next.length), 0, row);
+      persist(next);
+    },
+  };
 
   return (
     /* Na telefonu má plocha svoji spodní mez, na širší obrazovce se natáhne
@@ -589,19 +813,297 @@ function BrainDump({
       <h3 className="px-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
         Brain dump
       </h3>
-      <textarea
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={flush}
-        placeholder="Co se honí hlavou a nemá to čas ani pořadí"
-        aria-label="Brain dump"
-        className="flex-1 resize-none rounded-xl border bg-card p-3 text-sm leading-6 shadow-sm outline-none placeholder:text-muted-foreground/60 focus-visible:ring-1 focus-visible:ring-ring"
-        /* Tečkovaná plocha jako na papírovém listu - psát se dá kamkoliv. */
+      {/* Tečkovaná plocha jako na papírovém listu - psát se dá kamkoliv. */}
+      <div
+        className="min-h-0 flex-1 overflow-y-auto rounded-xl border bg-card shadow-sm"
         style={{
           backgroundImage: "radial-gradient(var(--border) 1px, transparent 1px)",
           backgroundSize: "14px 14px",
         }}
+      >
+        <div className="divide-y">
+          {rows.map((row, index) => (
+            <DumpInput
+              key={row.id}
+              row={row}
+              index={index}
+              focus={focusId === row.id}
+              drag={drag}
+              onFocusHandled={() => setFocusId(null)}
+              onText={(text) => setText(row.id, text)}
+              onEnter={() => enter(index)}
+              onDropEmpty={() => dropEmpty(index)}
+              onCommit={() => commit(ref.current.rows)}
+              onPlan={() => planRow(row)}
+              onPress={(event) => pressRow(row, event)}
+            />
+          ))}
+        </div>
+      </div>
+      <p className="px-0.5 text-xs text-muted-foreground">
+        Čas dopředu („14:30 běh“) se odchodem z řádku sám posadí do mřížky; úchytem řádek přetáhni
+        do trojky, mřížky nebo na koš.
+      </p>
+    </section>
+  );
+}
+
+/** Editovatelný řádek brain dumpu s úchytem na tažení. */
+function DumpInput({
+  row,
+  index,
+  focus,
+  drag,
+  onFocusHandled,
+  onText,
+  onEnter,
+  onDropEmpty,
+  onCommit,
+  onPlan,
+  onPress,
+}: {
+  row: DumpRowData;
+  index: number;
+  focus: boolean;
+  drag: TimeboxDrag;
+  onFocusHandled: () => void;
+  onText: (text: string) => void;
+  onEnter: () => void;
+  onDropEmpty: () => void;
+  onCommit: () => void;
+  onPlan: () => void;
+  onPress: (event: React.PointerEvent<HTMLElement>) => void;
+}) {
+  const input = React.useRef<HTMLTextAreaElement | null>(null);
+  React.useEffect(() => {
+    if (!focus) return;
+    const el = input.current;
+    if (!el) return;
+    el.focus();
+    el.setSelectionRange(el.value.length, el.value.length);
+    onFocusHandled();
+  }, [focus, onFocusHandled]);
+
+  const empty = row.text.trim() === "";
+  const dragging = drag.ghost?.source.kind === "dump" && drag.ghost.source.rowId === row.id;
+
+  return (
+    <div className={cn("flex items-start gap-2 px-2.5 py-1 transition-opacity", dragging && "opacity-40")}>
+      <AutoTextarea
+        ref={input}
+        value={row.text}
+        onChange={(e) => onText(e.target.value)}
+        onBlur={onCommit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            onEnter();
+            return;
+          }
+          /* Backspace na úplném začátku prázdného řádku ho zahodí - na
+             telefonu jinak řádky luskat nejdou. */
+          if (
+            e.key === "Backspace" &&
+            e.currentTarget.selectionStart === 0 &&
+            e.currentTarget.selectionEnd === 0
+          ) {
+            onDropEmpty();
+          }
+        }}
+        aria-label={`Brain dump, řádek ${index + 1}`}
+        placeholder={index === 0 ? "Co se honí hlavou a nemá to čas ani pořadí" : ""}
+        className="min-h-6 flex-1 py-0.5 text-sm leading-6"
       />
+      {empty ? null : (
+        <button
+          type="button"
+          onPointerDown={onPress}
+          onClick={onPlan}
+          onContextMenu={(e) => e.preventDefault()}
+          aria-label={`Přetáhnout: ${row.text.trim()}`}
+          title="Přetáhni do trojky či mřížky. Samotné ťuknutí naplánuje do nejbližšího volna."
+          className="mt-0.5 grid size-7 shrink-0 cursor-grab place-items-center rounded text-muted-foreground/50 hover:text-foreground [-webkit-touch-callout:none]"
+        >
+          <GripVertical className="size-4" />
+        </button>
+      )}
+    </div>
+  );
+}
+
+// --- nestihl jsem -----------------------------------------------------------
+
+/**
+ * Nedokončené hlavní věci z dřívějších dnů. Ťuknutí naplánuje věc do
+ * nejbližšího volna, tažení kamkoliv; po přenosu věc na svém dni zůstane
+ * (historie se nepřepisuje), jen už dál netáhne.
+ */
+function Carryover({ date, today, drag }: { date: ISODate; today: ISODate; drag: TimeboxDrag }) {
+  const { state, addBlock, markPriorityCarried, deleteBlock, togglePriority, setPriority } = useStore();
+  const { timeboxStart } = usePrefs();
+  const { toast } = useToast();
+  const all = unfinishedCarryovers(state, today);
+  const items = all.slice(0, 6);
+
+  const place = (item: CarryoverItem) => {
+    const start = nextFreeSlot(
+      blocksOfDay(state, date),
+      searchFrom(date, today, timeboxStart),
+      SHEET_SLOT,
+    );
+    const block = addBlock({ date, start, duration: SHEET_SLOT, title: item.text });
+    markPriorityCarried(item.date, item.index, date);
+    void tapFeedback();
+    toast({
+      tone: "info",
+      title: `Naplánováno na ${formatMinutes(start)}`,
+      description: item.text,
+      action: {
+        label: "Vrátit",
+        onClick: () => {
+          deleteBlock(block.id);
+          markPriorityCarried(item.date, item.index, null);
+        },
+      },
+    });
+  };
+
+  /**
+   * Označení priority jako hotové / vrácení zpět.
+   * Pokud priorita ještě není hotová, při označení jako hotové se automaticky
+   * přidá blok do nejbližšího volna dnešního dne.
+   * Při vrácení zpět (klik na ✓ podruhé) se blok z mřížky odstraní.
+   */
+  const handleToggle = (e: React.MouseEvent, item: CarryoverItem) => {
+    e.stopPropagation();
+    const priority = sheetOf(state, item.date).priorities[item.index];
+    const wasHot = priority?.done ?? false;
+
+    togglePriority(item.date, item.index);
+    void tapFeedback();
+
+    // Pokud označuji jako hotové → přidat blok do dnešní mřížky
+    if (!wasHot) {
+      const ref = priorityRef(item.date, item.index);
+      const start = nextFreeSlot(
+        blocksOfDay(state, date),
+        searchFrom(date, today, timeboxStart),
+        SHEET_SLOT,
+      );
+      const newBlock = addBlock({
+        date,
+        start,
+        duration: SHEET_SLOT,
+        title: item.text,
+        priorityId: ref,
+      });
+      toast({
+        tone: "info",
+        title: `Hotovo · naplánováno na ${formatMinutes(start)}`,
+        description: item.text,
+        action: {
+          label: "Vrátit",
+          onClick: () => {
+            togglePriority(item.date, item.index);
+            deleteBlock(newBlock.id);
+          },
+        },
+      });
+    } else {
+      // Vracím zpět → smazat všechny bloky pro tuto prioritu v dnešním dni
+      const ref = priorityRef(item.date, item.index);
+      const blocksToDelete = state.timeBlocks.filter((b) => b.priorityId === ref && b.date === date);
+      blocksToDelete.forEach((b) => deleteBlock(b.id));
+    }
+  };
+
+  const handleDelete = (e: React.MouseEvent, item: CarryoverItem) => {
+    e.stopPropagation();
+    // Smazat i případné bloky v mřížce
+    const ref = priorityRef(item.date, item.index);
+    const blocksToDelete = state.timeBlocks.filter((b) => b.priorityId === ref && b.date === date);
+    blocksToDelete.forEach((b) => deleteBlock(b.id));
+
+    const previousText = item.text;
+    setPriority(item.date, item.index, "");
+    toast({
+      tone: "info",
+      title: "Smazáno",
+      description: previousText,
+      action: {
+        label: "Vrátit",
+        onClick: () => setPriority(item.date, item.index, previousText),
+      },
+    });
+  };
+
+  return (
+    <section className="flex flex-col gap-1.5">
+      <h3 className="px-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        Nestihl jsem
+      </h3>
+      {items.length === 0 ? (
+        <p className="px-0.5 text-xs text-muted-foreground">
+          Nic z dřívějších dnů nevisí - čisto.
+        </p>
+      ) : (
+        <Card className="divide-y overflow-hidden p-0">
+        {items.map((item) => {
+          const day = fromISODate(item.date);
+          return (
+            <div
+              key={`${item.date}#${item.index}`}
+              className="flex items-start gap-2 px-2.5 py-1.5"
+            >
+              <button
+                type="button"
+                onClick={(e) => handleToggle(e, item)}
+                aria-label="Označit jako hotové"
+                title="Hotovo"
+                className="mt-0.5 grid size-7 shrink-0 place-items-center rounded border border-border text-muted-foreground transition-colors hover:border-foreground hover:text-foreground"
+              >
+                <Check className="size-4" />
+              </button>
+              <span className="tabular mt-1 shrink-0 whitespace-nowrap text-[11px] text-muted-foreground">
+                {DAY_SHORT[day.getDay()]} {day.getDate()}. {day.getMonth() + 1}.
+              </span>
+              <p className="min-w-0 flex-1 py-0.5 text-sm leading-5">{item.text}</p>
+              <button
+                type="button"
+                onClick={(e) => handleDelete(e, item)}
+                aria-label={`Smazat: ${item.text}`}
+                title="Smazat"
+                className="mt-0.5 grid size-7 shrink-0 place-items-center rounded text-muted-foreground/50 hover:text-destructive"
+              >
+                <Trash2 className="size-4" />
+              </button>
+              <button
+                type="button"
+                onPointerDown={(e) =>
+                  drag.press(
+                    { kind: "carryover", date: item.date, index: item.index, title: item.text },
+                    e,
+                  )
+                }
+                onClick={() => place(item)}
+                onContextMenu={(e) => e.preventDefault()}
+                aria-label={`Přenést: ${item.text}`}
+                title="Ťukni a padne do nejbližšího volna, nebo přetáhni do trojky a mřížky."
+                className="mt-0.5 grid size-7 shrink-0 cursor-grab place-items-center rounded text-muted-foreground/50 hover:text-foreground [-webkit-touch-callout:none]"
+              >
+                <GripVertical className="size-4" />
+              </button>
+            </div>
+          );
+        })}
+        </Card>
+      )}
+      {all.length > items.length ? (
+        <p className="px-0.5 text-xs text-muted-foreground">
+          A další {all.length - items.length}{" "}
+          {plural(all.length - items.length, "věc", "věci", "věcí")} - přenes nebo odškrtni i ty.
+        </p>
+      ) : null}
     </section>
   );
 }

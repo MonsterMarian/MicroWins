@@ -17,7 +17,11 @@ export type DragSource =
   /** Hlavní věc dne - ta se do mřížky **kopíruje i s odkazem** a zůstává nahoře. */
   | { kind: "priority"; index: number; date: ISODate; title: string }
   /** Rozdělaná práce z pásu nad listem - položka ToDo nebo úkol projektu. */
-  | { kind: "queue"; title: string; todoId?: string; taskId?: string };
+  | { kind: "queue"; title: string; todoId?: string; taskId?: string }
+  /** Řádek brain dumpu; po puštění mimo dump řádek z dumpu zmizí. */
+  | { kind: "dump"; rowId: number; title: string; label: string }
+  /** Nedokončená hlavní věc z dřívějšího dne (sekce „Nestihl jsem“). */
+  | { kind: "carryover"; date: ISODate; index: number; title: string };
 
 export type DropTarget =
   | { kind: "slot"; date: ISODate; start: number }

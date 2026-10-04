@@ -17,8 +17,8 @@ import type { TimeboxDrag } from "./use-timebox-drag";
 /**
  * Mřížka time boxu: hodina na řádek, sloupce `:00` a `:30`.
  *
- * Políčko **nemá vlastní data** - je to blok Plánu dne (`lib/timeblocks.ts`).
- * Do jedné půlhodiny se jich vejde víc (plán překryvy povoluje odjakživa)
+ * Políčko **nemá vlastní data** - je to časový blok (`lib/timeblocks.ts`).
+ * Do jedné půlhodiny se jich vejde víc (překryvy appka povoluje odjakživa)
  * a přetáhnout se dají prstem jinam; dlouhý text políčko neusekne, jen mu
  * naroste řádek.
  */
@@ -115,8 +115,8 @@ export function TimeboxGrid({
   const hint = (
     <p className="px-1 text-xs text-muted-foreground">
       Ťukni do políčka a piš; Enter tě posune o půl hodiny dál. Zápis se dá přetáhnout jinam,
-      nahoru mezi hlavní věci dne, nebo dolů do koše. Je to stejný den jako v Plánu, takže co
-      tu odškrtneš, je odškrtnuté i tam.
+      nahoru mezi hlavní věci dne, nebo dolů do koše. Odškrtnutí platí všude, kde se ta věc
+      ukáže - tady i v ToDo nebo u úkolu.
     </p>
   );
 
@@ -353,9 +353,8 @@ function Slot({
         className,
       )}
     >
-      {/* Dvě věci v jedné půlhodině stojí vedle sebe, ne pod sebou - stejně
-          jako překryté bloky v Plánu. Pod sebou vypadaly jako seznam kroků
-          za sebou, přitom se dějí naráz. */}
+      {/* Dvě věci v jedné půlhodině stojí vedle sebe, ne pod sebou - dějí se
+          naráz. Pod sebou vypadaly jako seznam kroků za sebou. */}
       {content.blocks.length > 0 || writing ? (
         /* Zalamuje se: dvě věci se vejdou vedle sebe, třetí si vezme řádek pod
            nimi. Bez toho se sloupce zmáčkly na pár písmen na řádek. */
@@ -411,7 +410,7 @@ function Slot({
             roomy ? "h-8" : "h-6",
           )}
         >
-          {/* Delší blok z Plánu tu jen pokračuje - popsaný je ve svém prvním políčku. */}
+          {/* Delší blok tu jen pokračuje - popsaný je ve svém prvním políčku. */}
           {content.running ? (
             <span className="ml-0.5 h-3.5 w-0.5 rounded-full bg-progress/50" aria-hidden />
           ) : null}

@@ -290,7 +290,7 @@ const COUNTS: [keyof StateCounts, string][] = [
   ["projects", "Projekty"],
   ["tasks", "Úkoly a atomy"],
   ["todos", "ToDo"],
-  ["blocks", "Plán dne"],
+  ["blocks", "Časové bloky"],
   ["sheets", "Time box (dny)"],
   ["folders", "Složky"],
   ["wins", "Winy"],

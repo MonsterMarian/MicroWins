@@ -19,10 +19,10 @@ import {
   pinsOfDay,
   plannedMinutes,
   resizeBlock,
+  openTodosToday,
   restoreBlock,
   toggleBlockDone,
   unplannedTasks,
-  unplannedTodos,
   updateBlock,
   weekDays,
   weekStart,
@@ -315,8 +315,8 @@ describe("popisky", () => {
   });
 });
 
-describe("co ještě není v plánu", () => {
-  it("položka s blokem z pásu zmizí, jinde zůstane", () => {
+describe("otevřené ToDo nad listem dne", () => {
+  it("položka s blokem se ukáže ztlumená s časem, jinak bez času", () => {
     const added = addTodo(EMPTY_STATE, "zavolat", NOON);
     const todo = added.todo!;
     const state = addBlock(
@@ -325,14 +325,37 @@ describe("co ještě není v plánu", () => {
       NOON,
     ).state;
 
-    expect(unplannedTodos(state, DAY)).toHaveLength(0);
-    expect(unplannedTodos(state, OTHER_DAY)).toHaveLength(1);
+    // Blok položce přepsal termín na svůj čas - v pásu je proto ta z pole.
+    expect(openTodosToday(state, DAY)).toEqual([
+      { todo: state.todos[0], plannedStart: 540 },
+    ]);
+    // Jiný den ji nic nekryje - pás ukazuje otevřenou věc bez času.
+    expect(openTodosToday(state, OTHER_DAY)).toEqual([
+      { todo: state.todos[0], plannedStart: null },
+    ]);
   });
 
-  it("odškrtnutá položka se do plánu nenabízí", () => {
+  it("více bloků jednoho dne ukazuje ten nejranější", () => {
+    const added = addTodo(EMPTY_STATE, "zavolat", NOON);
+    const todo = added.todo!;
+    let state = addBlock(
+      added.state,
+      { date: DAY, start: 600, duration: 30, title: todo.text, todoId: todo.id },
+      NOON,
+    ).state;
+    state = addBlock(
+      state,
+      { date: DAY, start: 480, duration: 30, title: todo.text, todoId: todo.id },
+      NOON,
+    ).state;
+
+    expect(openTodosToday(state, DAY)[0].plannedStart).toBe(480);
+  });
+
+  it("odškrtnutá položka se nenabízí", () => {
     const added = addTodo(EMPTY_STATE, "hotovo", NOON);
 
-    expect(unplannedTodos(toggleTodo(added.state, added.todo!.id, NOON), DAY)).toHaveLength(0);
+    expect(openTodosToday(toggleTodo(added.state, added.todo!.id, NOON), DAY)).toHaveLength(0);
   });
 
   it("hotový úkol ani úkol z archivu se nenabízí", () => {

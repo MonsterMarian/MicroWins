@@ -121,7 +121,9 @@ describe("záloha", () => {
     expect(parsed.backupVersion).toBe(2);
     expect(typeof parsed.exportedAt).toBe("string");
     // Úplná záloha říká, že je úplná - obnova podle toho nabídne všechno.
-    expect(parsed.parts).toEqual(["tree", "projects", "todo", "plan", "timebox"]);
+    // Část „plan" (Plán dne) padla se stejnojmenným addonem; časové bloky
+    // dnes patří k části timebox.
+    expect(parsed.parts).toEqual(["tree", "projects", "todo", "timebox"]);
   });
 });
 
@@ -310,7 +312,8 @@ describe("záloha jen části", () => {
 
   it("time box se v souboru pozná podle listů dne, ne podle bloků", () => {
     expect(partsIn(pickParts(maximalState(), ["plan"]))).toEqual(["plan"]);
-    expect(partsIn(pickParts(maximalState(), ["timebox"]))).toEqual(["plan", "timebox"]);
+    // Zrušená část „plan" je až za dnešními, ale pořád se pozná - viz KNOWN_PARTS.
+    expect(partsIn(pickParts(maximalState(), ["timebox"]))).toEqual(["timebox", "plan"]);
   });
 
   /* Blok bez svého úkolu v souboru po načtení odkaz ztratí - a zbyl by mu

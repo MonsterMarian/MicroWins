@@ -160,6 +160,10 @@ function normalizeTimeBlocks(raw: unknown[]): TimeBlock[] {
     const duration =
       typeof item.duration === "number" && Number.isFinite(item.duration) ? item.duration : 0;
 
+    // Přenos přes „Nestihl jsem" přišel až později; starší blok ho nemá.
+    const carriedTo =
+      typeof item.carriedTo === "string" && isValidISODate(item.carriedTo) ? item.carriedTo : null;
+
     out.push({
       id: typeof item.id === "string" && item.id ? item.id : `blk_${index}`,
       date: item.date,
@@ -172,6 +176,7 @@ function normalizeTimeBlocks(raw: unknown[]): TimeBlock[] {
       priorityId: typeof item.priorityId === "string" && item.priorityId ? item.priorityId : null,
       createdAt: typeof item.createdAt === "string" ? item.createdAt : new Date().toISOString(),
       doneAt: typeof item.doneAt === "string" ? item.doneAt : null,
+      ...(carriedTo ? { carriedTo } : {}),
     });
   });
   return out;

@@ -3,6 +3,8 @@ import { createProject, createTask, setTaskCurrent } from "./project-actions";
 import { addTodo, setTodoDue, toggleTodo } from "./todos";
 import {
   addBlock,
+  allTodosToday,
+  blockLink,
   blocksOfDay,
   daySummary,
   blockTitle,
@@ -12,6 +14,7 @@ import {
   formatMinutes,
   formatSpan,
   layoutDay,
+  markBlockCarried,
   moveBlock,
   moveBlockToDay,
   nextFreeSlot,
@@ -22,6 +25,7 @@ import {
   openTodosToday,
   restoreBlock,
   toggleBlockDone,
+  toggleTodoEverywhere,
   unplannedTasks,
   updateBlock,
   weekDays,
@@ -253,6 +257,36 @@ describe("odškrtnutí", () => {
     const done = toggleBlockDone(toggleTodo(state, todoId, NOON), block.id, NOON);
 
     expect(done.todos.find((t) => t.id === todoId)!.doneAt).not.toBeNull();
+  });
+
+  /* Položka je jedna věc, ať se odškrtne odkudkoliv - ze seznamu ToDo,
+     z pásu nad listem dne, nebo z mřížky. Dřív se ze seznamu odškrtla jen
+     položka a blok v mřížce zůstal prázdný. */
+  it("odškrtnutí položky odkudkoliv odškrtne i všechny její bloky", () => {
+    const { state, block, todoId } = withTodoBlock();
+    const second = addBlock(
+      state,
+      { date: OTHER_DAY, start: 600, duration: 30, title: "zavolat doktorovi", todoId },
+      NOON,
+    );
+
+    const done = toggleTodoEverywhere(second.state, todoId, NOON);
+    expect(done.todos[0].doneAt).not.toBeNull();
+    expect(done.timeBlocks.every((b) => b.doneAt !== null)).toBe(true);
+
+    const back = toggleTodoEverywhere(done, todoId, NOON);
+    expect(back.todos[0].doneAt).toBeNull();
+    expect(back.timeBlocks.every((b) => b.doneAt === null)).toBe(true);
+
+    // Z mřížky stejně: jeden blok odškrtne položku i ten druhý.
+    const fromBlock = toggleBlockDone(second.state, block.id, NOON);
+    expect(fromBlock.timeBlocks.every((b) => b.doneAt !== null)).toBe(true);
+    expect(fromBlock.todos[0].doneAt).not.toBeNull();
+  });
+
+  it("neexistující položka stavem nehne", () => {
+    const { state } = withTodoBlock();
+    expect(toggleTodoEverywhere(state, "nic", NOON)).toBe(state);
   });
 
   it("blok z úkolu projektu do úkolu nesahá", () => {
@@ -504,5 +538,76 @@ describe("týden", () => {
     const state = setTodoDue(added.state, added.todo!.id, DAY, "14:30");
 
     expect(daySummary(state, DAY)).toEqual({ blocks: 2, minutes: 90, done: 0, pins: 1 });
+  });
+});
+
+describe("navázaný blok", () => {
+  it("odkaz se počítá, jen když vede na existující věc", () => {
+    const added = addTodo(EMPTY_STATE, "zavolat", NOON);
+    const res = addBlock(
+      added.state,
+      { date: DAY, start: 540, duration: 30, title: "zavolat", todoId: added.todo!.id },
+      NOON,
+    );
+
+    expect(blockLink(res.state, res.block)).toBe("todo");
+    // Smazaná položka: blok se chová jako napsaný rukou - dá se přepsat.
+    expect(blockLink({ ...res.state, todos: [] }, res.block)).toBe(null);
+  });
+
+  it("přenos se dá označit i sundat a stejný cíl nic nemění", () => {
+    const { state, block } = addBlock(EMPTY_STATE, { date: DAY, start: 540, title: "běh" }, NOON);
+
+    const carried = markBlockCarried(state, block.id, OTHER_DAY);
+    expect(carried.timeBlocks[0].carriedTo).toBe(OTHER_DAY);
+    expect(markBlockCarried(carried, block.id, OTHER_DAY)).toBe(carried);
+    expect(markBlockCarried(carried, block.id, null).timeBlocks[0].carriedTo).toBe(null);
+    expect(markBlockCarried(state, "nic", OTHER_DAY)).toBe(state);
+  });
+});
+
+describe("pás ToDo nad listem dne", () => {
+  /* `.sort()` přímo na stavu přeházel pole položek v datech appky - při
+     každém vykreslení time boxu. */
+  it("nesahá na pořadí ve stavu a hotové dává pod otevřené", () => {
+    let state: MicroWinsState = EMPTY_STATE;
+    for (const text of ["první", "druhá", "třetí"]) state = addTodo(state, text, NOON).state;
+    state = toggleTodo(state, state.todos[0].id, NOON);
+    const before = state.todos.map((t) => t.id);
+
+    expect(allTodosToday(state, DAY).map((q) => q.todo.text)).toEqual([
+      "druhá",
+      "třetí",
+      "první",
+    ]);
+    expect(state.todos.map((t) => t.id)).toEqual(before);
+  });
+});
+
+describe("úkoly v pásu nad listem dne", () => {
+  /* Úkol projektu se většinou neudělá jedním sezením - blok ho schová jen
+     na ten den, zítra se nabídne znovu, dokud nemá sto procent. */
+  it("naplánovaný úkol zmizí jen ze svého dne", () => {
+    const project = createProject(EMPTY_STATE, { name: "Čtení" }, DAY);
+    const task = createTask(project.state, project.project.id, { name: "100d čtení", target: 100 }, DAY);
+    const planned = addBlock(
+      task.state,
+      { date: DAY, start: 600, title: "100d čtení", taskId: task.task.id },
+      NOON,
+    );
+
+    expect(unplannedTasks(planned.state, DAY)).toHaveLength(0);
+    expect(unplannedTasks(planned.state, OTHER_DAY).map((t) => t.name)).toEqual(["100d čtení"]);
+
+    // Ani odškrtnutý blok úkol nedokončí - postup se počítá u úkolu.
+    const ticked = toggleBlockDone(planned.state, planned.block.id, NOON);
+    expect(unplannedTasks(ticked, OTHER_DAY)).toHaveLength(1);
+
+    // Smazaný blok úkol vrátí i do dneška.
+    expect(unplannedTasks(deleteBlock(planned.state, planned.block.id), DAY)).toHaveLength(1);
+
+    // Úkol se 100 % se nenabízí už nikdy.
+    const finished = setTaskCurrent(planned.state, task.task.id, 100, DAY);
+    expect(unplannedTasks(finished, OTHER_DAY)).toHaveLength(0);
   });
 });

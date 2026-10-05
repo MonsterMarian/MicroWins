@@ -28,6 +28,7 @@ import {
   type Milestone,
   type Project,
   type MapOffset,
+  type Priority,
   type Task,
   type TimeBlock,
   type Todo,
@@ -92,7 +93,10 @@ export interface StoreApi {
   /** Jednoduchý seznam. Vrací null, když text po očištění nic neobsahuje. */
   addTodo: (text: string) => Todo | null;
   renameTodo: (id: string, text: string) => void;
-  /** Odškrtne (nebo vrátí zpět). Odškrtnutá položka se pak sama smaže. */
+  /**
+   * Odškrtne (nebo vrátí zpět) - i se všemi bloky, které z položky vznikly.
+   * Odškrtnutá položka se pak sama smaže.
+   */
   toggleTodo: (id: string) => void;
   /** Smaže a vrátí smazanou položku, aby ji šlo nabídnout zpátky. */
   deleteTodo: (id: string) => Todo | null;
@@ -112,7 +116,10 @@ export interface StoreApi {
   moveBlock: (id: string, start: number) => void;
   resizeBlock: (id: string, duration: number) => void;
   moveBlockToDay: (id: string, date: ISODate) => void;
-  /** Odškrtne blok; blok z položky ToDo nebo z priority odškrtne i ji. */
+  /**
+   * Odškrtne blok; blok z položky ToDo nebo z priority odškrtne i ji a s ní
+   * všechny její další bloky.
+   */
   toggleBlockDone: (id: string) => void;
   /** Naváže blok na hlavní věc dne (`YYYY-MM-DD#index`), nebo odkaz sundá. */
   linkBlockToPriority: (id: string, priorityId: string | null) => void;
@@ -125,13 +132,27 @@ export interface StoreApi {
    * blocích - ale tři priority a brain dump patří ke dni a bydlí tady.
    */
   setPriority: (date: ISODate, index: number, text: string) => void;
+  /**
+   * Na místo hlavní věci přijde jiná věc (nebo nic): odškrtnutí se zahodí
+   * a bloky staré věci se od místa odpojí, ať neukazují cizí text.
+   */
+  replacePriority: (date: ISODate, index: number, text: string) => void;
+  /** Cesta zpátky po `replacePriority` - původní věc i odkazy jejích bloků. */
+  restorePriority: (
+    date: ISODate,
+    index: number,
+    priority: Priority,
+    blockIds: readonly string[],
+  ) => void;
   /** Odškrtne hlavní věc dne; prázdný řádek se odškrtnout nedá. */
   togglePriority: (date: ISODate, index: number) => void;
   /** Prohodí dvě hlavní věci dne i s odkazy bloků, které z nich vznikly. */
   swapPriorities: (date: ISODate, a: number, b: number) => void;
   setBrainDump: (date: ISODate, text: string) => void;
-  /** Označí hlavní věc za přenesenou na jiný den (sekce „Nestihl jsem“). */
-  markPriorityCarried: (date: ISODate, index: number, carriedTo: ISODate | null) => void;
+  /** Označí věc z „Nestihl jsem“ za přenesenou na jiný den; `null` ji vrátí. */
+  markCarried: (item: sheetActions.CarryoverItem, carriedTo: ISODate | null) => void;
+  /** Odškrtne věc z „Nestihl jsem“ na jejím původním dni. */
+  toggleCarryoverDone: (item: sheetActions.CarryoverItem) => void;
 
   createMilestone: (projectId: string, name: string, date: ISODate | null) => Milestone;
   updateMilestone: (id: string, patch: Partial<Pick<Milestone, "name" | "date">>) => void;
@@ -326,7 +347,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         return res.todo;
       },
       renameTodo: (id, text) => commit(todoActions.renameTodo(ref.current, id, text)),
-      toggleTodo: (id) => commit(todoActions.toggleTodo(ref.current, id)),
+      // Přes `timeblocks`: odškrtnutí platí i pro bloky, které z položky vznikly.
+      toggleTodo: (id) => commit(blockActions.toggleTodoEverywhere(ref.current, id)),
       deleteTodo: (id) => {
         const todo = ref.current.todos.find((t) => t.id === id) ?? null;
         commit(todoActions.deleteTodo(ref.current, id));
@@ -360,13 +382,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
       setPriority: (date, index, text) =>
         commit(sheetActions.setPriority(ref.current, date, index, text)),
+      replacePriority: (date, index, text) =>
+        commit(sheetActions.replacePriority(ref.current, date, index, text)),
+      restorePriority: (date, index, priority, blockIds) =>
+        commit(sheetActions.restorePriority(ref.current, date, index, priority, blockIds)),
       togglePriority: (date, index) =>
         commit(sheetActions.togglePriority(ref.current, date, index)),
       swapPriorities: (date, a, b) =>
         commit(sheetActions.swapPriorities(ref.current, date, a, b)),
       setBrainDump: (date, text) => commit(sheetActions.setBrainDump(ref.current, date, text)),
-      markPriorityCarried: (date, index, carriedTo) =>
-        commit(sheetActions.markPriorityCarried(ref.current, date, index, carriedTo)),
+      markCarried: (item, carriedTo) =>
+        commit(sheetActions.markCarried(ref.current, item, carriedTo)),
+      toggleCarryoverDone: (item) => commit(sheetActions.toggleCarryoverDone(ref.current, item)),
 
       createMilestone: (projectId, name, date) => {
         const res = projectActions.createMilestone(ref.current, projectId, name, date);

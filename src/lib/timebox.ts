@@ -1,6 +1,11 @@
 import { addDays } from "./date";
-import { blockEnd, toggleBlockDone as toggleBlock } from "./timeblocks";
-import type { DaySheet, ISODate, MicroWinsState, TimeBlock } from "./types";
+import {
+  blockEnd,
+  markBlockCarried,
+  setBlocksDone,
+  toggleBlockDone as toggleBlock,
+} from "./timeblocks";
+import type { DaySheet, ISODate, MicroWinsState, Priority, TimeBlock } from "./types";
 
 /**
  * Time box - list dne rozkrájený po půlhodinách.
@@ -128,10 +133,12 @@ export function parsePriorityRef(ref: string | null): { date: ISODate; index: nu
 export function hasPriorityBlockAt(
   blocks: TimeBlock[],
   ref: string,
+  date: ISODate,
   start: number,
 ): boolean {
   return blocks.some(
-    (b) => b.priorityId === ref && b.start >= start && b.start < start + SHEET_SLOT,
+    (b) =>
+      b.priorityId === ref && b.date === date && b.start >= start && b.start < start + SHEET_SLOT,
   );
 }
 
@@ -149,20 +156,28 @@ export function isPriorityDone(state: MicroWinsState, ref: string | null): boole
   return sheetOf(state, parsed.date).priorities[parsed.index]?.done === true;
 }
 
-/** Nastaví odškrtnutí priority napevno - používá se při odškrtnutí bloku. */
+/**
+ * Nastaví odškrtnutí priority napevno - i všem blokům, které z ní vznikly.
+ *
+ * Hlavní věc se dá posadit do mřížky víckrát (dopoledne a ještě odpoledne);
+ * odškrtnutí jednoho zápisu proto musí odškrtnout i ten druhý, jinak by
+ * v mřížce visel nehotový zápis věci, která je nahoře hotová.
+ */
 export function setPriorityDone(
   state: MicroWinsState,
   ref: string | null,
   done: boolean,
+  now: Date = new Date(),
 ): MicroWinsState {
   const parsed = parsePriorityRef(ref);
   if (!parsed) return state;
   const sheet = sheetOf(state, parsed.date);
   const current = sheet.priorities[parsed.index];
-  if (!current || current.text.trim() === "" || current.done === done) return state;
+  if (!current || current.text.trim() === "") return state;
   const priorities = [...sheet.priorities];
   priorities[parsed.index] = { ...current, done };
-  return putSheet(state, { ...sheet, priorities });
+  const next = current.done === done ? state : putSheet(state, { ...sheet, priorities });
+  return setBlocksDone(next, (b) => b.priorityId === ref, done, now);
 }
 
 // --- list dne ---------------------------------------------------------------
@@ -231,40 +246,146 @@ export function setPriority(
   return putSheet(state, { ...sheet, priorities });
 }
 
-// --- nestihl jsem -----------------------------------------------------------
-
 /**
- * Hlavní věc z dřívějšího dne, která nezůstala ležet zapomenutá.
+ * Na místo hlavní věci dne přijde **jiná věc** (přetažením z dumpu, z mřížky,
+ * z „Nestihl jsem").
  *
- * Sekce „Nestihl jsem" je trhlina mezi dny: včerejší list se už nepřepisuje,
- * ale věc, která se nestihla, má člověka dohnát i dnes. Proto se nezakládá
- * žádná kopie - položka jen ukazuje na prioritu původního dne a přenosem
- * (do trojky, do mřížky, ťuknutím) se původní řádek označí `carriedTo`.
+ * To není přepis textu: odškrtnutí ani přenos staré věci nové nepatří, takže
+ * se zahodí. A bloky, které ze staré věci vznikly, se od místa odpojí -
+ * odkaz je jen `den#pořadí`, takže by jinak v mřížce ukazovaly text nové
+ * věci a odškrtávaly ji. Odpojený blok si nechá text staré věci.
  */
-export interface CarryoverItem {
-  date: ISODate;
-  index: number;
-  text: string;
+export function replacePriority(
+  state: MicroWinsState,
+  date: ISODate,
+  index: number,
+  text: string,
+): MicroWinsState {
+  if (!isPriorityIndex(index)) return state;
+  const sheet = sheetOf(state, date);
+  const old = sheet.priorities[index].text.trim();
+  const priorities = [...sheet.priorities];
+  priorities[index] = { text: text.slice(0, PRIORITY_MAX), done: false };
+  const next = putSheet(state, { ...sheet, priorities });
+
+  const ref = priorityRef(date, index);
+  if (!next.timeBlocks.some((b) => b.priorityId === ref)) return next;
+  return {
+    ...next,
+    timeBlocks: next.timeBlocks.map((b) =>
+      b.priorityId === ref ? { ...b, priorityId: null, title: old || b.title } : b,
+    ),
+  };
 }
 
 /**
- * Nedokončené hlavní věci z dnů před `today`, které ještě nikam neputovaly.
- *
- * Odshora od nejstarší: co čeká nejdéle, to si zaslouží jít nahoru. Bloky
- * se sem neberou - zápis v mřížce je historie dne, ne úkol; nositelem „co
- * jsem si slíbil" je trojka hlavních věcí.
+ * Cesta zpátky po `replacePriority` nebo vygumování: vrátí hlavní věci její
+ * původní podobu (text, odškrtnutí, přenos) a navrátí odkazy bloků.
  */
-export function unfinishedCarryovers(state: MicroWinsState, today: ISODate): CarryoverItem[] {
+export function restorePriority(
+  state: MicroWinsState,
+  date: ISODate,
+  index: number,
+  priority: Priority,
+  blockIds: readonly string[],
+): MicroWinsState {
+  if (!isPriorityIndex(index)) return state;
+  const sheet = sheetOf(state, date);
+  const priorities = [...sheet.priorities];
+  priorities[index] = { ...priority };
+  const next = putSheet(state, { ...sheet, priorities });
+  if (blockIds.length === 0) return next;
+  const ids = new Set(blockIds);
+  const ref = priorityRef(date, index);
+  return {
+    ...next,
+    timeBlocks: next.timeBlocks.map((b) => (ids.has(b.id) ? { ...b, priorityId: ref } : b)),
+  };
+}
+
+// --- nestihl jsem -----------------------------------------------------------
+
+/**
+ * Věc z dřívějšího dne, která nezůstala ležet zapomenutá - hlavní věc dne,
+ * nebo zápis napsaný rukou do mřížky.
+ *
+ * Sekce „Nestihl jsem" je trhlina mezi dny: včerejší list se už nepřepisuje,
+ * ale věc, která se nestihla, má člověka dohnát i dnes. Proto se nezakládá
+ * žádná kopie - položka jen ukazuje na původní věc a přenosem (do trojky, do
+ * mřížky, ťuknutím) se ta původní označí `carriedTo`.
+ */
+export type CarryoverItem =
+  | { kind: "priority"; date: ISODate; index: number; text: string }
+  | { kind: "block"; date: ISODate; id: string; start: number; text: string };
+
+/** Klíč položky pro React i pro porovnání - den s pořadím, nebo id bloku. */
+export function carryoverKey(item: CarryoverItem): string {
+  return item.kind === "priority" ? priorityRef(item.date, item.index) : item.id;
+}
+
+/**
+ * Nedokončené věci z dnů před `before`, které ještě nikam neputovaly.
+ *
+ * Bere se trojka hlavních věcí a zápisy z mřížky, které nesou **jen svůj
+ * text**. Navázané zápisy se sem nepletou, protože jejich věc se ozve sama:
+ * hlavní věc tu stojí vlastním řádkem, položka ToDo zůstává v ToDo, dokud se
+ * neodškrtne, a úkol projektu se v pásu úkolů nabízí každý den znovu.
+ *
+ * Odshora od nejstarší: co čeká nejdéle, to si zaslouží jít nahoru. V rámci
+ * dne napřed hlavní věci, pak zápisy podle času.
+ */
+export function unfinishedCarryovers(state: MicroWinsState, before: ISODate): CarryoverItem[] {
   const out: CarryoverItem[] = [];
   for (const sheet of state.daySheets) {
-    if (sheet.date >= today) continue;
+    if (sheet.date >= before) continue;
     sheet.priorities.forEach((priority, index) => {
       const text = priority.text.trim();
       if (text === "" || priority.done || priority.carriedTo) return;
-      out.push({ date: sheet.date, index, text });
+      out.push({ kind: "priority", date: sheet.date, index, text });
     });
   }
-  return out.sort((a, b) => a.date.localeCompare(b.date));
+  for (const block of state.timeBlocks) {
+    if (block.date >= before || block.doneAt !== null || block.carriedTo) continue;
+    if (block.todoId || block.taskId || block.priorityId) continue;
+    const text = block.title.trim();
+    if (text === "") continue;
+    out.push({ kind: "block", date: block.date, id: block.id, start: block.start, text });
+  }
+  return out.sort((a, b) => a.date.localeCompare(b.date) || dayRank(a) - dayRank(b));
+}
+
+/** Pořadí uvnitř dne: hlavní věci (0-2) před zápisy z mřížky podle času. */
+function dayRank(item: CarryoverItem): number {
+  return item.kind === "priority" ? item.index : PRIORITY_COUNT + item.start;
+}
+
+/**
+ * Označí věc z „Nestihl jsem" za přenesenou na `carriedTo` (a tím ji ze
+ * seznamu sundá); `null` označení vrátí.
+ */
+export function markCarried(
+  state: MicroWinsState,
+  item: CarryoverItem,
+  carriedTo: ISODate | null,
+): MicroWinsState {
+  return item.kind === "priority"
+    ? markPriorityCarried(state, item.date, item.index, carriedTo)
+    : markBlockCarried(state, item.id, carriedTo);
+}
+
+/**
+ * Odškrtnutí věci z „Nestihl jsem" - na jejím původním dni. Nestihnutá věc,
+ * která se dodělala, se tím jen dopíše jako hotová; nic dalšího (blok,
+ * přenos) nevzniká, odškrtnutí platí stejně jako odkudkoliv jinud.
+ */
+export function toggleCarryoverDone(
+  state: MicroWinsState,
+  item: CarryoverItem,
+  now: Date = new Date(),
+): MicroWinsState {
+  return item.kind === "priority"
+    ? togglePriority(state, item.date, item.index, now)
+    : toggleBlockDone(state, item.id, now);
 }
 
 /**
@@ -345,24 +466,9 @@ export function togglePriority(
   now: Date = new Date(),
 ): MicroWinsState {
   if (!isPriorityIndex(index)) return state;
-  const sheet = sheetOf(state, date);
-  if (sheet.priorities[index].text.trim() === "") return state;
-
-  const done = !sheet.priorities[index].done;
-  const priorities = [...sheet.priorities];
-  priorities[index] = { ...priorities[index], done };
-  const next = putSheet(state, { ...sheet, priorities });
-
-  const ref = priorityRef(date, index);
-  const stamp = now.toISOString();
-  return {
-    ...next,
-    timeBlocks: next.timeBlocks.map((b) =>
-      b.priorityId === ref && (b.doneAt !== null) !== done
-        ? { ...b, doneAt: done ? stamp : null }
-        : b,
-    ),
-  };
+  const priority = sheetOf(state, date).priorities[index];
+  if (priority.text.trim() === "") return state;
+  return setPriorityDone(state, priorityRef(date, index), !priority.done, now);
 }
 
 /**
@@ -420,7 +526,7 @@ export function toggleBlockDone(
   if (!block) return state;
   const next = toggleBlock(state, id, now);
   const done = next.timeBlocks.find((b) => b.id === id)?.doneAt !== null;
-  return setPriorityDone(next, block.priorityId, done);
+  return setPriorityDone(next, block.priorityId, done, now);
 }
 
 export function setBrainDump(

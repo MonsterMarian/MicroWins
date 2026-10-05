@@ -1,6 +1,7 @@
 "use client";
 
 import { useHoldDrag, type HoldDrag } from "@/components/ui/use-hold-drag";
+import type { CarryoverItem } from "@/lib/timebox";
 import type { ISODate } from "@/lib/types";
 
 /**
@@ -20,8 +21,8 @@ export type DragSource =
   | { kind: "queue"; title: string; todoId?: string; taskId?: string }
   /** Řádek brain dumpu; po puštění mimo dump řádek z dumpu zmizí. */
   | { kind: "dump"; rowId: number; title: string; label: string }
-  /** Nedokončená hlavní věc z dřívějšího dne (sekce „Nestihl jsem“). */
-  | { kind: "carryover"; date: ISODate; index: number; title: string };
+  /** Nedokončená věc z dřívějšího dne (sekce „Nestihl jsem“). */
+  | { kind: "carryover"; item: CarryoverItem; title: string };
 
 export type DropTarget =
   | { kind: "slot"; date: ISODate; start: number }

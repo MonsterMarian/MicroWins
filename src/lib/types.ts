@@ -285,6 +285,12 @@ export interface TimeBlock {
   createdAt: string;
   /** Kdy se blok odškrtl; null = ještě ne. */
   doneAt: string | null;
+  /**
+   * Den, na který se nestihnutý zápis přenesl ze sekce „Nestihl jsem".
+   * null/chybí = ještě visí. Stejné pravidlo jako u hlavní věci dne: blok na
+   * svém dni zůstává (historie se nepřepisuje), jen se přestane nabízet.
+   */
+  carriedTo?: ISODate | null;
 }
 
 // --- time box ---------------------------------------------------------------

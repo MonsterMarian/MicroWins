@@ -3,7 +3,6 @@
 import * as React from "react";
 import {
   CalendarDays,
-  Check,
   ChevronLeft,
   ChevronRight,
   CornerUpRight,
@@ -26,7 +25,7 @@ import {
   suggestFromBrainDump,
   type Suggestion,
 } from "@/lib/ai";
-import { tapFeedback, winFeedback } from "@/lib/native";
+import { tapFeedback } from "@/lib/native";
 import {
   blocksOfDay,
   doneMinutes,
@@ -36,6 +35,7 @@ import {
   plannedMinutes,
 } from "@/lib/timeblocks";
 import {
+  carryoverKey,
   hasPriorityBlockAt,
   parseDumpTime,
   PRIORITY_COUNT,
@@ -47,9 +47,10 @@ import {
   type CarryoverItem,
   type DumpSchedule,
 } from "@/lib/timebox";
-import type { ISODate } from "@/lib/types";
+import type { ISODate, TimeBlock } from "@/lib/types";
 import { cn, plural } from "@/lib/utils";
 import { AutoTextarea } from "./auto-textarea";
+import { CheckButton } from "./check-button";
 import { Queue } from "./queue";
 import { TimeboxGrid } from "./timebox-grid";
 import { useTimeboxDrag, type DragSource, type TimeboxDrag } from "./use-timebox-drag";
@@ -72,24 +73,26 @@ export function TimeboxPanel() {
     addBlock,
     moveBlock,
     moveBlockToDay,
-    setPriority,
+    replacePriority,
+    restorePriority,
     swapPriorities,
     linkBlockToPriority,
-    markPriorityCarried,
+    togglePriority,
+    toggleBlockDone,
+    markCarried,
     deleteBlock,
     restoreBlock,
   } = useStore();
   const { timeboxStart, timeboxLayout, todoInTimebox } = usePrefs();
   const { toast } = useToast();
+  const planned = usePlannedToast();
+  const sheetActions = useSheetActions();
   const [date, setDate] = React.useState<ISODate>(() => today);
 
   /* Brain dump drží rozepsané řádky sám u sebe, ale tah ven z něj (do mřížky,
      do trojky, do koše) končí tady v panelu. BrainDump proto při každém
      renderu podá do tohohle ref své funkce na práci s řádky. */
   const dumpApi = React.useRef<DumpApi | null>(null);
-
-  const planned = (start: number, title: string) =>
-    toast({ tone: "info", title: `Naplánováno na ${formatMinutes(start)}`, description: title });
 
   /** Puštění do políčka mřížky. */
   const dropOnSlot = (source: DragSource, target: { date: ISODate; start: number }) => {
@@ -103,7 +106,7 @@ export function TimeboxPanel() {
     }
 
     if (source.kind === "queue") {
-      addBlock({
+      const block = addBlock({
         date: target.date,
         start: target.start,
         duration: SHEET_SLOT,
@@ -111,25 +114,30 @@ export function TimeboxPanel() {
         todoId: source.todoId ?? null,
         taskId: source.taskId ?? null,
       });
-      planned(target.start, source.title);
+      planned(block, source.title);
       return;
     }
 
     // Řádek brain dumpu: padne kam ho člověk pustil a z dumpu zmizí - věc
     // nesmí zůstat ležet dvakrát (jednou tady, jednou v mřížce).
     if (source.kind === "dump") {
-      addBlock({ date: target.date, start: target.start, duration: SHEET_SLOT, title: source.title });
-      dumpApi.current?.remove(source.rowId);
-      planned(target.start, source.title);
+      const block = addBlock({
+        date: target.date,
+        start: target.start,
+        duration: SHEET_SLOT,
+        title: source.title,
+      });
+      const removed = dumpApi.current?.remove(source.rowId) ?? null;
+      planned(block, source.title, () => {
+        if (removed) dumpApi.current?.restore(removed.row, removed.index);
+      });
       return;
     }
 
-    // Nestihnutá věc z dřívějšího dne se tu jen zaloguje; původní řádek
-    // zůstává na svém dni, jen se označí za přenesený.
+    // Nestihnutá věc z dřívějšího dne se tu jen zaloguje; původní věc
+    // zůstává na svém dni, jen se označí za přenesenou.
     if (source.kind === "carryover") {
-      addBlock({ date: target.date, start: target.start, duration: SHEET_SLOT, title: source.title });
-      markPriorityCarried(source.date, source.index, target.date);
-      planned(target.start, source.title);
+      sheetActions.placeCarryover(source.item, target.date, target.start);
       return;
     }
 
@@ -137,7 +145,7 @@ export function TimeboxPanel() {
        zůstat (je to pořád hlavní věc dne), v mřížce přibude čas, kdy se na ní
        bude dělat. Odškrtnutí pak platí na obou stranách. */
     const ref = priorityRef(source.date, source.index);
-    if (hasPriorityBlockAt(state.timeBlocks, ref, target.start)) {
+    if (hasPriorityBlockAt(state.timeBlocks, ref, target.date, target.start)) {
       toast({
         tone: "info",
         title: `Už tam je - ${formatMinutes(target.start)}`,
@@ -145,14 +153,16 @@ export function TimeboxPanel() {
       });
       return;
     }
-    addBlock({
+    const block = addBlock({
       date: target.date,
       start: target.start,
       duration: SHEET_SLOT,
       title: source.title,
       priorityId: ref,
     });
-    planned(target.start, source.title);
+    // Už odškrtnutá hlavní věc dostane odškrtnutý i nový zápis.
+    if (sheetOf(state, source.date).priorities[source.index]?.done) toggleBlockDone(block.id);
+    planned(block, source.title);
   };
 
   /** Puštění nahoru mezi tři hlavní věci dne. */
@@ -165,24 +175,39 @@ export function TimeboxPanel() {
       return;
     }
 
-    // Řádek brain dumpu se do trojky napíše a z dumpu zmizí; věc z
-    // dřívějšího dne se naopak na svém dni označí za přenesenou. Jinak jde o
-    // společný konec: zapsat text, hláška, cesta zpátky.
-    if (source.kind === "dump") dumpApi.current?.remove(source.rowId);
-    if (source.kind === "carryover") markPriorityCarried(source.date, source.index, date);
+    const ref = priorityRef(date, index);
+    const block =
+      source.kind === "block" ? state.timeBlocks.find((b) => b.id === source.id) : undefined;
+    // Zápis, který už je touhle hlavní věcí, nemá co měnit.
+    if (block?.priorityId === ref) return;
 
-    const previous = sheetOf(state, date).priorities[index]?.text ?? "";
-    setPriority(date, index, source.title);
-    // Zápis z mřížky zůstane navázaný, ať se odškrtává jen jednou.
-    if (source.kind === "block") linkBlockToPriority(source.id, priorityRef(date, index));
+    /* Na místo přijde jiná věc: stará se i s odškrtnutím a svými bloky
+       odpojí (`replacePriority`), cesta zpátky ji vrátí celou. */
+    const previous = sheetOf(state, date).priorities[index];
+    const linked = state.timeBlocks.filter((b) => b.priorityId === ref).map((b) => b.id);
+    const removedRow = source.kind === "dump" ? (dumpApi.current?.remove(source.rowId) ?? null) : null;
+    if (source.kind === "carryover") markCarried(source.item, date);
+    replacePriority(date, index, source.title);
+    // Zápis z mřížky zůstane navázaný, ať se odškrtává jen jednou - a hotový
+    // zápis udělá hotovou i hlavní věc.
+    if (block) {
+      linkBlockToPriority(block.id, ref);
+      if (block.doneAt !== null) togglePriority(date, index);
+    }
+    void tapFeedback();
     toast({
       tone: "info",
       title: `${index + 1}. hlavní věc dne`,
       description: source.title,
-      // Obsazenou prioritu to přepíše - cesta zpátky je na jedno ťuknutí.
-      ...(previous
-        ? { action: { label: "Vrátit", onClick: () => setPriority(date, index, previous) } }
-        : {}),
+      action: {
+        label: "Vrátit",
+        onClick: () => {
+          restorePriority(date, index, previous, linked);
+          if (block) linkBlockToPriority(block.id, block.priorityId);
+          if (removedRow) dumpApi.current?.restore(removedRow.row, removedRow.index);
+          if (source.kind === "carryover") markCarried(source.item, null);
+        },
+      },
     });
   };
 
@@ -214,29 +239,12 @@ export function TimeboxPanel() {
       return;
     }
     if (source.kind === "carryover") {
-      setPriority(source.date, source.index, "");
-      toast({
-        tone: "info",
-        title: "Hlavní věc je pryč",
-        description: `${source.title} · ${formatDate(source.date)}`,
-        action: {
-          label: "Vrátit",
-          onClick: () => setPriority(source.date, source.index, source.title),
-        },
-      });
+      sheetActions.discardCarryover(source.item);
       return;
     }
-    if (source.kind !== "priority") return;
-    setPriority(source.date, source.index, "");
-    toast({
-      tone: "info",
-      title: `${source.index + 1}. hlavní věc dne je pryč`,
-      description: source.title,
-      action: {
-        label: "Vrátit",
-        onClick: () => setPriority(source.date, source.index, source.title),
-      },
-    });
+    if (source.kind === "priority") {
+      sheetActions.erasePriority(source.date, source.index, `${source.index + 1}. hlavní věc dne je pryč`);
+    }
   };
 
   /**
@@ -250,8 +258,8 @@ export function TimeboxPanel() {
     return dropOnTrash(source);
   });
 
-  /* Koš nemá být vidět pořád - je to cesta, jak sundat zápis navázaný na úkol
-     nebo na položku ToDo, kterému se text v políčku přepsat nedá. */
+  /* Koš nemá být vidět pořád - je to druhá cesta, jak věc z listu sundat
+     (první je ťuknutí na ni a koš u ní). */
   const trashable =
     drag.ghost?.source.kind === "block" ||
     drag.ghost?.source.kind === "priority" ||
@@ -264,14 +272,14 @@ export function TimeboxPanel() {
     <Queue
       date={date}
       showTodos={todoInTimebox}
-      hint="Ťukni a padne do nejbližšího volna, nebo si ji táhni do mřížky"
+      hint="Ťukni a padne do nejbližšího volna, nebo si ji táhni do mřížky. Naplánovaný úkol se tu zítra nabídne znovu, dokud nemá 100 %."
       onDrop={(input) => {
         const start = nextFreeSlot(
           blocksOfDay(state, date),
           searchFrom(date, today, timeboxStart),
           SHEET_SLOT,
         );
-        addBlock({
+        const block = addBlock({
           date,
           start,
           duration: SHEET_SLOT,
@@ -280,16 +288,16 @@ export function TimeboxPanel() {
           taskId: input.taskId ?? null,
         });
         void tapFeedback();
-        planned(start, input.title);
+        planned(block, input.title);
       }}
       onPress={(input, event) => drag.press({ kind: "queue", ...input }, event)}
     />
   );
 
   const carryover =
-    /* Nestihl jsem: nedokončené hlavní věci z dřívějších dnů. Stálá sekce
-       listu - když nic nevisí, jen to vypíše, ať má list pokaždé všech
-       pět částí na stejném místě. */
+    /* Nestihl jsem: nedokončené věci z dřívějších dnů. Stálá sekce listu -
+       když nic nevisí, jen to vypíše, ať má list pokaždé všech pět částí na
+       stejném místě. */
     <Carryover date={date} today={today} drag={drag} />;
 
   return (
@@ -388,6 +396,103 @@ function searchFrom(date: ISODate, today: ISODate, timeboxStart: number): number
   if (date !== today) return timeboxStart * 60;
   const now = new Date();
   return Math.max(timeboxStart * 60, now.getHours() * 60 + now.getMinutes());
+}
+
+/**
+ * Hláška o posazení věci do mřížky - odkudkoliv (pás, trojka, dump, „Nestihl
+ * jsem", návrhy) stejná a vždycky s cestou zpátky. `undo` vrátí věc tam,
+ * odkud přišla (řádek do dumpu, přenos zpátky).
+ */
+function usePlannedToast() {
+  const { deleteBlock } = useStore();
+  const { toast } = useToast();
+  return (block: TimeBlock, title: string, undo?: () => void) =>
+    toast({
+      tone: "info",
+      title: `Naplánováno na ${formatMinutes(block.start)}`,
+      description: title,
+      action: {
+        label: "Vrátit",
+        onClick: () => {
+          deleteBlock(block.id);
+          undo?.();
+        },
+      },
+    });
+}
+
+/**
+ * Co se dá udělat s hlavní věcí dne a s věcí z „Nestihl jsem". Volá se
+ * z tlačítek u řádků i z puštění tažené věci - obě cesty musí dopadnout
+ * stejně, jinak by koš u řádku dělal něco jiného než koš dole.
+ */
+function useSheetActions() {
+  const {
+    state,
+    addBlock,
+    deleteBlock,
+    restoreBlock,
+    markCarried,
+    toggleCarryoverDone,
+    replacePriority,
+    restorePriority,
+  } = useStore();
+  const { toast } = useToast();
+  const planned = usePlannedToast();
+
+  /** Vygumuje hlavní věc i s odkazy jejích bloků; Vrátit ji vrátí celou. */
+  const erasePriority = (date: ISODate, index: number, title: string) => {
+    const previous = sheetOf(state, date).priorities[index];
+    if (!previous || previous.text.trim() === "") return;
+    const ref = priorityRef(date, index);
+    const linked = state.timeBlocks.filter((b) => b.priorityId === ref).map((b) => b.id);
+    replacePriority(date, index, "");
+    toast({
+      tone: "info",
+      title,
+      description: `${previous.text} · ${formatDate(date)}`,
+      action: {
+        label: "Vrátit",
+        onClick: () => restorePriority(date, index, previous, linked),
+      },
+    });
+  };
+
+  /** Posadí nestihnutou věc do mřížky a na původním dni ji označí za přenesenou. */
+  const placeCarryover = (item: CarryoverItem, date: ISODate, start: number) => {
+    const block = addBlock({ date, start, duration: SHEET_SLOT, title: item.text });
+    markCarried(item, date);
+    planned(block, item.text, () => markCarried(item, null));
+  };
+
+  /** Dodělaná věc se odškrtne na svém dni - nic dalšího nevzniká. */
+  const finishCarryover = (item: CarryoverItem) => {
+    toggleCarryoverDone(item);
+    toast({
+      tone: "info",
+      title: "Hotovo",
+      description: `${item.text} · ${formatDate(item.date)}`,
+      action: { label: "Vrátit", onClick: () => toggleCarryoverDone(item) },
+    });
+  };
+
+  /** Věc, která už neplatí: hlavní věc se vygumuje, zápis z mřížky smaže. */
+  const discardCarryover = (item: CarryoverItem) => {
+    if (item.kind === "priority") {
+      erasePriority(item.date, item.index, "Hlavní věc je pryč");
+      return;
+    }
+    const removed = deleteBlock(item.id);
+    if (!removed) return;
+    toast({
+      tone: "info",
+      title: "Smazáno",
+      description: `${item.text} · ${formatDate(item.date)}`,
+      action: { label: "Vrátit", onClick: () => restoreBlock(removed) },
+    });
+  };
+
+  return { erasePriority, placeCarryover, finishCarryover, discardCarryover };
 }
 
 function DateBar({
@@ -501,9 +606,10 @@ function PriorityRow({
   onCommit: (text: string) => void;
   onToggle: () => void;
 }) {
-  const { state, today, addBlock } = useStore();
+  const { state, today, addBlock, toggleBlockDone } = useStore();
   const { timeboxStart } = usePrefs();
   const { toast } = useToast();
+  const planned = usePlannedToast();
   const [draft, setDraft, flush] = useDraft(value, onCommit);
   const empty = draft.trim() === "";
   /* Vlastní řádek cíl není - puštění na sebe by nic neprohodilo, takže se ani
@@ -526,9 +632,11 @@ function PriorityRow({
       searchFrom(date, today, timeboxStart),
       SHEET_SLOT,
     );
-    addBlock({ date, start, duration: SHEET_SLOT, title: draft, priorityId: ref });
+    const block = addBlock({ date, start, duration: SHEET_SLOT, title: draft, priorityId: ref });
+    // Už odškrtnutá hlavní věc dostane odškrtnutý i nový zápis.
+    if (done) toggleBlockDone(block.id);
     void tapFeedback();
-    toast({ tone: "info", title: `Naplánováno na ${formatMinutes(start)}`, description: draft });
+    planned(block, draft);
   };
 
   return (
@@ -540,25 +648,15 @@ function PriorityRow({
         dragging && "opacity-40",
       )}
     >
-      <button
-        type="button"
-        onClick={() => {
-          void (done ? tapFeedback() : winFeedback());
-          onToggle();
-        }}
+      <CheckButton
+        done={done}
+        label={draft || `${index + 1}. hlavní věc`}
+        onToggle={onToggle}
         disabled={empty}
-        aria-pressed={done}
-        aria-label={done ? `Vrátit zpět: ${draft}` : `Hotovo: ${draft || `${index + 1}. priorita`}`}
-        className={cn(
-          "tabular mt-0.5 grid size-5 shrink-0 place-items-center rounded-[5px] border text-[11px] transition-colors",
-          done
-            ? "border-progress bg-progress text-progress-foreground"
-            : "text-muted-foreground",
-          !empty && !done && "hover:border-foreground/40",
-        )}
+        className="tabular mt-0.5 text-[11px]"
       >
-        {done ? <Check className="size-3.5" /> : index + 1}
-      </button>
+        {index + 1}
+      </CheckButton>
       <AutoTextarea
         value={draft}
         maxLength={PRIORITY_MAX}
@@ -666,6 +764,7 @@ function BrainDump({
   const { state, today, addBlock, setBrainDump } = useStore();
   const { timeboxStart } = usePrefs();
   const { toast } = useToast();
+  const planned = usePlannedToast();
   const value = sheetOf(state, date).brainDump;
 
   const [rows, setRows] = React.useState<DumpRowData[]>(() => parseDumpRows(value));
@@ -706,7 +805,10 @@ function BrainDump({
       každé akci, co řádky mění - rozmělněné ukládání po písmenu by přepisovalo
       celý stav při každém stisku klávesy. */
   const persist = (next: DumpRowData[]) => {
-    setRows(next);
+    // Vytažením posledního řádku nesmí dump přijít o pole, do kterého se píše.
+    setRows(
+      next.length > 0 ? next : [{ id: Math.max(0, ...ref.current.rows.map((r) => r.id)) + 1, text: "" }],
+    );
     const text = serializeDump(next);
     if (text !== ref.current.value) setBrainDump(date, text);
   };
@@ -782,10 +884,15 @@ function BrainDump({
     const start = timed
       ? timed.start
       : nextFreeSlot(blocksOfDay(state, date), searchFrom(date, today, timeboxStart), SHEET_SLOT);
-    addBlock({ date, start, duration: SHEET_SLOT, title });
+    const block = addBlock({ date, start, duration: SHEET_SLOT, title });
+    const index = ref.current.rows.findIndex((r) => r.id === row.id);
     persist(ref.current.rows.filter((r) => r.id !== row.id));
     void tapFeedback();
-    toast({ tone: "info", title: `Naplánováno na ${formatMinutes(start)}`, description: title });
+    planned(block, title, () => {
+      const next = [...ref.current.rows];
+      next.splice(Math.max(0, Math.min(index, next.length)), 0, row);
+      persist(next);
+    });
   };
 
   /* Panel tady hledá cestu ven pro tažení - proto se API hlásí při každém
@@ -934,107 +1041,36 @@ function DumpInput({
 // --- nestihl jsem -----------------------------------------------------------
 
 /**
- * Nedokončené hlavní věci z dřívějších dnů. Ťuknutí naplánuje věc do
- * nejbližšího volna, tažení kamkoliv; po přenosu věc na svém dni zůstane
- * (historie se nepřepisuje), jen už dál netáhne.
+ * Nedokončené věci z dřívějších dnů - hlavní věci i zápisy napsané do
+ * mřížky. Řádek má tři cesty a každá dělá jen jednu věc:
+ *
+ * - zaškrtávátko věc odškrtne **na jejím dni** (dodělal jsem ji),
+ * - koš ji zahodí (už neplatí),
+ * - úchyt ji přenese: ťuknutí do nejbližšího volna, tah kamkoliv.
+ *
+ * Po přenosu věc na svém dni zůstane (historie se nepřepisuje), jen už dál
+ * netáhne. Dřív odškrtnutí zároveň zakládalo blok v mřížce a vrácení mazalo
+ * bloky, které tam dal člověk sám - odškrtnutí, které dělá tři věci, se
+ * nedá předvídat.
  */
 function Carryover({ date, today, drag }: { date: ISODate; today: ISODate; drag: TimeboxDrag }) {
-  const { state, addBlock, markPriorityCarried, deleteBlock, togglePriority, setPriority } = useStore();
+  const { state } = useStore();
   const { timeboxStart } = usePrefs();
-  const { toast } = useToast();
-  const all = unfinishedCarryovers(state, today);
+  const actions = useSheetActions();
+  /* Prohlížený den v minulosti ukazuje, co viselo před ním; dnešek i budoucí
+     dny všechno před dneškem - dnešek ještě neskončil, nestihnout se nedá. */
+  const before = date < today ? date : today;
+  const all = unfinishedCarryovers(state, before);
   const items = all.slice(0, 6);
 
-  const place = (item: CarryoverItem) => {
+  const placeNearest = (item: CarryoverItem) => {
     const start = nextFreeSlot(
       blocksOfDay(state, date),
       searchFrom(date, today, timeboxStart),
       SHEET_SLOT,
     );
-    const block = addBlock({ date, start, duration: SHEET_SLOT, title: item.text });
-    markPriorityCarried(item.date, item.index, date);
     void tapFeedback();
-    toast({
-      tone: "info",
-      title: `Naplánováno na ${formatMinutes(start)}`,
-      description: item.text,
-      action: {
-        label: "Vrátit",
-        onClick: () => {
-          deleteBlock(block.id);
-          markPriorityCarried(item.date, item.index, null);
-        },
-      },
-    });
-  };
-
-  /**
-   * Označení priority jako hotové / vrácení zpět.
-   * Pokud priorita ještě není hotová, při označení jako hotové se automaticky
-   * přidá blok do nejbližšího volna dnešního dne.
-   * Při vrácení zpět (klik na ✓ podruhé) se blok z mřížky odstraní.
-   */
-  const handleToggle = (e: React.MouseEvent, item: CarryoverItem) => {
-    e.stopPropagation();
-    const priority = sheetOf(state, item.date).priorities[item.index];
-    const wasHot = priority?.done ?? false;
-
-    togglePriority(item.date, item.index);
-    void tapFeedback();
-
-    // Pokud označuji jako hotové → přidat blok do dnešní mřížky
-    if (!wasHot) {
-      const ref = priorityRef(item.date, item.index);
-      const start = nextFreeSlot(
-        blocksOfDay(state, date),
-        searchFrom(date, today, timeboxStart),
-        SHEET_SLOT,
-      );
-      const newBlock = addBlock({
-        date,
-        start,
-        duration: SHEET_SLOT,
-        title: item.text,
-        priorityId: ref,
-      });
-      toast({
-        tone: "info",
-        title: `Hotovo · naplánováno na ${formatMinutes(start)}`,
-        description: item.text,
-        action: {
-          label: "Vrátit",
-          onClick: () => {
-            togglePriority(item.date, item.index);
-            deleteBlock(newBlock.id);
-          },
-        },
-      });
-    } else {
-      // Vracím zpět → smazat všechny bloky pro tuto prioritu v dnešním dni
-      const ref = priorityRef(item.date, item.index);
-      const blocksToDelete = state.timeBlocks.filter((b) => b.priorityId === ref && b.date === date);
-      blocksToDelete.forEach((b) => deleteBlock(b.id));
-    }
-  };
-
-  const handleDelete = (e: React.MouseEvent, item: CarryoverItem) => {
-    e.stopPropagation();
-    // Smazat i případné bloky v mřížce
-    const ref = priorityRef(item.date, item.index);
-    const blocksToDelete = state.timeBlocks.filter((b) => b.priorityId === ref && b.date === date);
-    blocksToDelete.forEach((b) => deleteBlock(b.id));
-
-    const previousText = item.text;
-    setPriority(item.date, item.index, "");
-    toast({
-      tone: "info",
-      title: "Smazáno",
-      description: previousText,
-      action: {
-        label: "Vrátit",
-        onClick: () => setPriority(item.date, item.index, previousText),
-      },
-    });
+    actions.placeCarryover(item, date, start);
   };
 
   return (
@@ -1048,60 +1084,63 @@ function Carryover({ date, today, drag }: { date: ISODate; today: ISODate; drag:
         </p>
       ) : (
         <Card className="divide-y overflow-hidden p-0">
-        {items.map((item) => {
-          const day = fromISODate(item.date);
-          return (
-            <div
-              key={`${item.date}#${item.index}`}
-              className="flex items-start gap-2 px-2.5 py-1.5"
-            >
-              <button
-                type="button"
-                onClick={(e) => handleToggle(e, item)}
-                aria-label="Označit jako hotové"
-                title="Hotovo"
-                className="mt-0.5 grid size-7 shrink-0 place-items-center rounded border border-border text-muted-foreground transition-colors hover:border-foreground hover:text-foreground"
+          {items.map((item) => {
+            const day = fromISODate(item.date);
+            const dragging =
+              drag.ghost?.source.kind === "carryover" &&
+              carryoverKey(drag.ghost.source.item) === carryoverKey(item);
+            return (
+              <div
+                key={carryoverKey(item)}
+                className={cn(
+                  "flex items-start gap-2 px-2.5 py-1.5 transition-opacity",
+                  dragging && "opacity-40",
+                )}
               >
-                <Check className="size-4" />
-              </button>
-              <span className="tabular mt-1 shrink-0 whitespace-nowrap text-[11px] text-muted-foreground">
-                {DAY_SHORT[day.getDay()]} {day.getDate()}. {day.getMonth() + 1}.
-              </span>
-              <p className="min-w-0 flex-1 py-0.5 text-sm leading-5">{item.text}</p>
-              <button
-                type="button"
-                onClick={(e) => handleDelete(e, item)}
-                aria-label={`Smazat: ${item.text}`}
-                title="Smazat"
-                className="mt-0.5 grid size-7 shrink-0 place-items-center rounded text-muted-foreground/50 hover:text-destructive"
-              >
-                <Trash2 className="size-4" />
-              </button>
-              <button
-                type="button"
-                onPointerDown={(e) =>
-                  drag.press(
-                    { kind: "carryover", date: item.date, index: item.index, title: item.text },
-                    e,
-                  )
-                }
-                onClick={() => place(item)}
-                onContextMenu={(e) => e.preventDefault()}
-                aria-label={`Přenést: ${item.text}`}
-                title="Ťukni a padne do nejbližšího volna, nebo přetáhni do trojky a mřížky."
-                className="mt-0.5 grid size-7 shrink-0 cursor-grab place-items-center rounded text-muted-foreground/50 hover:text-foreground [-webkit-touch-callout:none]"
-              >
-                <GripVertical className="size-4" />
-              </button>
-            </div>
-          );
-        })}
+                <span className="grid size-7 shrink-0 place-items-center">
+                  <CheckButton
+                    done={false}
+                    label={item.text}
+                    onToggle={() => actions.finishCarryover(item)}
+                  />
+                </span>
+                <span className="tabular mt-1.5 shrink-0 whitespace-nowrap text-[11px] text-muted-foreground">
+                  {DAY_SHORT[day.getDay()]} {day.getDate()}. {day.getMonth() + 1}.
+                  {item.kind === "block" ? ` ${formatMinutes(item.start)}` : ""}
+                </span>
+                <p className="min-w-0 flex-1 py-1 text-sm leading-5">{item.text}</p>
+                <button
+                  type="button"
+                  onClick={() => actions.discardCarryover(item)}
+                  aria-label={`Smazat: ${item.text}`}
+                  title="Už neplatí - smazat"
+                  className="mt-0.5 grid size-7 shrink-0 place-items-center rounded text-muted-foreground/50 hover:text-destructive"
+                >
+                  <Trash2 className="size-4" />
+                </button>
+                <button
+                  type="button"
+                  onPointerDown={(e) =>
+                    drag.press({ kind: "carryover", item, title: item.text }, e)
+                  }
+                  onClick={() => placeNearest(item)}
+                  onContextMenu={(e) => e.preventDefault()}
+                  aria-label={`Přenést: ${item.text}`}
+                  title="Ťukni a padne do nejbližšího volna, nebo přetáhni do trojky či mřížky."
+                  className="mt-0.5 grid size-7 shrink-0 cursor-grab place-items-center rounded text-muted-foreground/50 hover:text-foreground [-webkit-touch-callout:none]"
+                >
+                  <GripVertical className="size-4" />
+                </button>
+              </div>
+            );
+          })}
         </Card>
       )}
       {all.length > items.length ? (
         <p className="px-0.5 text-xs text-muted-foreground">
           A další {all.length - items.length}{" "}
-          {plural(all.length - items.length, "věc", "věci", "věcí")} - přenes nebo odškrtni i ty.
+          {plural(all.length - items.length, "věc", "věci", "věcí")} - přenes, odškrtni nebo smaž
+          i ty.
         </p>
       ) : null}
     </section>
@@ -1128,6 +1167,7 @@ function AiSuggestions({
   const { state, setPriority, addBlock } = useStore();
   const { timeboxStart } = usePrefs();
   const { toast } = useToast();
+  const planned = usePlannedToast();
   const [hasKey, setHasKey] = React.useState(false);
   const [items, setItems] = React.useState<Suggestion[]>([]);
   const [busy, setBusy] = React.useState(false);
@@ -1180,8 +1220,7 @@ function AiSuggestions({
         searchFrom(date, today, timeboxStart),
         SHEET_SLOT,
       );
-      addBlock({ date, start, duration: SHEET_SLOT, title: item.text });
-      toast({ tone: "info", title: `Naplánováno na ${formatMinutes(start)}`, description: item.text });
+      planned(addBlock({ date, start, duration: SHEET_SLOT, title: item.text }), item.text);
     }
     void tapFeedback();
     setItems((prev) => prev.filter((i) => i !== item));

@@ -150,3 +150,38 @@ describe("zdroj postupu úkolu", () => {
     expect("progressFrom" in task).toBe(false);
   });
 });
+
+/**
+ * Přenos zápisu z mřížky přes „Nestihl jsem" přišel až později. Bez něj by
+ * se přenesený zápis po restartu appky znovu nabízel - a nesmysl v poli nesmí
+ * zápis schovat navždy.
+ */
+describe("přenos časového bloku", () => {
+  const block = (carriedTo: unknown) =>
+    JSON.stringify({
+      version: 8,
+      nodes: [],
+      entries: [],
+      timeBlocks: [
+        {
+          id: "b1",
+          date: "2026-10-04",
+          start: 600,
+          duration: 30,
+          title: "Nafotit Lego",
+          todoId: null,
+          taskId: null,
+          priorityId: null,
+          createdAt: "2026-10-04T08:00:00.000Z",
+          doneAt: null,
+          carriedTo,
+        },
+      ],
+    });
+
+  it("platný den se načte, nesmysl i chybějící pole znamenají „ještě visí“", () => {
+    expect(parseState(block("2026-10-05"))!.timeBlocks[0].carriedTo).toBe("2026-10-05");
+    expect(parseState(block("včera"))!.timeBlocks[0].carriedTo ?? null).toBe(null);
+    expect("carriedTo" in parseState(block(undefined))!.timeBlocks[0]).toBe(false);
+  });
+});

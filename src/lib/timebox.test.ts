@@ -1,19 +1,24 @@
 import { describe, expect, it } from "vitest";
 import { isValidISODate } from "./date";
 import { addBlock, blockTitle, linkBlockToPriority } from "./timeblocks";
+import { addTodo } from "./todos";
 import {
   hasPriorityBlockAt,
   isSheetEmpty,
+  markCarried,
   markPriorityCarried,
   normalizeSheet,
   parseDumpTime,
   priorityRef,
+  replacePriority,
+  restorePriority,
   setBrainDump,
   setPriority,
   sheetOf,
   splitDumpSchedule,
   swapPriorities,
   toggleBlockDone,
+  toggleCarryoverDone,
   togglePriority,
   slotContent,
   slotStart,
@@ -128,6 +133,55 @@ describe("priorita a blok z ní", () => {
     expect(fromPriority.timeBlocks[0].doneAt).toBeNull();
   });
 
+  /* Hlavní věc se dá posadit do mřížky víckrát; odškrtnutí jednoho zápisu
+     musí odškrtnout i ten druhý, jinak visí nehotový zápis hotové věci. */
+  it("odškrtnutí jednoho zápisu odškrtne i další zápisy té věci", () => {
+    const { state, blockId } = linked();
+    const twice = addBlock(
+      state,
+      { date: DAY, start: 14 * 60, title: "Zavolat bance", priorityId: priorityRef(DAY, 0) },
+      NOON,
+    ).state;
+
+    const done = toggleBlockDone(twice, blockId, NOON);
+    expect(sheetOf(done, DAY).priorities[0].done).toBe(true);
+    expect(done.timeBlocks.every((b) => b.doneAt !== null)).toBe(true);
+
+    const back = toggleBlockDone(done, blockId, NOON);
+    expect(back.timeBlocks.every((b) => b.doneAt === null)).toBe(true);
+  });
+
+  it("jiná věc na místě hlavní věci nezdědí odškrtnutí ani její zápisy", () => {
+    const { state } = linked();
+    const done = togglePriority(state, DAY, 0, NOON);
+
+    const replaced = replacePriority(done, DAY, 0, "Nákup");
+    expect(sheetOf(replaced, DAY).priorities[0]).toEqual({ text: "Nákup", done: false });
+    // Zápis staré věci se odpojí a nechá si její text - neukazuje cizí.
+    expect(replaced.timeBlocks[0].priorityId).toBe(null);
+    expect(blockTitle(replaced, replaced.timeBlocks[0])).toBe("Zavolat bance");
+
+    const back = restorePriority(
+      replaced,
+      DAY,
+      0,
+      sheetOf(done, DAY).priorities[0],
+      [replaced.timeBlocks[0].id],
+    );
+    expect(sheetOf(back, DAY).priorities[0]).toEqual({ text: "Zavolat bance", done: true });
+    expect(back.timeBlocks[0].priorityId).toBe(priorityRef(DAY, 0));
+  });
+
+  /* Vygumovaná hlavní věc s navázanými bloky: kdyby odkaz zůstal, zápis by
+     se na místo napsané později přilepil a ukazoval by cizí text. */
+  it("vygumování přes replacePriority odpojí zápisy od uvolněného místa", () => {
+    const { state } = linked();
+    const erased = replacePriority(state, DAY, 0, "");
+    const later = setPriority(erased, DAY, 0, "Úplně jiná věc");
+
+    expect(blockTitle(later, later.timeBlocks[0])).toBe("Zavolat bance");
+  });
+
   it("vygumovaná priorita nechá bloku jeho vlastní text", () => {
     const { state } = linked();
 
@@ -171,9 +225,11 @@ describe("priorita a blok z ní", () => {
     const { state } = linked();
     const ref = priorityRef(DAY, 0);
 
-    expect(hasPriorityBlockAt(state.timeBlocks, ref, 9 * 60)).toBe(true);
-    expect(hasPriorityBlockAt(state.timeBlocks, ref, 9 * 60 + 30)).toBe(false);
-    expect(hasPriorityBlockAt(state.timeBlocks, priorityRef(DAY, 1), 9 * 60)).toBe(false);
+    expect(hasPriorityBlockAt(state.timeBlocks, ref, DAY, 9 * 60)).toBe(true);
+    expect(hasPriorityBlockAt(state.timeBlocks, ref, DAY, 9 * 60 + 30)).toBe(false);
+    expect(hasPriorityBlockAt(state.timeBlocks, priorityRef(DAY, 1), DAY, 9 * 60)).toBe(false);
+    // Stejný čas jiného dne je jiné políčko (mřížka přes půlnoc).
+    expect(hasPriorityBlockAt(state.timeBlocks, ref, NEXT, 9 * 60)).toBe(false);
   });
 
   it("odkaz se dá navázat i sundat", () => {
@@ -324,8 +380,8 @@ describe("nestihl jsem", () => {
     s = setPriority(s, TODAY, 0, "dnešní");
 
     expect(unfinishedCarryovers(s, TODAY)).toEqual([
-      { date: EARLIER, index: 1, text: "GW" },
-      { date: YESTERDAY, index: 0, text: "Běh" },
+      { kind: "priority", date: EARLIER, index: 1, text: "GW" },
+      { kind: "priority", date: YESTERDAY, index: 0, text: "Běh" },
     ]);
   });
 
@@ -340,8 +396,64 @@ describe("nestihl jsem", () => {
 
     const back = markPriorityCarried(carried, YESTERDAY, 1, null);
     expect(unfinishedCarryovers(back, TODAY)).toEqual([
-      { date: YESTERDAY, index: 1, text: "Běh" },
+      { kind: "priority", date: YESTERDAY, index: 1, text: "Běh" },
     ]);
+  });
+
+  /* Zápis napsaný do mřížky včera, který se neodškrtl, je taky „nestihl
+     jsem" - dřív se sem braly jen hlavní věci a včerejší zápis prostě zmizel. */
+  it("nestihnuté zápisy z mřížky se nabídnou taky, navázané ne", () => {
+    let s: MicroWinsState = setPriority(EMPTY_STATE, YESTERDAY, 0, "Běh");
+    const plain = addBlock(s, { date: YESTERDAY, start: 600, title: "Nafotit Lego" });
+    s = plain.state;
+    const early = addBlock(s, { date: YESTERDAY, start: 480, title: "Mail účetní" });
+    s = early.state;
+    // Hotový zápis, zápis z ToDo a zápis z hlavní věci se ozvou jinde.
+    const done = addBlock(s, { date: YESTERDAY, start: 700, title: "hotový" });
+    s = toggleBlockDone(done.state, done.block.id);
+    const todo = addTodo(s, "Služby na net");
+    s = addBlock(todo.state, { date: YESTERDAY, start: 720, title: "Služby", todoId: todo.todo!.id }).state;
+    s = addBlock(s, { date: YESTERDAY, start: 750, title: "Běh", priorityId: priorityRef(YESTERDAY, 0) }).state;
+    // Dnešní zápis ještě nestihnutý být nemůže.
+    s = addBlock(s, { date: TODAY, start: 480, title: "dnes" }).state;
+
+    expect(unfinishedCarryovers(s, TODAY)).toEqual([
+      { kind: "priority", date: YESTERDAY, index: 0, text: "Běh" },
+      { kind: "block", date: YESTERDAY, id: early.block.id, start: 480, text: "Mail účetní" },
+      { kind: "block", date: YESTERDAY, id: plain.block.id, start: 600, text: "Nafotit Lego" },
+    ]);
+  });
+
+  it("zápis se dá přenést, odškrtnout i vrátit stejně jako hlavní věc", () => {
+    const { state, block } = addBlock(EMPTY_STATE, { date: YESTERDAY, start: 600, title: "Lego" });
+    const [item] = unfinishedCarryovers(state, TODAY);
+
+    const carried = markCarried(state, item, TODAY);
+    expect(unfinishedCarryovers(carried, TODAY)).toEqual([]);
+    expect(unfinishedCarryovers(markCarried(carried, item, null), TODAY)).toHaveLength(1);
+
+    const finished = toggleCarryoverDone(state, item);
+    expect(finished.timeBlocks[0].doneAt).not.toBeNull();
+    expect(unfinishedCarryovers(finished, TODAY)).toEqual([]);
+    // Odškrtnutí platí na původním dni - nic dalšího nevzniká.
+    expect(finished.timeBlocks).toHaveLength(1);
+    expect(finished.timeBlocks[0].id).toBe(block.id);
+  });
+
+  it("odškrtnutá nestihnutá hlavní věc zůstane na svém dni, jen hotová", () => {
+    const s = setPriority(EMPTY_STATE, YESTERDAY, 0, "Běh");
+    const [item] = unfinishedCarryovers(s, TODAY);
+
+    const finished = toggleCarryoverDone(s, item);
+    expect(sheetOf(finished, YESTERDAY).priorities[0].done).toBe(true);
+    expect(finished.timeBlocks).toHaveLength(0);
+  });
+
+  it("hranice je den, před kterým se hledá - pohled do minulosti vidí jen starší", () => {
+    let s = setPriority(EMPTY_STATE, EARLIER, 0, "starší");
+    s = setPriority(s, YESTERDAY, 0, "včerejší");
+
+    expect(unfinishedCarryovers(s, YESTERDAY).map((i) => i.text)).toEqual(["starší"]);
   });
 
   it("přepsaný text přenos udrží, vygumovaný řádek ho s sebou vezme", () => {

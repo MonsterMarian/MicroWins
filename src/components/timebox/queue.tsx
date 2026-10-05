@@ -1,19 +1,18 @@
 "use client";
 
 import * as React from "react";
-import { Check, GripVertical, Trash2 } from "lucide-react";
+import { Clock, GripVertical, Trash2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { EntityIcon } from "@/components/ui/icon-picker";
 import { useStore } from "@/components/providers/store-provider";
-import { usePrefs } from "@/components/providers/use-prefs";
 import { useToast } from "@/components/providers/toast-provider";
 import { projectById, taskById } from "@/lib/projects";
-import { formatMinutes, allTodosToday, unplannedTasks, blocksOfDay, nextFreeSlot } from "@/lib/timeblocks";
+import { allTodosToday, formatMinutes, unplannedTasks } from "@/lib/timeblocks";
 import { formatTodoDue, isTodoOverdue } from "@/lib/todos";
-import { SHEET_SLOT } from "@/lib/timebox";
-import type { ISODate, MicroWinsState, Task, Todo, TimeBlock } from "@/lib/types";
+import type { ISODate, MicroWinsState, Task, Todo } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { tapFeedback } from "@/lib/native";
+import { CheckButton } from "./check-button";
 
 /**
  * Rozdělaná práce nad listem dne - dvě sekce: ToDo a Úkoly.
@@ -47,7 +46,9 @@ export function Queue({
     () => (showTodos ? allTodosToday(state, date) : []),
     [state, date, showTodos],
   );
-  const tasks = React.useMemo(() => unplannedTasks(state, date).slice(0, 10), [state, date]);
+  /* Všechny, ne prvních deset: pás se posouvá do strany, a úkol za desítkou
+     se dřív neukázal nikdy - vypadalo to, že po naplánování zmizel napořád. */
+  const tasks = React.useMemo(() => unplannedTasks(state, date), [state, date]);
 
   const empty = todos.length === 0 && tasks.length === 0;
 
@@ -56,13 +57,7 @@ export function Queue({
   return (
     <>
       <TaskQueue tasks={tasks} hint={hint} onDrop={onDrop} onPress={onPress} />
-      <TodoQueue
-        todos={todos}
-        showTodos={showTodos}
-        date={date}
-        onDrop={onDrop}
-        onPress={onPress}
-      />
+      <TodoQueue todos={todos} showTodos={showTodos} onDrop={onDrop} onPress={onPress} />
     </>
   );
 }
@@ -75,13 +70,11 @@ type ChipPress = ((event: React.PointerEvent<HTMLElement>) => void) | undefined;
 function TodoQueue({
   todos,
   showTodos,
-  date,
   onDrop,
   onPress,
 }: {
   todos: { todo: Todo; plannedStart: number | null }[];
   showTodos: boolean;
-  date: ISODate;
   onDrop: (input: DropInput) => void;
   onPress?: (input: DropInput, event: React.PointerEvent<HTMLElement>) => void;
 }) {
@@ -101,7 +94,6 @@ function TodoQueue({
               key={todo.id}
               todo={todo}
               plannedStart={plannedStart}
-              date={date}
               onDrop={onDrop}
               onPress={onPress}
             />
@@ -115,18 +107,15 @@ function TodoQueue({
 function TodoRow({
   todo,
   plannedStart,
-  date,
   onDrop,
   onPress,
 }: {
   todo: Todo;
   plannedStart: number | null;
-  date: ISODate;
   onDrop: (input: DropInput) => void;
   onPress?: (input: DropInput, event: React.PointerEvent<HTMLElement>) => void;
 }) {
-  const { state, today, toggleTodo, deleteTodo, restoreTodo, addBlock, deleteBlock } = useStore();
-  const { timeboxStart } = usePrefs();
+  const { toggleTodo, deleteTodo, restoreTodo } = useStore();
   const { toast } = useToast();
   const overdue = isTodoOverdue(todo);
   const due = formatTodoDue(todo);
@@ -134,115 +123,34 @@ function TodoRow({
   const done = todo.doneAt !== null;
   const input: DropInput = { title: todo.text, todoId: todo.id };
 
-  const handlePick = () => {
-    if (planned) {
-      toast({
-        tone: "info",
-        title: `Dnes v mřížce od ${formatMinutes(plannedStart)}`,
-        description: todo.text,
-      });
-    } else {
-      onDrop(input);
-    }
-  };
+  /* Odškrtnutí je tu stejné jako v seznamu ToDo i v mřížce: přepne položku
+     a s ní bloky, které z ní vznikly. Nic nového nezakládá ani nemaže - kdo
+     chce věc zapsat do dne, táhne ji do mřížky. */
 
-  /**
-   * Označení jako hotové / vrácení zpět.
-   * Pokud položka ještě není v mřížce, při označení jako hotové se tam automaticky
-   * přidá do nejbližšího volna. Při vrácení zpět se blok z mřížky odstraní.
-   */
-  const handleToggle = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    const wasHot = todo.doneAt !== null;
-
-    toggleTodo(todo.id);
-    void tapFeedback();
-
-    if (!wasHot && !planned) {
-      // Označuji jako hotové a není v mřížce → přidat blok
-      const start = nextFreeSlot(
-        blocksOfDay(state, date),
-        date === today ? Math.max(timeboxStart * 60, new Date().getHours() * 60 + new Date().getMinutes()) : timeboxStart * 60,
-        SHEET_SLOT,
-      );
-      const newBlock = addBlock({
-        date,
-        start,
-        duration: SHEET_SLOT,
-        title: todo.text,
-        todoId: todo.id,
-      });
-      toast({
-        tone: "info",
-        title: `Hotovo · naplánováno na ${formatMinutes(start)}`,
-        description: todo.text,
-        action: {
-          label: "Vrátit",
-          onClick: () => {
-            toggleTodo(todo.id);
-            deleteBlock(newBlock.id);
-          },
-        },
-      });
-    } else if (wasHot) {
-      // Vracím zpět → smazat všechny bloky pro tuto položku v dnešním dni
-      const blocksToDelete = state.timeBlocks.filter((b) => b.todoId === todo.id && b.date === date);
-      blocksToDelete.forEach((b) => deleteBlock(b.id));
-    }
-  };
-
-  const handleDelete = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    // Pokud má položka blok v mřížce, smazat i ten
-    const blocksToDelete = state.timeBlocks.filter((b) => b.todoId === todo.id && b.date === date);
-    blocksToDelete.forEach((b) => deleteBlock(b.id));
-
+  /* Koš maže položku, ne její historii: zápis v mřížce zůstane se svým
+     textem, stejně jako po smazání v seznamu ToDo. */
+  const handleDelete = () => {
     const deleted = deleteTodo(todo.id);
     if (!deleted) return;
+    void tapFeedback();
     toast({
       tone: "info",
       title: "Smazáno",
       description: deleted.text,
-      action: {
-        label: "Vrátit",
-        onClick: () => restoreTodo(deleted),
-      },
+      action: { label: "Vrátit", onClick: () => restoreTodo(deleted) },
     });
   };
 
-  const pressProps = onPress && !planned
-    ? {
-        onPointerDown: (e: React.PointerEvent<HTMLElement>) => onPress(input, e),
-        onContextMenu: (e: React.MouseEvent) => e.preventDefault(),
-        className: "cursor-grab [-webkit-touch-callout:none]",
-      }
-    : {};
-
   return (
-    <div className={cn("flex items-start gap-2 px-2.5 py-1.5", done && "opacity-60")}>
-      <button
-        type="button"
-        onClick={handleToggle}
-        aria-label={done ? "Označit jako nedokončené" : "Označit jako hotové"}
-        title={done ? "Vrátit zpět" : "Hotovo"}
+    <div className="flex items-start gap-2 px-2.5 py-1.5">
+      <span className="grid size-7 shrink-0 place-items-center">
+        <CheckButton done={done} label={todo.text} onToggle={() => toggleTodo(todo.id)} />
+      </span>
+      <p
         className={cn(
-          "mt-0.5 grid size-7 shrink-0 place-items-center rounded border transition-colors",
-          done
-            ? "border-progress bg-progress text-background"
-            : "border-border text-muted-foreground hover:border-foreground hover:text-foreground",
-        )}
-      >
-        <Check className="size-4" />
-      </button>
-      <button
-        type="button"
-        onClick={handlePick}
-        disabled={done}
-        className={cn(
-          "min-w-0 flex-1 text-left text-sm leading-5",
-          done && "line-through text-muted-foreground",
+          "min-w-0 flex-1 py-1 text-sm leading-5",
+          done && "text-muted-foreground line-through",
           !done && planned && "text-muted-foreground",
-          !done && !planned && "hover:text-foreground",
         )}
       >
         {todo.text}
@@ -256,44 +164,43 @@ function TodoRow({
             {due}
           </span>
         ) : null}
-      </button>
+      </p>
+      {/* Čas, kdy položka dnes stojí v mřížce. Hodiny, ne fajfka - fajfka
+          vedle zaškrtávátka by se četla jako „hotovo". */}
       {planned && !done ? (
-        <span className="tabular flex shrink-0 items-center gap-0.5 text-xs text-progress">
-          <Check className="size-3" />
+        <span
+          title={`Dnes v mřížce od ${formatMinutes(plannedStart)}`}
+          className="tabular mt-1.5 flex shrink-0 items-center gap-0.5 text-xs text-progress"
+        >
+          <Clock className="size-3" />
           {formatMinutes(plannedStart)}
         </span>
-      ) : done ? (
+      ) : null}
+      <button
+        type="button"
+        onClick={handleDelete}
+        aria-label={`Smazat: ${todo.text}`}
+        title="Smazat položku"
+        className="mt-0.5 grid size-7 shrink-0 place-items-center rounded text-muted-foreground/50 hover:text-destructive"
+      >
+        <Trash2 className="size-4" />
+      </button>
+      {/* Úchyt jen u toho, co ještě dnes v mřížce nestojí: ťuknutí posadí do
+          nejbližšího volna, podržení táhne. Rozplánovaná položka se znovu
+          nenabízí, hotová už nemá kam. */}
+      {!done && !planned ? (
         <button
           type="button"
-          onClick={handleDelete}
-          aria-label={`Smazat: ${todo.text}`}
-          title="Smazat položku"
-          className="mt-0.5 grid size-7 shrink-0 place-items-center rounded text-muted-foreground/50 hover:text-destructive"
+          onClick={() => onDrop(input)}
+          onPointerDown={onPress ? (e) => onPress(input, e) : undefined}
+          onContextMenu={(e) => e.preventDefault()}
+          aria-label={`Naplánovat: ${todo.text}`}
+          title="Ťukni a padne do nejbližšího volna, nebo přetáhni do mřížky."
+          className="mt-0.5 grid size-7 shrink-0 cursor-grab place-items-center rounded text-muted-foreground/50 hover:text-foreground [-webkit-touch-callout:none]"
         >
-          <Trash2 className="size-4" />
+          <GripVertical className="size-4" />
         </button>
-      ) : (
-        <>
-          <button
-            type="button"
-            onClick={handleDelete}
-            aria-label={`Smazat: ${todo.text}`}
-            title="Smazat položku"
-            className="mt-0.5 grid size-7 shrink-0 place-items-center rounded text-muted-foreground/50 hover:text-destructive"
-          >
-            <Trash2 className="size-4" />
-          </button>
-          <button
-            type="button"
-            {...pressProps}
-            aria-label={`Přetáhnout: ${todo.text}`}
-            title="Ťukni a padne do nejbližšího volna, nebo přetáhni do mřížky."
-            className="mt-0.5 grid size-7 shrink-0 place-items-center rounded text-muted-foreground/50 hover:text-foreground"
-          >
-            <GripVertical className="size-4" />
-          </button>
-        </>
-      )}
+      ) : null}
     </div>
   );
 }

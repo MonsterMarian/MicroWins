@@ -1,17 +1,25 @@
 "use client";
 
 import * as React from "react";
-import { Check, Link2, Plus } from "lucide-react";
+import { Link2, Plus, Trash2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { useStore } from "@/components/providers/store-provider";
 import { usePrefs } from "@/components/providers/use-prefs";
 import { useToast } from "@/components/providers/toast-provider";
-import { tapFeedback, winFeedback } from "@/lib/native";
-import { blockTitle, formatLength, formatMinutes, TIMEBLOCK_MAX_TITLE } from "@/lib/timeblocks";
+import { tapFeedback } from "@/lib/native";
+import {
+  blockLink,
+  blockTitle,
+  formatLength,
+  formatMinutes,
+  TIMEBLOCK_MAX_TITLE,
+  type BlockLink,
+} from "@/lib/timeblocks";
 import { SHEET_SLOT, slotContent, slotStart, timeboxRows } from "@/lib/timebox";
 import type { ISODate, TimeBlock } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { AutoTextarea } from "./auto-textarea";
+import { CheckButton } from "./check-button";
 import type { TimeboxDrag } from "./use-timebox-drag";
 
 /**
@@ -114,9 +122,9 @@ export function TimeboxGrid({
 
   const hint = (
     <p className="px-1 text-xs text-muted-foreground">
-      Ťukni do políčka a piš; Enter tě posune o půl hodiny dál. Zápis se dá přetáhnout jinam,
-      nahoru mezi hlavní věci dne, nebo dolů do koše. Odškrtnutí platí všude, kde se ta věc
-      ukáže - tady i v ToDo nebo u úkolu.
+      Ťukni do políčka a piš; Enter tě posune o půl hodiny dál. Ťuknutím na zápis ho přepíšeš
+      nebo smažeš, podržením přetáhneš jinam. Odškrtnutí platí i v ToDo a u hlavních věcí dne;
+      úkolu projektu se postup nemění - ten se počítá u úkolu.
     </p>
   );
 
@@ -307,9 +315,17 @@ function Slot({
   const isTarget =
     drag.target?.kind === "slot" && drag.target.date === date && drag.target.start === start;
 
-  const onToggle = (block: TimeBlock) => {
-    void (block.doneAt === null ? winFeedback() : tapFeedback());
-    toggleBlockDone(block.id);
+  /** Sundá zápis z mřížky - s cestou zpátky, ať se omyl dá vrátit. */
+  const remove = (blockId: string) => {
+    const removed = deleteBlock(blockId);
+    if (!removed) return;
+    void tapFeedback();
+    toast({
+      tone: "info",
+      title: "Smazáno",
+      description: `${formatMinutes(removed.start)} ${blockTitle(state, removed)}`,
+      action: { label: "Vrátit", onClick: () => restoreBlock(removed) },
+    });
   };
 
   /**
@@ -324,15 +340,7 @@ function Slot({
     } else if (value) {
       updateBlock(blockId, { title: value });
     } else {
-      const removed = deleteBlock(blockId);
-      if (removed) {
-        toast({
-          tone: "info",
-          title: "Smazáno",
-          description: `${formatMinutes(removed.start)} ${blockTitle(state, removed)}`,
-          action: { label: "Vrátit", onClick: () => restoreBlock(removed) },
-        });
-      }
+      remove(blockId);
     }
     // Enter posouvá o půl hodiny dál, ať se den dá vyplnit bez zvedání prstu.
     onEdit(goNext && next ? { ...next, blockId: null } : null);
@@ -359,36 +367,51 @@ function Slot({
         /* Zalamuje se: dvě věci se vejdou vedle sebe, třetí si vezme řádek pod
            nimi. Bez toho se sloupce zmáčkly na pár písmen na řádek. */
         <div className={cn("flex min-w-0 flex-wrap items-stretch", roomy ? "gap-x-3 gap-y-1" : "gap-px")}>
-          {content.blocks.map((block) =>
-            editing?.blockId === block.id ? (
-              <SlotInput
-                key={block.id}
-                roomy={roomy}
-                initial={block.title}
-                onCommit={(text, goNext) => commit(text, block.id, goNext)}
-                onCancel={() => onEdit(null)}
-              />
-            ) : (
+          {content.blocks.map((block) => {
+            const label = blockTitle(state, block);
+            const link = blockLink(state, block);
+            if (editing?.blockId === block.id) {
+              return link ? (
+                <LinkedEdit
+                  key={block.id}
+                  roomy={roomy}
+                  label={label}
+                  link={link}
+                  onDelete={() => {
+                    remove(block.id);
+                    onEdit(null);
+                  }}
+                  onClose={() => onEdit(null)}
+                />
+              ) : (
+                <SlotInput
+                  key={block.id}
+                  roomy={roomy}
+                  initial={block.title}
+                  onCommit={(text, goNext) => commit(text, block.id, goNext)}
+                  onCancel={() => onEdit(null)}
+                  onDelete={() => {
+                    remove(block.id);
+                    onEdit(null);
+                  }}
+                />
+              );
+            }
+            return (
               <BlockLine
                 key={block.id}
                 roomy={roomy}
                 block={block}
-                label={blockTitle(state, block)}
-                linked={
-                  block.todoId !== null || block.taskId !== null || block.priorityId !== null
-                }
+                label={label}
+                linked={link !== null}
                 offset={block.start !== start}
-                dragging={
-                  drag.ghost?.source.kind === "block" && drag.ghost.source.id === block.id
-                }
-                onPress={(e) =>
-                  drag.press({ kind: "block", id: block.id, title: blockTitle(state, block) }, e)
-                }
-                onToggle={() => onToggle(block)}
+                dragging={drag.ghost?.source.kind === "block" && drag.ghost.source.id === block.id}
+                onPress={(e) => drag.press({ kind: "block", id: block.id, title: label }, e)}
+                onToggle={() => toggleBlockDone(block.id)}
                 onEdit={() => onEdit({ date, start, blockId: block.id })}
               />
-            ),
-          )}
+            );
+          })}
           {writing ? (
             <SlotInput
               roomy={roomy}
@@ -433,11 +456,13 @@ function Slot({
 }
 
 /**
- * Jeden zápis v políčku. Zaškrtávátko odškrtává, text se přepisuje - ale jen
- * u bloku, který si text nese sám. Blok z ToDo, z úkolu nebo z hlavní věci dne
- * zobrazuje jejich jméno, takže přepsat ho tady by vypadalo, že se nic nestalo:
- * uložilo by se do bloku a na obrazovce by dál svítil původní text odkazu.
- * Ťuknutí na takový zápis proto odškrtává a sundat se dá tahem do koše.
+ * Jeden zápis v políčku. Zaškrtávátko odškrtává, ťuknutí na text otevře
+ * úpravu (u navázaného zápisu jen koš - text si bere z věci, na kterou
+ * ukazuje) a podržení zápis zvedne a dá se přetáhnout.
+ *
+ * Dřív ťuknutí na navázaný zápis odškrtávalo, takže ho nešlo nijak smazat
+ * kromě tahu do koše, o kterém nikdo nevěděl - a odškrtnutí měl řádek už
+ * jednou, v rámečku vedle.
  */
 function BlockLine({
   roomy,
@@ -472,23 +497,17 @@ function BlockLine({
         dragging && "opacity-40",
       )}
     >
+      <CheckButton
+        done={done}
+        label={label}
+        onToggle={onToggle}
+        size={roomy ? "md" : "sm"}
+        className={roomy ? "mt-px" : "mt-0.5"}
+      />
       <button
         type="button"
-        onClick={onToggle}
-        aria-pressed={done}
-        aria-label={done ? `Vrátit zpět: ${label}` : `Hotovo: ${label}`}
-        className={cn(
-          "grid shrink-0 place-items-center border transition-colors",
-          roomy ? "mt-px size-[1.125rem] rounded-[4px]" : "mt-0.5 size-3.5 rounded-[3px]",
-          done ? "border-progress bg-progress text-progress-foreground" : "border-muted-foreground/40",
-        )}
-      >
-        {done ? <Check className={roomy ? "size-3" : "size-2.5"} /> : null}
-      </button>
-      <button
-        type="button"
-        onClick={linked ? onToggle : onEdit}
-        title={label}
+        onClick={onEdit}
+        title={linked ? `${label} - ťukni pro smazání z mřížky` : label}
         className={cn(
           "min-w-0 flex-1 break-words text-left",
           roomy ? "text-sm leading-5" : "text-[11px] leading-4",
@@ -509,41 +528,164 @@ function BlockLine({
   );
 }
 
+/** Odkud navázaný zápis bere text - tam se dá přejmenovat. */
+const LINK_ORIGIN = {
+  priority: "z hlavních věcí dne",
+  todo: "z ToDo",
+  task: "z úkolu projektu",
+} as const;
+
+/**
+ * Otevřený navázaný zápis: text se tu přepsat nedá (bere ho z věci, na kterou
+ * ukazuje), takže úprava je jen koš a poznámka, kde se dá přejmenovat.
+ * Zavře se ťuknutím kamkoliv jinam nebo Escapem.
+ */
+function LinkedEdit({
+  roomy,
+  label,
+  link,
+  onDelete,
+  onClose,
+}: {
+  roomy: boolean;
+  label: string;
+  link: BlockLink;
+  onDelete: () => void;
+  onClose: () => void;
+}) {
+  const box = React.useRef<HTMLDivElement | null>(null);
+  const close = React.useRef(onClose);
+  close.current = onClose;
+
+  /* Na zavření se nečeká na blur: na iPhonu ťuknutí na nefokusovatelné místo
+     fokus nepřesune a úprava by zůstala viset. */
+  React.useEffect(() => {
+    box.current?.focus();
+    const onDown = (e: PointerEvent) => {
+      if (!box.current?.contains(e.target as Node)) close.current();
+    };
+    document.addEventListener("pointerdown", onDown, true);
+    return () => document.removeEventListener("pointerdown", onDown, true);
+  }, []);
+
+  return (
+    <div
+      ref={box}
+      tabIndex={-1}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") onClose();
+      }}
+      className={cn(
+        "flex items-start gap-1 rounded-[4px] border bg-background outline-none",
+        roomy
+          ? "min-w-[8rem] flex-[1_1_8rem] px-2 py-1 text-sm leading-5"
+          : "min-w-[4.5rem] flex-[1_1_4.5rem] px-1 py-0.5 text-[11px] leading-4",
+      )}
+    >
+      <span className="min-w-0 flex-1 break-words">
+        {label}
+        <span className="block text-muted-foreground">{LINK_ORIGIN[link]}</span>
+      </span>
+      <DeleteButton roomy={roomy} label={label} onDelete={onDelete} />
+    </div>
+  );
+}
+
+/**
+ * Koš u otevřeného zápisu. `mousedown` se zastaví, aby pole nepřišlo
+ * o fokus dřív, než se ťuknutí dokončí - blur by úpravu zavřel a koš by
+ * zmizel pod prstem.
+ */
+function DeleteButton({
+  roomy,
+  label,
+  onDelete,
+}: {
+  roomy: boolean;
+  label: string;
+  onDelete: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={onDelete}
+      aria-label={`Smazat z mřížky: ${label}`}
+      title="Smazat z mřížky"
+      className={cn(
+        "grid shrink-0 place-items-center rounded text-muted-foreground hover:text-destructive",
+        roomy ? "size-6" : "-my-0.5 size-5",
+      )}
+    >
+      <Trash2 className={roomy ? "size-4" : "size-3.5"} />
+    </button>
+  );
+}
+
 function SlotInput({
   roomy,
   initial,
   onCommit,
   onCancel,
+  onDelete,
 }: {
   roomy: boolean;
   initial: string;
   onCommit: (text: string, goNext: boolean) => void;
   onCancel: () => void;
+  /** Jen u existujícího zápisu - nový nemá co mazat. */
+  onDelete?: () => void;
 }) {
   const [draft, setDraft] = React.useState(initial);
+  /* Uložit se smí jednou: Enter uloží a posune dál, a následný blur
+     (pole mizí) by stejný text uložil podruhé - u nového zápisu by vznikl
+     dvakrát. */
+  const settled = React.useRef(false);
+  const settle = (goNext: boolean) => {
+    if (settled.current) return;
+    settled.current = true;
+    onCommit(draft, goNext);
+  };
 
   return (
-    <AutoTextarea
-      autoFocus
-      value={draft}
-      maxLength={TIMEBLOCK_MAX_TITLE}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={() => onCommit(draft, false)}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          onCommit(draft, true);
-        }
-        if (e.key === "Escape") onCancel();
-      }}
-      aria-label="Co se v tu dobu bude dít"
+    <span
       className={cn(
-        "rounded-[4px] border bg-background",
+        "flex items-start gap-0.5 rounded-[4px] border bg-background",
         roomy
-          ? "min-w-[8rem] flex-[1_1_8rem] px-2 py-1 text-sm leading-5"
-          : "min-w-[4.5rem] flex-[1_1_4.5rem] px-1 py-0.5 text-[11px] leading-4",
+          ? "min-w-[8rem] flex-[1_1_8rem] px-2 py-1"
+          : "min-w-[4.5rem] flex-[1_1_4.5rem] px-1 py-0.5",
       )}
-    />
+    >
+      <AutoTextarea
+        autoFocus
+        value={draft}
+        maxLength={TIMEBLOCK_MAX_TITLE}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => settle(false)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            settle(true);
+          }
+          if (e.key === "Escape") {
+            settled.current = true;
+            onCancel();
+          }
+        }}
+        aria-label="Co se v tu dobu bude dít"
+        className={cn("flex-1", roomy ? "text-sm leading-5" : "text-[11px] leading-4")}
+      />
+      {onDelete ? (
+        <DeleteButton
+          roomy={roomy}
+          label={draft.trim() || initial}
+          onDelete={() => {
+            settled.current = true;
+            onDelete();
+          }}
+        />
+      ) : null}
+    </span>
   );
 }
 

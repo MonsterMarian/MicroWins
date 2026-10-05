@@ -1,6 +1,6 @@
 import { addDays, todayISO, weekdayMondayFirst } from "./date";
 import { isTaskDone, taskById } from "./projects";
-import { setTodoDue, toggleTodo } from "./todos";
+import { setTodoDue, sortedTodos, toggleTodo } from "./todos";
 import type { ISODate, MicroWinsState, Task, TimeBlock, Todo } from "./types";
 import { createId } from "./utils";
 
@@ -320,12 +320,63 @@ export function restoreBlock(state: MicroWinsState, block: TimeBlock): MicroWins
 }
 
 /**
+ * Nastaví odškrtnutí všem blokům, které `match` vybere. Vrací stejný stav,
+ * když se nic nemění - odškrtnutí se volá řetězově z několika stran.
+ */
+export function setBlocksDone(
+  state: MicroWinsState,
+  match: (block: TimeBlock) => boolean,
+  done: boolean,
+  now: Date = new Date(),
+): MicroWinsState {
+  const stamp = now.toISOString();
+  let changed = false;
+  const timeBlocks = state.timeBlocks.map((b) => {
+    if (!match(b) || (b.doneAt !== null) === done) return b;
+    changed = true;
+    return { ...b, doneAt: done ? stamp : null };
+  });
+  return changed ? { ...state, timeBlocks } : state;
+}
+
+/**
+ * Odškrtnutí položky ToDo napevno - i se všemi bloky, které z ní vznikly.
+ *
+ * Položka a její bloky jsou jedna věc. Kdyby se odškrtla jen položka (v ToDo)
+ * a blok v mřížce zůstal prázdný, nebo naopak, dívaly by se na sebe dvě
+ * odpovědi na otázku „je to hotové?" a ani jedné by se nedalo věřit.
+ */
+export function setTodoDone(
+  state: MicroWinsState,
+  todoId: string,
+  done: boolean,
+  now: Date = new Date(),
+): MicroWinsState {
+  const todo = state.todos.find((t) => t.id === todoId);
+  if (!todo) return state;
+  const next = (todo.doneAt !== null) === done ? state : toggleTodo(state, todoId, now);
+  return setBlocksDone(next, (b) => b.todoId === todoId, done, now);
+}
+
+/** Přepnutí položky ToDo odkudkoliv (seznam ToDo, pás nad listem dne). */
+export function toggleTodoEverywhere(
+  state: MicroWinsState,
+  todoId: string,
+  now: Date = new Date(),
+): MicroWinsState {
+  const todo = state.todos.find((t) => t.id === todoId);
+  if (!todo) return state;
+  return setTodoDone(state, todoId, todo.doneAt === null, now);
+}
+
+/**
  * Odškrtnutí bloku.
  *
- * Blok vzniklý z položky ToDo odškrtne **i tu položku**: je to jedna a ta samá
- * věc viděná ze dvou stran a odškrtávat ji dvakrát je práce navíc, kterou
- * nikdo nechce. Úkolu projektu se to nedělá - ten má hodnotu a cíl, a nastavit
- * ho na sto procent za odsezenou hodinu by lhalo o postupu.
+ * Blok vzniklý z položky ToDo odškrtne **i tu položku** a s ní všechny její
+ * další bloky: je to jedna a ta samá věc viděná ze dvou stran a odškrtávat ji
+ * dvakrát je práce navíc, kterou nikdo nechce. Úkolu projektu se to nedělá -
+ * ten má hodnotu a cíl, a nastavit ho na sto procent za odsezenou hodinu by
+ * lhalo o postupu.
  */
 export function toggleBlockDone(
   state: MicroWinsState,
@@ -336,18 +387,49 @@ export function toggleBlockDone(
   if (!block) return state;
   const done = block.doneAt === null;
 
-  let next: MicroWinsState = {
-    ...state,
-    timeBlocks: state.timeBlocks.map((b) =>
-      b.id === id ? { ...b, doneAt: done ? now.toISOString() : null } : b,
-    ),
-  };
+  const next = setBlocksDone(state, (b) => b.id === id, done, now);
+  return block.todoId ? setTodoDone(next, block.todoId, done, now) : next;
+}
 
-  if (block.todoId) {
-    const todo = next.todos.find((t) => t.id === block.todoId);
-    if (todo && (todo.doneAt !== null) !== done) next = toggleTodo(next, todo.id, now);
-  }
-  return next;
+/**
+ * Označí blok za přenesený na jiný den (sekce „Nestihl jsem"); `null`
+ * označení sundá - cesta zpátky pro hlášku Vrátit.
+ */
+export function markBlockCarried(
+  state: MicroWinsState,
+  id: string,
+  carriedTo: ISODate | null,
+): MicroWinsState {
+  const block = state.timeBlocks.find((b) => b.id === id);
+  if (!block || (block.carriedTo ?? null) === carriedTo) return state;
+  return {
+    ...state,
+    timeBlocks: state.timeBlocks.map((b) => (b.id === id ? { ...b, carriedTo } : b)),
+  };
+}
+
+/**
+ * Na co blok opravdu ukazuje - jen odkaz, který vede na existující věc.
+ *
+ * Blok se smazanou položkou ToDo nebo úkolem si nese jen svůj text a chová se
+ * jako napsaný rukou: dá se přepsat. Kdyby se tvářil navázaně, nešel by
+ * přepsat a ukazoval by ikonu odkazu, který nikam nevede.
+ */
+export type BlockLink = "priority" | "todo" | "task";
+
+export function blockLink(state: MicroWinsState, block: TimeBlock): BlockLink | null {
+  if (block.priorityId && priorityTextOf(state, block.priorityId)) return "priority";
+  if (block.todoId && state.todos.some((t) => t.id === block.todoId)) return "todo";
+  if (block.taskId && taskById(state, block.taskId)) return "task";
+  return null;
+}
+
+/* Priorita nemá vlastní id, odkaz je `YYYY-MM-DD#index` - tvar bydlí
+   v `timebox.ts`, ale rozebrat se tu musí na místě: bloky o listu dne
+   nevědí a záměrně ho neimportují. */
+function priorityTextOf(state: MicroWinsState, ref: string): string {
+  const [date, raw] = ref.split("#");
+  return state.daySheets.find((s) => s.date === date)?.priorities[Number(raw)]?.text.trim() ?? "";
 }
 
 // --- popisky ----------------------------------------------------------------
@@ -391,12 +473,8 @@ export function parseMinutes(value: string): number | null {
  * (smazaná položka), zbyde text, se kterým blok vznikl.
  */
 export function blockTitle(state: MicroWinsState, block: TimeBlock): string {
-  /* Priorita nemá vlastní id, odkaz je `YYYY-MM-DD#index` - tvar bydlí
-     v `timebox.ts`, ale rozebrat se tu musí na místě: bloky o listu dne
-     nevědí a záměrně ho neimportují. */
   if (block.priorityId) {
-    const [date, raw] = block.priorityId.split("#");
-    const text = state.daySheets.find((s) => s.date === date)?.priorities[Number(raw)]?.text.trim();
+    const text = priorityTextOf(state, block.priorityId);
     if (text) return text;
   }
   if (block.todoId) {
@@ -490,12 +568,12 @@ export interface QueuedTodo {
 }
 
 /**
- * Všechny položky ToDo (otevřené i hotové) v pořadí seznamu, každá s časem,
- * kdy ji dnes kryje blok.
+ * Všechny položky ToDo (otevřené i hotové) ve stejném pořadí jako seznam
+ * ToDo, každá s časem, kdy ji dnes kryje blok.
  *
  * Pás nad listem dne ukazuje VŠECHNY položky - otevřené i hotové. Hotové
- * zůstávají viditelné (přeškrtnuté, šedé) aby bylo vidět co bylo splněno.
- * Rozplánovaná položka se jen ztlumí a ukáže čas.
+ * zůstávají viditelné (přeškrtnuté) pod otevřenými, aby bylo vidět, co bylo
+ * splněno. Rozplánovaná položka se jen ztlumí a ukáže čas.
  */
 export function allTodosToday(state: MicroWinsState, date: ISODate): QueuedTodo[] {
   const starts = new Map<string, number>();
@@ -504,9 +582,11 @@ export function allTodosToday(state: MicroWinsState, date: ISODate): QueuedTodo[
     const known = starts.get(block.todoId);
     if (known === undefined || block.start < known) starts.set(block.todoId, block.start);
   }
-  return state.todos
-    .sort((a, b) => a.order - b.order || a.createdAt.localeCompare(b.createdAt))
-    .map((todo) => ({ todo, plannedStart: starts.get(todo.id) ?? null }));
+  // `sortedTodos` řadí kopii - `.sort()` přímo na stavu by přeházel data appky.
+  return sortedTodos(state.todos).map((todo) => ({
+    todo,
+    plannedStart: starts.get(todo.id) ?? null,
+  }));
 }
 
 /**
@@ -520,6 +600,11 @@ export function openTodosToday(state: MicroWinsState, date: ISODate): QueuedTodo
 /**
  * Nedokončené úkoly projektů, které v daném dni nemají blok. Archivované
  * projekty se vynechávají - kdo si projekt uklidil, nechce ho vidět v plánu.
+ *
+ * Blok úkol schová **jen na svůj den**: úkol projektu se většinou neudělá
+ * jedním sezením (kliky, čtení, meditace), takže zítra se má nabídnout znovu
+ * - dokud nemá sto procent. Tím se liší od ToDo a „Nestihl jsem", které jsou
+ * jednorázové a po odškrtnutí nebo přenosu zmizí úplně.
  */
 export function unplannedTasks(state: MicroWinsState, date: ISODate): Task[] {
   const planned = new Set(

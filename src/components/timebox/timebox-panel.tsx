@@ -124,10 +124,18 @@ export function TimeboxPanel() {
       return;
     }
 
-    // Nestihnutá věc z dřívějšího dne se tu jen zaloguje; původní řádek
-    // zůstává na svém dni, jen se označí za přenesený.
+    // Nestihnutá věc z dřívějšího dne: vznikne blok navázaný na původní
+    // řádek (odškrtnutí platí na obě strany) a řádek se označí za
+    // přenesený. Cílový den projde a blok zůstane neodškrtnutý? Zítra se
+    // věc zase ozve v „Nestihl jsem“.
     if (source.kind === "carryover") {
-      addBlock({ date: target.date, start: target.start, duration: SHEET_SLOT, title: source.title });
+      addBlock({
+        date: target.date,
+        start: target.start,
+        duration: SHEET_SLOT,
+        title: source.title,
+        priorityId: priorityRef(source.date, source.index),
+      });
       markPriorityCarried(source.date, source.index, target.date);
       planned(target.start, source.title);
       return;
@@ -137,7 +145,7 @@ export function TimeboxPanel() {
        zůstat (je to pořád hlavní věc dne), v mřížce přibude čas, kdy se na ní
        bude dělat. Odškrtnutí pak platí na obou stranách. */
     const ref = priorityRef(source.date, source.index);
-    if (hasPriorityBlockAt(state.timeBlocks, ref, target.start)) {
+    if (hasPriorityBlockAt(state.timeBlocks, ref, target.start, target.date)) {
       toast({
         tone: "info",
         title: `Už tam je - ${formatMinutes(target.start)}`,
@@ -166,9 +174,9 @@ export function TimeboxPanel() {
     }
 
     // Řádek brain dumpu se do trojky napíše a z dumpu zmizí; věc z
-    // dřívějšího dne se naopak na svém dni označí za přenesenou. Jinak jde o
-    // společný konec: zapsat text, hláška, cesta zpátky.
-    if (source.kind === "dump") dumpApi.current?.remove(source.rowId);
+    // dřívějšího dne se naopak na svém dni označí za přenesenou. Obojí se
+    // drží u Vrátit, ať cesta zpátky vrátí celý přesun, ne jen text.
+    const removed = source.kind === "dump" ? (dumpApi.current?.remove(source.rowId) ?? null) : null;
     if (source.kind === "carryover") markPriorityCarried(source.date, source.index, date);
 
     const previous = sheetOf(state, date).priorities[index]?.text ?? "";
@@ -179,9 +187,21 @@ export function TimeboxPanel() {
       tone: "info",
       title: `${index + 1}. hlavní věc dne`,
       description: source.title,
-      // Obsazenou prioritu to přepíše - cesta zpátky je na jedno ťuknutí.
-      ...(previous
-        ? { action: { label: "Vrátit", onClick: () => setPriority(date, index, previous) } }
+      // Obsazenou prioritu to přepíše - Vrátit vrátí text, řádek dumpu
+      // i přenos z dřívějšího dne, ať nic nepropadne.
+      ...(previous || removed || source.kind === "carryover"
+        ? {
+            action: {
+              label: "Vrátit",
+              onClick: () => {
+                if (removed && dumpApi.current?.date === date)
+                  dumpApi.current.restore(removed.row, removed.index);
+                if (source.kind === "carryover")
+                  markPriorityCarried(source.date, source.index, null);
+                setPriority(date, index, previous);
+              },
+            },
+          }
         : {}),
     });
   };
@@ -193,7 +213,7 @@ export function TimeboxPanel() {
       if (!removed) return;
       toast({
         tone: "info",
-        title: "Smazáno",
+        title: "Odebráno",
         description: `${formatMinutes(removed.start)} ${source.title}`,
         action: { label: "Vrátit", onClick: () => restoreBlock(removed) },
       });
@@ -631,6 +651,8 @@ interface DumpRowData {
 /** Funkce, kterými panel dostane k řádkům dumpu, když je někdo vytáhne
  *  tažením mimo dump - mřížka a trojka přece jen nevědí, co je v něm napsáno. */
 type DumpApi = {
+  /** Den, jehož dump API obsluhuje - Vrátit smí řádek vrátit jen do něj. */
+  date: ISODate;
   remove: (rowId: number) => { row: DumpRowData; index: number } | null;
   restore: (row: DumpRowData, index: number) => void;
 };
@@ -791,6 +813,7 @@ function BrainDump({
   /* Panel tady hledá cestu ven pro tažení - proto se API hlásí při každém
      renderu, jinak by pracovalo se zavřenýma očima. */
   dumpApi.current = {
+    date,
     remove: (rowId) => {
       const current = ref.current.rows;
       const index = current.findIndex((r) => r.id === rowId);
@@ -934,16 +957,61 @@ function DumpInput({
 // --- nestihl jsem -----------------------------------------------------------
 
 /**
- * Nedokončené hlavní věci z dřívějších dnů. Ťuknutí naplánuje věc do
- * nejbližšího volna, tažení kamkoliv; po přenosu věc na svém dni zůstane
- * (historie se nepřepisuje), jen už dál netáhne.
+ * Klíč, podle kterého poznáme jednu a tu samou položku seznamu. Priorita
+ * má `index` 0-2, blok z mřížky -1; stejný text ve stejný den na stejném
+ * pořadí je táž věc i po smazání (a obnovení).
+ */
+function itemKey(item: CarryoverItem): string {
+  return item.block ? `b:${item.block.id}` : `p:${item.date}#${item.index}`;
+}
+
+/**
+ * Nedokončené věci z dřívějších dnů: hlavní věci i volné zápisy z mřížky.
+ * Ťuknutí naplánuje věc do nejbližšího volna (zápis z mřížky se celý
+ * přesune), tažení kamkoliv. Hlavní věc po přenosu na svém dni zůstane
+ * (historie se nepřepisuje); přenesený blok je navázaný na původní řádek,
+ * takže ho odškrtnutí uzavře, a projde-li den a zůstane ležet, ozve se znovu.
  */
 function Carryover({ date, today, drag }: { date: ISODate; today: ISODate; drag: TimeboxDrag }) {
-  const { state, addBlock, markPriorityCarried, deleteBlock, togglePriority, setPriority } = useStore();
+  const {
+    state,
+    addBlock,
+    moveBlock,
+    moveBlockToDay,
+    markPriorityCarried,
+    deleteBlock,
+    restoreBlock,
+    toggleBlockDone,
+    togglePriority,
+    setPriority,
+    deleteCarryoverItem,
+  } = useStore();
   const { timeboxStart } = usePrefs();
   const { toast } = useToast();
+  /* Smazání proběhne jednou atomickou akcí, ale UI může ještě chvíli držet
+     starý render - držíme si proto klíče smazaných položek a rovnou je
+     z výpisu vynecháváme. Po dalším přerenderu (až stav dojde) seznam
+     prázdnou množinu zahodí sám. */
+  const [hidden, setHidden] = React.useState<Set<string>>(new Set());
   const all = unfinishedCarryovers(state, today);
-  const items = all.slice(0, 6);
+  const items = all
+    .filter((item) => !hidden.has(itemKey(item)))
+    .slice(0, 6);
+  const hideNow = React.useCallback((key: string) => {
+    setHidden((prev) => {
+      const next = new Set(prev);
+      next.add(key);
+      return next;
+    });
+  }, []);
+  const showAgain = React.useCallback((key: string) => {
+    setHidden((prev) => {
+      if (!prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.delete(key);
+      return next;
+    });
+  }, []);
 
   const place = (item: CarryoverItem) => {
     const start = nextFreeSlot(
@@ -951,7 +1019,35 @@ function Carryover({ date, today, drag }: { date: ISODate; today: ISODate; drag:
       searchFrom(date, today, timeboxStart),
       SHEET_SLOT,
     );
-    const block = addBlock({ date, start, duration: SHEET_SLOT, title: item.text });
+    // Zápis z mřížky se celý přesouvá na nový den - kopií by se jeden úkol
+    // rozrostl na dva a ten starý by dál visel tady.
+    const moved = item.block;
+    if (moved) {
+      const from = { date: moved.date, start: moved.start };
+      moveBlockToDay(moved.id, date);
+      moveBlock(moved.id, start);
+      void tapFeedback();
+      toast({
+        tone: "info",
+        title: `Přesunuto na ${formatMinutes(start)}`,
+        description: item.text,
+        action: {
+          label: "Vrátit",
+          onClick: () => {
+            moveBlockToDay(moved.id, from.date);
+            moveBlock(moved.id, from.start);
+          },
+        },
+      });
+      return;
+    }
+    const block = addBlock({
+      date,
+      start,
+      duration: SHEET_SLOT,
+      title: item.text,
+      priorityId: priorityRef(item.date, item.index),
+    });
     markPriorityCarried(item.date, item.index, date);
     void tapFeedback();
     toast({
@@ -969,70 +1065,78 @@ function Carryover({ date, today, drag }: { date: ISODate; today: ISODate; drag:
   };
 
   /**
-   * Označení priority jako hotové / vrácení zpět.
-   * Pokud priorita ještě není hotová, při označení jako hotové se automaticky
-   * přidá blok do nejbližšího volna dnešního dne.
-   * Při vrácení zpět (klik na ✓ podruhé) se blok z mřížky odstraní.
+   * Označení věci za hotovou (a cesta zpátky). U hlavní věci odškrtne
+   * `togglePriority` i bloky, které z ní vznikly - odškrtnutí platí na obou
+   * stranách. Nový blok se nezakládá: mřížka je plán do budoucna a hotová
+   * věc do ní už nepatří; kdo ji chce v mřížce, plánuje úchytem.
    */
   const handleToggle = (e: React.MouseEvent, item: CarryoverItem) => {
     e.stopPropagation();
-    const priority = sheetOf(state, item.date).priorities[item.index];
-    const wasHot = priority?.done ?? false;
-
-    togglePriority(item.date, item.index);
-    void tapFeedback();
-
-    // Pokud označuji jako hotové → přidat blok do dnešní mřížky
-    if (!wasHot) {
-      const ref = priorityRef(item.date, item.index);
-      const start = nextFreeSlot(
-        blocksOfDay(state, date),
-        searchFrom(date, today, timeboxStart),
-        SHEET_SLOT,
-      );
-      const newBlock = addBlock({
-        date,
-        start,
-        duration: SHEET_SLOT,
-        title: item.text,
-        priorityId: ref,
-      });
+    const block = item.block;
+    if (block) {
+      toggleBlockDone(block.id);
+      void winFeedback();
       toast({
         tone: "info",
-        title: `Hotovo · naplánováno na ${formatMinutes(start)}`,
-        description: item.text,
-        action: {
-          label: "Vrátit",
-          onClick: () => {
-            togglePriority(item.date, item.index);
-            deleteBlock(newBlock.id);
-          },
-        },
+        title: "Hotovo",
+        description: `${item.text} · ${formatDate(block.date)} ${formatMinutes(block.start)}`,
+        action: { label: "Vrátit", onClick: () => toggleBlockDone(block.id) },
       });
-    } else {
-      // Vracím zpět → smazat všechny bloky pro tuto prioritu v dnešním dni
-      const ref = priorityRef(item.date, item.index);
-      const blocksToDelete = state.timeBlocks.filter((b) => b.priorityId === ref && b.date === date);
-      blocksToDelete.forEach((b) => deleteBlock(b.id));
+      return;
     }
+    togglePriority(item.date, item.index);
+    void winFeedback();
+    toast({
+      tone: "info",
+      title: "Hotovo",
+      description: `${item.text} · ${formatDate(item.date)}`,
+      action: { label: "Vrátit", onClick: () => togglePriority(item.date, item.index) },
+    });
   };
 
   const handleDelete = (e: React.MouseEvent, item: CarryoverItem) => {
     e.stopPropagation();
-    // Smazat i případné bloky v mřížce
-    const ref = priorityRef(item.date, item.index);
-    const blocksToDelete = state.timeBlocks.filter((b) => b.priorityId === ref && b.date === date);
-    blocksToDelete.forEach((b) => deleteBlock(b.id));
-
-    const previousText = item.text;
-    setPriority(item.date, item.index, "");
+    const key = itemKey(item);
+    const outcome = deleteCarryoverItem(item);
+    if (!outcome) {
+      toast({
+        tone: "info",
+        title: "Odebráno",
+        description: item.text,
+      });
+      return;
+    }
+    /* Skryjeme řádek hned, i kdyby další render ještě chvíli trval. Když
+       stav doběhne, filtr na množině ho vynechá i bez toho. */
+    hideNow(key);
+    if (outcome.kind === "block") {
+      toast({
+        tone: "info",
+        title: "Odebráno",
+        description: item.text,
+        action: {
+          label: "Vrátit",
+          onClick: () => {
+            showAgain(key);
+            restoreBlock(outcome.item);
+          },
+        },
+      });
+      return;
+    }
+    // priority: obnovíme prioritu i případné bloky, co se s ní smazaly
+    const removedBlocks = outcome.removedBlocks;
     toast({
       tone: "info",
-      title: "Smazáno",
-      description: previousText,
+      title: "Odebráno",
+      description: item.text,
       action: {
         label: "Vrátit",
-        onClick: () => setPriority(item.date, item.index, previousText),
+        onClick: () => {
+          showAgain(key);
+          setPriority(outcome.item.date, outcome.item.index, outcome.item.text);
+          removedBlocks.forEach((b) => restoreBlock(b));
+        },
       },
     });
   };
@@ -1052,22 +1156,30 @@ function Carryover({ date, today, drag }: { date: ISODate; today: ISODate; drag:
           const day = fromISODate(item.date);
           return (
             <div
-              key={`${item.date}#${item.index}`}
+              key={item.block?.id ?? `${item.date}#${item.index}`}
               className="flex items-start gap-2 px-2.5 py-1.5"
             >
+              {/* Check-box - prázdný čtvereček, fajfka by se ukázala jen u hotových,
+                  ale hotová věc okamžitě mizí ze seznamu, takže ji v praxi
+                  není kde zobrazit. Zůstává proto prázdný. */}
               <button
                 type="button"
                 onClick={(e) => handleToggle(e, item)}
                 aria-label="Označit jako hotové"
                 title="Hotovo"
                 className="mt-0.5 grid size-7 shrink-0 place-items-center rounded border border-border text-muted-foreground transition-colors hover:border-foreground hover:text-foreground"
-              >
-                <Check className="size-4" />
-              </button>
+              />
               <span className="tabular mt-1 shrink-0 whitespace-nowrap text-[11px] text-muted-foreground">
                 {DAY_SHORT[day.getDay()]} {day.getDate()}. {day.getMonth() + 1}.
               </span>
-              <p className="min-w-0 flex-1 py-0.5 text-sm leading-5">{item.text}</p>
+              <p className="min-w-0 flex-1 py-0.5 text-sm leading-5">
+                {item.block ? (
+                  <span className="tabular mr-1 text-muted-foreground">
+                    {formatMinutes(item.block.start)}
+                  </span>
+                ) : null}
+                {item.text}
+              </p>
               <button
                 type="button"
                 onClick={(e) => handleDelete(e, item)}
@@ -1081,7 +1193,9 @@ function Carryover({ date, today, drag }: { date: ISODate; today: ISODate; drag:
                 type="button"
                 onPointerDown={(e) =>
                   drag.press(
-                    { kind: "carryover", date: item.date, index: item.index, title: item.text },
+                    item.block
+                      ? { kind: "block", id: item.block.id, title: item.text }
+                      : { kind: "carryover", date: item.date, index: item.index, title: item.text },
                     e,
                   )
                 }

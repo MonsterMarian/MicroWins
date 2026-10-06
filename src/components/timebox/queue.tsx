@@ -128,6 +128,14 @@ function TodoRow({
   const { state, today, toggleTodo, deleteTodo, restoreTodo, addBlock, deleteBlock } = useStore();
   const { timeboxStart } = usePrefs();
   const { toast } = useToast();
+  /* Fronta jinak nezávisí na čase - termíny „dnes 18:00" by zůstaly
+     šedé i po tom, co termín propadne. Ticker po minutě vynutí přepočet
+     `overdue`, aby červená naskočila a zase zmizela, když má. */
+  const [, setTick] = React.useState(0);
+  React.useEffect(() => {
+    const id = window.setInterval(() => setTick((n) => n + 1), 60_000);
+    return () => window.clearInterval(id);
+  }, []);
   const overdue = isTodoOverdue(todo);
   const due = formatTodoDue(todo);
   const planned = plannedStart !== null;
@@ -201,7 +209,7 @@ function TodoRow({
     if (!deleted) return;
     toast({
       tone: "info",
-      title: "Smazáno",
+      title: "Odebráno",
       description: deleted.text,
       action: {
         label: "Vrátit",
@@ -220,6 +228,7 @@ function TodoRow({
 
   return (
     <div className={cn("flex items-start gap-2 px-2.5 py-1.5", done && "opacity-60")}>
+      {/* Check-box button - prázdný pro nedokončené, plná fajfka jen pro hotové. */}
       <button
         type="button"
         onClick={handleToggle}
@@ -232,7 +241,7 @@ function TodoRow({
             : "border-border text-muted-foreground hover:border-foreground hover:text-foreground",
         )}
       >
-        <Check className="size-4" />
+        {done ? <Check className="size-4" /> : null}
       </button>
       <button
         type="button"

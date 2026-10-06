@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Check, Link2, Plus } from "lucide-react";
+import { Check, Link2, Plus, X } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { useStore } from "@/components/providers/store-provider";
 import { usePrefs } from "@/components/providers/use-prefs";
@@ -312,6 +312,21 @@ function Slot({
     toggleBlockDone(block.id);
   };
 
+  /** Smazání bloku z mřížky - bez tahu do koše, rovnou ťuknutím na × u zápisu.
+   * Funguje i u bloků napojených na prioritu/ToDo/úkol, kde text nejde
+   * editovat: taky se dal vygumovat jen tahem, a to nebylo zřejmé. */
+  const onDelete = (block: TimeBlock) => {
+    const removed = deleteBlock(block.id);
+    if (!removed) return;
+    void tapFeedback();
+    toast({
+      tone: "info",
+      title: "Odebráno",
+      description: `${formatMinutes(removed.start)} ${blockTitle(state, removed)}`,
+      action: { label: "Vrátit", onClick: () => restoreBlock(removed) },
+    });
+  };
+
   /**
    * Zápis políčka. Prázdný text u nového bloku nedělá nic, u existujícího ho
    * smaže - vygumovat řádek je na papíře totéž co ho škrtnout, jen tady jde
@@ -328,7 +343,7 @@ function Slot({
       if (removed) {
         toast({
           tone: "info",
-          title: "Smazáno",
+          title: "Odebráno",
           description: `${formatMinutes(removed.start)} ${blockTitle(state, removed)}`,
           action: { label: "Vrátit", onClick: () => restoreBlock(removed) },
         });
@@ -386,6 +401,7 @@ function Slot({
                 }
                 onToggle={() => onToggle(block)}
                 onEdit={() => onEdit({ date, start, blockId: block.id })}
+                onDelete={() => onDelete(block)}
               />
             ),
           )}
@@ -449,6 +465,7 @@ function BlockLine({
   onPress,
   onToggle,
   onEdit,
+  onDelete,
 }: {
   roomy: boolean;
   block: TimeBlock;
@@ -459,15 +476,18 @@ function BlockLine({
   onPress: (event: React.PointerEvent<HTMLElement>) => void;
   onToggle: () => void;
   onEdit: () => void;
+  onDelete: () => void;
 }) {
   const done = block.doneAt !== null;
+  /* × u každého zápisu - v papírové mřížce trvale viditelný, ale bledý,
+     aby nepřekážel při čtení. V roomy zůstává plně vidět jako dosud. */
 
   return (
     <span
       onPointerDown={onPress}
       onContextMenu={(e) => e.preventDefault()}
       className={cn(
-        "flex items-start rounded-[3px] [-webkit-touch-callout:none]",
+        "group/line flex items-start rounded-[3px] [-webkit-touch-callout:none]",
         roomy ? "min-w-[8rem] flex-[1_1_8rem] gap-2 py-1" : "min-w-[4.5rem] flex-[1_1_4.5rem] gap-1",
         dragging && "opacity-40",
       )}
@@ -504,6 +524,24 @@ function BlockLine({
           />
         ) : null}
         {label}
+      </button>
+      {/* × pro smazání - v papírové mřížce trvale bledý (ne aby se zapisoval),
+          v roomy plný. Klik se nerozšíří na span, takže tažení nezačne. */}
+      <button
+        type="button"
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          onDelete();
+        }}
+        aria-label={`Smazat: ${label}`}
+        title="Smazat blok"
+        className={cn(
+          "grid shrink-0 place-items-center rounded text-muted-foreground/50 transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:bg-destructive/10 focus-visible:text-destructive",
+          roomy ? "size-5" : "size-3.5",
+        )}
+      >
+        <X className={roomy ? "size-3" : "size-2.5"} />
       </button>
     </span>
   );

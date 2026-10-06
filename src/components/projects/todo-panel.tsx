@@ -185,7 +185,7 @@ function TodoRow({ todo, ttlMs }: { todo: Todo; ttlMs: number }) {
     void tapFeedback();
     toast({
       tone: "info",
-      title: "Smazáno",
+      title: "Odebráno",
       description: removed.text,
       action: { label: "Vrátit", onClick: () => restoreTodo(removed) },
     });

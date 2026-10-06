@@ -124,14 +124,17 @@ export function parsePriorityRef(ref: string | null): { date: ISODate; index: nu
  *
  * Přetažení do mřížky zakládá nový blok, takže druhé puštění na stejné místo
  * by vyrobilo dva stejné zápisy přes sebe - a odškrtnout by se musely oba.
+ * Políčko je den a půlhodina: v noční mřížce, která běží přes půlnoc, je
+ * zítřejší 0:30 jiné políčko než dnešní, takže se musí shodovat i den bloku.
  */
 export function hasPriorityBlockAt(
   blocks: TimeBlock[],
   ref: string,
   start: number,
+  date: ISODate,
 ): boolean {
   return blocks.some(
-    (b) => b.priorityId === ref && b.start >= start && b.start < start + SHEET_SLOT,
+    (b) => b.date === date && b.priorityId === ref && b.start >= start && b.start < start + SHEET_SLOT,
   );
 }
 
@@ -245,14 +248,22 @@ export interface CarryoverItem {
   date: ISODate;
   index: number;
   text: string;
+  /** Neodškrtnutý zápis z mřížky minulého dne; bez něj jde o hlavní věc. */
+  block?: TimeBlock;
 }
 
 /**
- * Nedokončené hlavní věci z dnů před `today`, které ještě nikam neputovaly.
+ * Nedokončené hlavní věci a zápisy z dnů před `today`.
  *
- * Odshora od nejstarší: co čeká nejdéle, to si zaslouží jít nahoru. Bloky
- * se sem neberou - zápis v mřížce je historie dne, ne úkol; nositelem „co
- * jsem si slíbil" je trojka hlavních věcí.
+ * Vedle věcí, které nikam neputovaly, se ozvou i věci přenesené do mřížky,
+ * jejichž cílový den už prošel a blok zůstal neodškrtnutý: přenos je dohoda
+ * („udělám to v ten den“), ne amnestie. Věc přenesená do trojky jiného dne
+ * v něm má vlastní kopii, která štafetu převezme sama, a tak originál
+ * zůstává ležet schovaný.
+ *
+ * Odshora od nejstarší: co čeká nejdéle, to si zaslouží jít nahoru. Zápisy
+ * napojené na trojku, ToDo či úkol se nenabízejí - ty dohlédne jejich
+ * zdroj, tady by jedna věc visela dvakrát.
  */
 export function unfinishedCarryovers(state: MicroWinsState, today: ISODate): CarryoverItem[] {
   const out: CarryoverItem[] = [];
@@ -260,9 +271,26 @@ export function unfinishedCarryovers(state: MicroWinsState, today: ISODate): Car
     if (sheet.date >= today) continue;
     sheet.priorities.forEach((priority, index) => {
       const text = priority.text.trim();
-      if (text === "" || priority.done || priority.carriedTo) return;
+      if (text === "" || priority.done) return;
+      const carriedTo = priority.carriedTo ?? null;
+      if (carriedTo !== null) {
+        // Čeká na cílovém dni - kopie v trojce se tam hlásí sama a bloku
+        // v mřížce zbývá ještě čas.
+        if (carriedTo >= today) return;
+        // Cílový den prošel: znovu se ozve jen přenos do mřížky; do trojky
+        // se psala kopie a ta se teď ozve sama (viz výš).
+        if (!state.timeBlocks.some((b) => b.priorityId === priorityRef(sheet.date, index))) return;
+      }
       out.push({ date: sheet.date, index, text });
     });
+  }
+  /* Neodškrtnuté volné zápisy z mřížky minulých dnů: co si člověk do dne
+     napsal a neodškrtl, má ho dohnat, i když to není hlavní věc dne. */
+  for (const block of state.timeBlocks) {
+    if (block.date >= today || block.doneAt !== null) continue;
+    if (block.priorityId || block.todoId || block.taskId) continue;
+    if (block.title.trim() === "") continue;
+    out.push({ date: block.date, index: -1, text: block.title, block });
   }
   return out.sort((a, b) => a.date.localeCompare(b.date));
 }
@@ -286,6 +314,21 @@ export function markPriorityCarried(
   const priorities = [...sheet.priorities];
   priorities[index] = carriedTo ? { ...current, carriedTo } : { ...current, carriedTo: null };
   return putSheet(state, { ...sheet, priorities });
+}
+
+/**
+ * Smazaný blok vrací přenesenou věc do seznamu „Nestihl jsem“: plán pryč
+ * znamená, že slib zase visí, a věc nesmí zmizet spolu s plánem. Platí jen
+ * pro poslední blok, který přenos držel - jiný blok téže věci drží plán dál.
+ */
+export function releaseCarriedBlock(state: MicroWinsState, block: TimeBlock): MicroWinsState {
+  const parsed = parsePriorityRef(block.priorityId);
+  if (!parsed) return state;
+  const ref = block.priorityId;
+  if (state.timeBlocks.some((b) => b.priorityId === ref && b.id !== block.id)) return state;
+  const current = sheetOf(state, parsed.date).priorities[parsed.index];
+  if (!current || current.text.trim() === "" || (current.carriedTo ?? null) === null) return state;
+  return markPriorityCarried(state, parsed.date, parsed.index, null);
 }
 
 // --- čas na začátku řádku brain dumpu ---------------------------------------
@@ -401,7 +444,7 @@ export function swapPriorities(
   };
 }
 
-function isPriorityIndex(index: number): boolean {
+export function isPriorityIndex(index: number): boolean {
   return Number.isInteger(index) && index >= 0 && index < PRIORITY_COUNT;
 }
 

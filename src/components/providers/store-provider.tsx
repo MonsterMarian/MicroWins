@@ -20,6 +20,7 @@ import { loadState, saveState } from "@/lib/storage";
 import { connectStore, journalCommit } from "@/lib/sync-runtime";
 import * as blockActions from "@/lib/timeblocks";
 import * as sheetActions from "@/lib/timebox";
+import { isPriorityIndex } from "@/lib/timebox";
 import * as todoActions from "@/lib/todos";
 import {
   EMPTY_STATE,
@@ -132,6 +133,22 @@ export interface StoreApi {
   setBrainDump: (date: ISODate, text: string) => void;
   /** Označí hlavní věc za přenesenou na jiný den (sekce „Nestihl jsem“). */
   markPriorityCarried: (date: ISODate, index: number, carriedTo: ISODate | null) => void;
+  /**
+   * Smaže věc ze sekce „Nestihl jsem" - jednou atomickou akcí.
+   * Vrací popis, datum a případné bloky, které se smazaly, aby šlo
+   * celé smazání jedním ťuknutím Vrátit zase poskládat zpátky.
+   */
+  deleteCarryoverItem: (
+    item: {
+      date: ISODate;
+      index: number;
+      text: string;
+      block?: { id: string };
+    },
+  ) =>
+    | { kind: "block"; item: TimeBlock }
+    | { kind: "text"; item: { date: ISODate; index: number; text: string }; removedBlocks: TimeBlock[] }
+    | null;
 
   createMilestone: (projectId: string, name: string, date: ISODate | null) => Milestone;
   updateMilestone: (id: string, patch: Partial<Pick<Milestone, "name" | "date">>) => void;
@@ -353,6 +370,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         commit(blockActions.linkBlockToPriority(ref.current, id, priorityId)),
       deleteBlock: (id) => {
         const block = ref.current.timeBlocks.find((b) => b.id === id) ?? null;
+        // Blok, který držel přenesenou věc („Nestihl jsem“), ji při smazání
+        // zase pustí - slib bez plánu nesmí zmizet spolu s plánem.
+        if (block) commit(sheetActions.releaseCarriedBlock(ref.current, block));
         commit(blockActions.deleteBlock(ref.current, id));
         return block;
       },
@@ -367,6 +387,33 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setBrainDump: (date, text) => commit(sheetActions.setBrainDump(ref.current, date, text)),
       markPriorityCarried: (date, index, carriedTo) =>
         commit(sheetActions.markPriorityCarried(ref.current, date, index, carriedTo)),
+
+      deleteCarryoverItem: (item) => {
+        const state = ref.current;
+        if (item.block) {
+          const block = state.timeBlocks.find((b) => b.id === item.block!.id);
+          if (!block) return null;
+          let next = sheetActions.releaseCarriedBlock(state, block);
+          next = blockActions.deleteBlock(next, block.id);
+          commit(next);
+          return { kind: "block" as const, item: block };
+        }
+        if (!isPriorityIndex(item.index)) return null;
+        const priorityRefStr = `${item.date}#${item.index}`;
+        const removedBlocks = state.timeBlocks.filter((b) => b.priorityId === priorityRefStr);
+        let next = state;
+        removedBlocks.forEach((b) => {
+          next = sheetActions.releaseCarriedBlock(next, b);
+          next = blockActions.deleteBlock(next, b.id);
+        });
+        next = sheetActions.setPriority(next, item.date, item.index, "");
+        commit(next);
+        return {
+          kind: "text" as const,
+          item: { date: item.date, index: item.index, text: item.text },
+          removedBlocks,
+        };
+      },
 
       createMilestone: (projectId, name, date) => {
         const res = projectActions.createMilestone(ref.current, projectId, name, date);

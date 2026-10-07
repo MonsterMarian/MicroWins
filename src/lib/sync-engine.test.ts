@@ -11,6 +11,7 @@ import {
   type SyncTransport,
   PUSH_BATCH,
 } from "./sync-engine";
+import { BRAIN_DUMP_MAX, setBrainDump, setPriority } from "./timebox";
 import { addTodo, deleteTodo, renameTodo } from "./todos";
 import { EMPTY_STATE, type MicroWinsState } from "./types";
 
@@ -25,7 +26,8 @@ class FakeServer {
   rows = new Map<string, RemoteRow>();
   down = false;
 
-  transport(): SyncTransport {
+  /** `device` = zařízení, které přes transport posílá - jako `device_id`. */
+  transport(device: string): SyncTransport {
     return {
       pull: async (since) => {
         if (this.down) throw new TypeError("Failed to fetch");
@@ -41,7 +43,7 @@ class FakeServer {
           const current = this.rows.get(id);
           // Starší změna novější nepřepíše - stejně jako `where` v SQL.
           if (current && Date.parse(current.changed_at) >= Date.parse(r.changed_at)) continue;
-          this.rows.set(id, { ...r, updated_at: at });
+          this.rows.set(id, { ...r, device_id: device, updated_at: at });
         }
       },
     };
@@ -54,6 +56,8 @@ class FakeServer {
 
 /** Jedno zařízení: stav appky, metadata synchronizace a motor nad nimi. */
 class Device {
+  static count = 0;
+  readonly id = `dev_${++Device.count}`;
   state: MicroWinsState;
   meta: SyncMeta = { owner: null, cursor: null, outbox: {} };
   engine: SyncEngine;
@@ -69,7 +73,7 @@ class Device {
     this.state = state;
     this.settings = { ...settings };
     this.engine = new SyncEngine({
-      transport: server.transport(),
+      transport: server.transport(this.id),
       loadMeta: () => this.meta,
       saveMeta: (m) => {
         this.meta = m;
@@ -79,6 +83,7 @@ class Device {
         this.state = s;
       },
       now: tick,
+      deviceId: () => this.id,
       onProgress: (p) => {
         this.progress.push(p);
       },
@@ -291,6 +296,67 @@ describe("běžná synchronizace", () => {
     await phone.engine.sync();
     await tablet.engine.sync();
     expect(tablet.state.todos.map((t) => t.text)).toContain("bez signálu");
+  });
+
+  /* Brain dump psaný offline na dvou zařízeních - nesmí se ztratit ani jeden. */
+  it("list time boxu změněný na obou se slije", async () => {
+    const { phone, tablet } = await pair();
+    phone.change(setBrainDump(phone.state, TODAY, "zavolat Petrovi\nkoupit kafe"));
+    phone.change(setPriority(phone.state, TODAY, 0, "web"));
+    tablet.change(setBrainDump(tablet.state, TODAY, "koupit kafe\nopravit kolo"));
+    tablet.change(setPriority(tablet.state, TODAY, 0, "faktury"));
+    tablet.change(setPriority(tablet.state, TODAY, 1, "trénink"));
+
+    await phone.engine.sync();
+    await tablet.engine.sync();
+    await phone.engine.sync();
+
+    const sheet = tablet.state.daySheets[0];
+    expect(sheet.brainDump).toBe("koupit kafe\nopravit kolo\nzavolat Petrovi\n• web");
+    expect(sheet.priorities.map((p) => p.text)).toEqual(["faktury", "trénink", ""]);
+    expect(phone.state.daySheets).toEqual(tablet.state.daySheets);
+    expect(server.live("daySheets")).toEqual(tablet.state.daySheets);
+    expect(phone.engine.pending()).toBe(0);
+    expect(tablet.engine.pending()).toBe(0);
+  });
+
+  /* Vlastní odeslaná verze se při dalším stažení vrátí (přesah za kurzor). */
+  it("smazaný řádek nevrátí vlastní ozvěna ze serveru", async () => {
+    const { phone, tablet } = await pair();
+    phone.change(setBrainDump(phone.state, TODAY, "a\nb"));
+    await phone.engine.sync();
+    phone.change(setBrainDump(phone.state, TODAY, "a"));
+    await phone.engine.sync();
+    await tablet.engine.sync();
+
+    expect(phone.state.daySheets[0].brainDump).toBe("a");
+    expect(tablet.state.daySheets[0].brainDump).toBe("a");
+  });
+
+  it("smazaný řádek nevrátí ani cizí verze stažená už minule", async () => {
+    const { phone, tablet } = await pair();
+    tablet.change(setBrainDump(tablet.state, TODAY, "a\nb"));
+    await tablet.engine.sync();
+    await phone.engine.sync();
+    phone.change(setBrainDump(phone.state, TODAY, "a"));
+    await phone.engine.sync();
+    await tablet.engine.sync();
+
+    expect(phone.state.daySheets[0].brainDump).toBe("a");
+    expect(tablet.state.daySheets[0].brainDump).toBe("a");
+  });
+
+  it("když by slitý brain dump přetekl, vyhraje novější verze", async () => {
+    const { phone, tablet } = await pair();
+    phone.change(setBrainDump(phone.state, TODAY, "x".repeat(BRAIN_DUMP_MAX - 10)));
+    tablet.change(setBrainDump(tablet.state, TODAY, "y".repeat(BRAIN_DUMP_MAX - 10)));
+
+    await phone.engine.sync();
+    await tablet.engine.sync();
+    await phone.engine.sync();
+
+    expect(phone.state.daySheets[0].brainDump).toBe("y".repeat(BRAIN_DUMP_MAX - 10));
+    expect(tablet.state.daySheets).toEqual(phone.state.daySheets);
   });
 
   it("data bez účtu se do deníku nepíšou", () => {

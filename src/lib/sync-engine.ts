@@ -1,16 +1,17 @@
-import { mergeIntoAccount, type AccountMerge } from "./account-merge";
+import { mergeIntoAccount, same, type AccountMerge } from "./account-merge";
 import {
   applyRecords,
   diffStates,
   fromRecords,
   isEmptyState,
   isStateRecordKind,
+  mergeDaySheet,
   parseRecordId,
   recordFromState,
   recordId,
   type SyncRecord,
 } from "./sync";
-import type { MicroWinsState } from "./types";
+import type { DaySheet, MicroWinsState } from "./types";
 
 /**
  * Synchronizace - řízení: co kdy stáhnout, co odeslat a jak do účtu dostat
@@ -28,6 +29,9 @@ import type { MicroWinsState } from "./types";
  * - **Nejdřív stáhnout, pak odeslat.** Co přijde z účtu a je novější než
  *   neodeslaná změna v telefonu, vyhraje; starší se přeskočí a přepíše ji
  *   odeslání. Server to hlídá taky (`push_records` nepřepíše novější).
+ * - **Listy time boxu se slévají.** Když se týž den změnil v telefonu i jinde,
+ *   nevyhrává ani jedna verze - spojí se (`mergeDaySheet`) a výsledek odejde
+ *   jako nová změna.
  * - **Změny ze sítě se do deníku nepíšou** - jinak by se každá stažená věc
  *   hned zase odeslala.
  * - **Deník běží i po odhlášení**, dokud data patří účtu. Co se v telefonu
@@ -40,6 +44,8 @@ export interface RemoteRow {
   data: unknown;
   changed_at: string;
   updated_at: string;
+  /** Zařízení, které záznam poslalo - podle něj se pozná vlastní ozvěna. */
+  device_id?: string | null;
 }
 
 export interface OutgoingRow {
@@ -87,6 +93,11 @@ export interface SyncDeps {
   /** Nahradí stav appky **bez** zápisu do deníku. */
   replaceState(next: MicroWinsState): void;
   now(): Date;
+  /**
+   * Id tohohle zařízení, stejné jako posílá `transport.push`. Bez něj se
+   * listy time boxu neslévají a platí pro ně "novější vyhrává".
+   */
+  deviceId?(): string;
   /** Průběh přenosu; `null` = hotovo. */
   onProgress?(progress: SyncProgress | null): void;
   /**
@@ -271,9 +282,12 @@ export class SyncEngine {
 
     // Stažené, novější než neodeslaná změna v telefonu, frontu vyřadí.
     const outbox = { ...this.deps.loadMeta().outbox };
+    const current = this.deps.getState();
+    const sheets = this.mergeSheets(rows, meta.cursor, outbox, current);
     const stamps = new Map(rows.map((r) => [recordId(r.kind, r.key), Date.parse(r.changed_at)]));
     const accept = (r: SyncRecord) => {
       const id = recordId(r.kind, r.key);
+      if (sheets.has(id)) return true;
       const mine = outbox[id];
       if (mine === undefined) return true;
       if ((stamps.get(id) ?? 0) > Date.parse(mine)) {
@@ -283,8 +297,7 @@ export class SyncEngine {
       return false;
     };
 
-    const records = toRecords(rows);
-    const current = this.deps.getState();
+    const records = toRecords(rows).map((r) => sheets.get(recordId(r.kind, r.key))?.record ?? r);
     const next = applyRecords(
       current,
       records.filter((r) => isStateRecordKind(r.kind)),
@@ -303,10 +316,57 @@ export class SyncEngine {
     for (const [id, at] of Object.entries(fresh)) {
       if (id in outbox || at !== meta.outbox[id]) merged[id] = at;
     }
+    // Slité listy odejdou s časem, který přebije obě verze.
+    for (const [id, sheet] of sheets) merged[id] = sheet.at;
     this.deps.saveMeta({ ...this.deps.loadMeta(), cursor, outbox: merged });
 
     const pushed = await this.pushOutbox();
     return { pulled: rows.length, pushed, applied };
+  }
+
+  /**
+   * Listy time boxu, které čekají na odeslání a mezitím se změnily i na
+   * jiném zařízení. Místo "novější vyhrává" se slijí; vrací slitý záznam
+   * a čas, se kterým má odejít.
+   *
+   * Slévá se jen opravdu nová cizí verze. Vlastní ozvěna (řádek, který
+   * poslalo tohle zařízení) ani řádek stažený už minule (přesah za kurzorem)
+   * by do textu vrátily, co tu člověk mezitím smazal.
+   */
+  private mergeSheets(
+    rows: readonly RemoteRow[],
+    cursor: string | null,
+    outbox: Record<string, string>,
+    state: MicroWinsState,
+  ): Map<string, { record: SyncRecord; at: string }> {
+    const out = new Map<string, { record: SyncRecord; at: string }>();
+    const device = this.deps.deviceId?.();
+    if (device === undefined) return out;
+
+    for (const row of rows) {
+      if (row.kind !== "daySheets") continue;
+      const id = recordId(row.kind, row.key);
+      const mine = outbox[id];
+      if (mine === undefined || !row.device_id || row.device_id === device) continue;
+      if (cursor !== null && Date.parse(row.updated_at) <= Date.parse(cursor)) continue;
+
+      const local = recordFromState(state, row.kind, row.key)?.data as DaySheet | null;
+      const remote = row.data as DaySheet | null;
+      if (!local || !remote || same(local, remote)) continue;
+
+      const mineAt = Date.parse(mine);
+      const theirsAt = Date.parse(row.changed_at);
+      const sheet = theirsAt > mineAt ? mergeDaySheet(remote, local) : mergeDaySheet(local, remote);
+      // Přeteklo, nebo jedna verze už obsahuje druhou - stačí "novější vyhrává".
+      if (!sheet || same(sheet, remote) || same(sheet, local)) continue;
+
+      const at = Math.max(this.deps.now().getTime(), mineAt + 1, theirsAt + 1);
+      out.set(id, {
+        record: { kind: row.kind, key: row.key, data: sheet },
+        at: new Date(at).toISOString(),
+      });
+    }
+    return out;
   }
 
   private async pushOutbox(): Promise<number> {

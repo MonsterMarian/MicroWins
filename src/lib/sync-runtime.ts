@@ -96,7 +96,7 @@ const transport: SyncTransport = {
       // Počet stačí zjistit jednou - kvůli pruhu "stahuju 1 000 / 2 400".
       let query = supabase
         .from("records")
-        .select("kind,key,data,changed_at,updated_at", from === 0 ? { count: "exact" } : undefined);
+        .select("kind,key,data,changed_at,updated_at,device_id", from === 0 ? { count: "exact" } : undefined);
       if (since) query = query.gt("updated_at", since);
       const { data, error, count } = await query
         .order("updated_at")
@@ -248,6 +248,7 @@ const engine = new SyncEngine({
   getState: () => bridge!.get(),
   replaceState: (next) => bridge!.replace(next),
   now: () => new Date(),
+  deviceId,
   onProgress: (progress) => publish({ progress: progress ?? undefined }),
   extraRecords: settingsRecords,
   readExtra: readSetting,

@@ -9,7 +9,25 @@ Tento dokument popisuje funkčnost lokálního ukládání, offline synchronizac
 - **Offline-First:** Všechny uživatelské akce se okamžitě zapíší do lokálního stavu v `localStorage` (`microwins:v1`). Aplikace funguje 100% offline bez připojení k internetu.
 - **Granulární záznamy (`druh:id`):** Místo uložení celého stavu v jednom JSONu se do Supabase databáze (`records`) posílá každý uzel, úkol, ToDo položka nebo timebox blok samostatně.
 - **Offline deník (`outbox`):** Změny vzniklé v offline režimu se evidují v outboxu pod klíčem `druh:id → čas_změny` a po obnovení sítě se odešlou na server.
-- **Last-Write-Wins (LWT) & Slévání:** Kolize na stejném záznamu vyhrává novější časové razítko (`changed_at`). U vybraných entit (listy Timeboxu) probíhá inteligentní slévání obsahu (spojení textů Brain Dumpu).
+- **Last-Write-Wins (LWT) & Slévání:** Kolize na stejném záznamu vyhrává novější časové razítko (`changed_at`). U vybraných entit (listy Timeboxu) probíhá inteligentní slévání obsahu (spojení textů Brain Dumpu) - při převzetí dat po přihlášení i při běžné synchronizaci.
+
+### Slévání listů Timeboxu při běžné synchronizaci
+
+Když se list téhož dne změní na dvou zařízeních dřív, než se stihnou synchronizovat, nevyhrává ani jedna verze. `mergeDaySheet` v `sync.ts` je spojí:
+
+- Základem je novější verze. Její priority i text brain dumpu zůstanou beze změny.
+- Prázdná priorita se doplní ze starší verze. Když je priorita obsazená na obou zařízeních a liší se, zůstane ta novější a starší se připíše do brain dumpu jako `• text`.
+- Řádky brain dumpu ze starší verze, které v novější chybí, se připíšou na konec.
+- Kdyby spojený text přesáhl limit (`BRAIN_DUMP_MAX`), slévání se vzdá a vyhraje novější verze.
+
+Výsledek se uloží do zařízení a odešle se s časem novějším než obě verze, takže ho převezmou všechna zařízení.
+
+Spojí se jen opravdu nová cizí verze. Jinak by se do textu vracely řádky, které člověk na zařízení mezitím smazal. Proto se neslévá:
+
+- **vlastní ozvěna** - záznam se stejným `device_id`, jaký posílá toto zařízení,
+- **záznam stažený už minule** - `updated_at` není novější než kurzor (stahuje se s minutovým přesahem).
+
+Omezení: když se řádek smaže jen na jednom zařízení a druhé ho mezitím mělo v rozepsané verzi, po slití se vrátí. Je to záměr - radši řádek navíc než ztracený text.
 
 ---
 

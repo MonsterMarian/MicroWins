@@ -130,6 +130,11 @@ udělat pohledy. Objem je malý: běžný uživatel má tisíce řádků, ne mil
 - **Konflikty se řeší po záznamech**, ne po celém stavu: dva telefony, které
   offline měnily různé věci, si obě změny nechají; stejný úkol na obou vyhraje
   novější změna.
+- **Listy time boxu se slévají i tady**, ne jen při převzetí: list téhož dne
+  změněný na dvou zařízeních se spojí (`mergeDaySheet`) a odejde jako nová
+  změna. Vlastní ozvěna (`device_id` tohoto zařízení) a záznam stažený už
+  minule se neslévají, aby se nevracely smazané řádky. Podrobně v
+  [IMPLEMENTACE_SYNCHRONIZACE.md](IMPLEMENTACE_SYNCHRONIZACE.md).
 - **Dvoje hodiny schválně.** `changed_at` je z telefonu (offline změna jiný čas
   nemá), `updated_at` ze serveru (stahování nesmí záviset na tom, jestli má
   někdo špatně nastavené hodiny).

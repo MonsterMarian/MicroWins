@@ -1,19 +1,20 @@
 import { describe, expect, it } from "vitest";
 import { addCategory, addMetric, reorderNodes } from "./actions";
 import { createProject, createTask, reorderProjects, updateProject } from "./project-actions";
-import { setBrainDump } from "./timebox";
+import { BRAIN_DUMP_MAX, setBrainDump } from "./timebox";
 import { addTodo, deleteTodo, renameTodo } from "./todos";
 import {
   applyRecords,
   diffStates,
   fromRecords,
   isEmptyState,
+  mergeDaySheet,
   NODE_ORDER_KIND,
   recordFromState,
   toRecords,
   type SyncRecord,
 } from "./sync";
-import { EMPTY_STATE, type MicroWinsState } from "./types";
+import { EMPTY_STATE, type DaySheet, type MicroWinsState } from "./types";
 
 const TODAY = "2026-09-30";
 
@@ -157,5 +158,35 @@ describe("co odeslat", () => {
     expect(recordFromState(base, "todos", "neni")).toEqual({ kind: "todos", key: "neni", data: null });
     expect(recordFromState(base, "daySheets", TODAY)?.data).toEqual(base.daySheets[0]);
     expect(recordFromState(base, NODE_ORDER_KIND, "nodes")?.data).toEqual(base.nodes.map((n) => n.id));
+  });
+});
+
+describe("slévání listu time boxu", () => {
+  function sheet(brainDump: string, priorities: string[] = []): DaySheet {
+    return {
+      date: TODAY,
+      priorities: [0, 1, 2].map((i) => ({ text: priorities[i] ?? "", done: false })),
+      brainDump,
+    };
+  }
+
+  it("připíše jen řádky, které v novější verzi nejsou", () => {
+    const merged = mergeDaySheet(sheet(["a", "b", ""].join("\n")), sheet(["b", "", "  c", "a"].join("\n")));
+    expect(merged?.brainDump).toBe(["a", "b", "  c"].join("\n"));
+  });
+
+  it("prázdnou prioritu doplní, obsazenou nechá a tu druhou připíše", () => {
+    const merged = mergeDaySheet(sheet("", ["web", ""]), sheet("", ["faktury", "trénink"]));
+    expect(merged?.priorities.map((p) => p.text)).toEqual(["web", "trénink", ""]);
+    expect(merged?.brainDump).toBe("• faktury");
+  });
+
+  it("stejná priorita na obou se nepřipisuje", () => {
+    const newer = sheet("", ["web"]);
+    expect(mergeDaySheet(newer, sheet("", ["web "]))).toEqual(newer);
+  });
+
+  it("přetečení limitu vrací null", () => {
+    expect(mergeDaySheet(sheet("x".repeat(BRAIN_DUMP_MAX)), sheet("y"))).toBeNull();
   });
 });

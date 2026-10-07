@@ -22,7 +22,8 @@ create table if not exists public.records (
   changed_at timestamptz not null,
   -- kdy dorazil na server - podle toho se stahují novinky (nastavuje trigger)
   updated_at timestamptz not null default now(),
-  -- které zařízení ho poslalo; jen pro ladění
+  -- které zařízení ho poslalo; appka podle něj pozná vlastní ozvěnu
+  -- (listy time boxu neslévá se svou vlastní starší verzí)
   device_id  text,
   primary key (user_id, kind, key)
 );

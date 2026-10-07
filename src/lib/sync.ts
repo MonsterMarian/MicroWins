@@ -1,7 +1,8 @@
 import { recordKey, same } from "./account-merge";
 import type { StateKey } from "./parts";
 import { parseState } from "./storage";
-import { EMPTY_STATE, type MicroWinsState, type TreeNode } from "./types";
+import { BRAIN_DUMP_MAX } from "./timebox";
+import { EMPTY_STATE, type DaySheet, type MicroWinsState, type Priority, type TreeNode } from "./types";
 
 /**
  * Synchronizace - čistá část: stav jako záznamy a zpátky.
@@ -207,6 +208,46 @@ function orderNodes(nodes: TreeNode[], ids: unknown[]): TreeNode[] {
   const rank = new Map(ids.filter((id): id is string => typeof id === "string").map((id, i) => [id, i]));
   const listed = nodes.filter((n) => rank.has(n.id)).sort((a, b) => rank.get(a.id)! - rank.get(b.id)!);
   return [...listed, ...nodes.filter((n) => !rank.has(n.id))];
+}
+
+/**
+ * Dva listy time boxu k témuž dni, které se změnily na dvou zařízeních
+ * zároveň. Prostá "novější vyhrává" by zahodila, co člověk napsal na druhém
+ * zařízení, proto se slévají - podobně jako při převzetí (`account-merge.ts`),
+ * jen po řádcích, protože tady se potkávají dvě verze téhož textu:
+ *
+ * - `newer` je základ. Jeho priority i brain dump zůstanou, jak jsou.
+ * - Prázdná priorita se doplní z `older`; obsazená zůstane a ta z `older`
+ *   se připíše do brain dumpu jako `• text`.
+ * - Řádky brain dumpu z `older`, které v `newer` nejsou, se připíšou na konec.
+ *   Řádek smazaný jen na jednom zařízení se tím vrátí - radši navíc než pryč.
+ *
+ * Když by spojený brain dump přetekl limit, vrací `null` a volající nechá
+ * vyhrát novější verzi.
+ */
+export function mergeDaySheet(newer: DaySheet, older: DaySheet): DaySheet | null {
+  const bumped: string[] = [];
+  const priorities: Priority[] = newer.priorities.map((mine, i) => {
+    const theirs = older.priorities[i];
+    if (!theirs || theirs.text.trim() === "") return mine;
+    if (mine.text.trim() === "") return theirs;
+    if (mine.text.trim() !== theirs.text.trim()) bumped.push(`• ${theirs.text.trim()}`);
+    return mine;
+  });
+  const extra = [...older.brainDump.split("\n"), ...bumped];
+
+  const present = new Set(newer.brainDump.split("\n").map((line) => line.trim()));
+  const additions: string[] = [];
+  for (const line of extra) {
+    const text = line.trim();
+    if (text === "" || present.has(text)) continue;
+    present.add(text);
+    additions.push(line.trimEnd());
+  }
+  const base = newer.brainDump.trimEnd();
+  const brainDump = additions.length === 0 ? newer.brainDump : [base, ...additions].filter(Boolean).join("\n");
+  if (brainDump.length > BRAIN_DUMP_MAX) return null;
+  return { ...newer, priorities, brainDump };
 }
 
 /** Stav účtu složený jen ze záznamů. */

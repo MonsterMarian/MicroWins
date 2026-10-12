@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { isValidISODate } from "./date";
 import { addBlock, blockTitle, linkBlockToPriority, moveBlockToDay } from "./timeblocks";
 import {
+  agendaItems,
   hasPriorityBlockAt,
   isSheetEmpty,
   markPriorityCarried,
@@ -9,6 +10,7 @@ import {
   parseDumpTime,
   priorityRef,
   releaseCarriedBlock,
+  resizedDuration,
   setBrainDump,
   setPriority,
   sheetOf,
@@ -17,9 +19,11 @@ import {
   toggleBlockDone,
   togglePriority,
   slotContent,
+  slotChoices,
   slotStart,
   timeboxRowCount,
   timeboxRows,
+  timeboxSlots,
   unfinishedCarryovers,
 } from "./timebox";
 import { EMPTY_STATE, type MicroWinsState } from "./types";
@@ -448,5 +452,70 @@ describe("nestihl jsem", () => {
 
     // Přesun na dnešek věc ze seznamu sundá - blok už patří dnešku.
     expect(unfinishedCarryovers(moveBlockToDay(s, s.timeBlocks[0].id, TODAY), TODAY)).toEqual([]);
+  });
+});
+
+describe("agenda, výběr času a délka tahem", () => {
+  /* Celá agenda se při tahu rozbalovala naráz a obsah pod prstem uskočil.
+     Teď se rozbalí jen úsek, nad kterým prst podržel. */
+  it("agenda slévá volno a rozbalí jen vyžádaný úsek", () => {
+    const occupied = [false, false, true, false, false, false, true];
+    expect(agendaItems(occupied)).toEqual([
+      { kind: "free", from: 0, count: 2 },
+      { kind: "slot", index: 2 },
+      { kind: "free", from: 3, count: 3 },
+      { kind: "slot", index: 6 },
+    ]);
+    expect(agendaItems(occupied, new Set([3]))).toEqual([
+      { kind: "free", from: 0, count: 2 },
+      { kind: "slot", index: 2 },
+      { kind: "slot", index: 3 },
+      { kind: "slot", index: 4 },
+      { kind: "slot", index: 5 },
+      { kind: "slot", index: 6 },
+    ]);
+  });
+
+  it("půlhodiny mřížky jdou po sobě i přes půlnoc", () => {
+    const slots = timeboxSlots(timeboxRows(DAY, 23, 0));
+    expect(slots).toEqual([
+      { date: DAY, start: 23 * 60 },
+      { date: DAY, start: 23 * 60 + 30 },
+      { date: NEXT, start: 0 },
+      { date: NEXT, start: 30 },
+    ]);
+  });
+
+  it("výběr času vynechá uplynulé půlhodiny a obsazené jen označí", () => {
+    const s = addBlock(EMPTY_STATE, { date: DAY, start: 10 * 60, duration: 60, title: "Porada" });
+    const slots = timeboxSlots(timeboxRows(DAY, 9, 11));
+    const choices = slotChoices(slots, s.state.timeBlocks, { today: DAY, nowMinutes: 9 * 60 + 40 });
+    expect(choices.map((c) => [c.start / 60, c.busy])).toEqual([
+      [9.5, false],
+      [10, true],
+      [10.5, true],
+      [11, false],
+      [11.5, false],
+    ]);
+    // Jiný den se nic nevynechává.
+    expect(slotChoices(slots, [], { today: NEXT, nowMinutes: 23 * 60 })).toHaveLength(6);
+    // Přeplánovávaný blok si nepřekáží sám sobě.
+    const own = slotChoices(slots, s.state.timeBlocks, {
+      today: DAY,
+      nowMinutes: 0,
+      exclude: s.block.id,
+    });
+    expect(own.every((c) => !c.busy)).toBe(true);
+  });
+
+  it("tah za spodní hranu protáhne blok na konec cílové půlhodiny", () => {
+    const { block } = addBlock(EMPTY_STATE, { date: DAY, start: 9 * 60, duration: 30 });
+    expect(resizedDuration(block, { date: DAY, start: 10 * 60 + 30 })).toBe(120);
+    expect(resizedDuration(block, { date: DAY, start: 9 * 60 })).toBe(30);
+    // Nad začátek bloku se nezkrátí pod minimum.
+    expect(resizedDuration(block, { date: DAY, start: 8 * 60 })).toBe(15);
+    // Ranní půlhodina dalšího dne v noční mřížce.
+    const late = addBlock(EMPTY_STATE, { date: DAY, start: 23 * 60, duration: 30 }).block;
+    expect(resizedDuration(late, { date: NEXT, start: 0 })).toBe(90);
   });
 });

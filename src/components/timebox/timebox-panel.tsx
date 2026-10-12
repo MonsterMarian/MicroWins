@@ -9,15 +9,18 @@ import {
   CornerUpRight,
   GripVertical,
   Loader2,
+  PenLine,
   Sparkles,
   Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Fab } from "@/components/ui/fab";
+import { isHoldDragging } from "@/components/ui/use-hold-drag";
 import { useStore } from "@/components/providers/store-provider";
 import { usePrefs } from "@/components/providers/use-prefs";
 import { useToast } from "@/components/providers/toast-provider";
-import { addDays, DAY_SHORT, formatDate, fromISODate } from "@/lib/date";
+import { addDays, DAY_SHORT, formatDate, fromISODate, isValidISODate } from "@/lib/date";
 import {
   AI_SETTINGS_EVENT,
   getAiKey,
@@ -26,9 +29,10 @@ import {
   suggestFromBrainDump,
   type Suggestion,
 } from "@/lib/ai";
-import { tapFeedback, winFeedback } from "@/lib/native";
+import { tapFeedback, tickFeedback, winFeedback } from "@/lib/native";
 import {
   blocksOfDay,
+  blockTitle,
   doneMinutes,
   formatLength,
   formatMinutes,
@@ -47,12 +51,20 @@ import {
   type CarryoverItem,
   type DumpSchedule,
 } from "@/lib/timebox";
-import type { ISODate } from "@/lib/types";
+import type { ISODate, TimeBlock } from "@/lib/types";
 import { cn, plural } from "@/lib/utils";
 import { AutoTextarea } from "./auto-textarea";
+import { BlockSheet } from "./block-sheet";
+import { CaptureSheet } from "./capture-sheet";
 import { Queue } from "./queue";
-import { TimeboxGrid } from "./timebox-grid";
-import { useTimeboxDrag, type DragSource, type TimeboxDrag } from "./use-timebox-drag";
+import { ghostPosition, TimeboxGrid } from "./timebox-grid";
+import {
+  useTimeboxDrag,
+  type DragSource,
+  type DropTarget,
+  type TimeboxDrag,
+} from "./use-timebox-drag";
+import { searchFrom, WhenSheet, type WhenPick, type WhenRequest } from "./when-sheet";
 
 /**
  * Time box - papírový list dne přenesený do appky.
@@ -70,8 +82,7 @@ export function TimeboxPanel() {
     state,
     today,
     addBlock,
-    moveBlock,
-    moveBlockToDay,
+    updateBlock,
     setPriority,
     swapPriorities,
     linkBlockToPriority,
@@ -83,44 +94,96 @@ export function TimeboxPanel() {
   const { toast } = useToast();
   const [date, setDate] = React.useState<ISODate>(() => today);
 
+  /* Spodní panely listu. Naráz je otevřený nejvýš jeden - panel bloku
+     předává „Jiný čas“ výběru času a sám se zavře. */
+  const [when, setWhen] = React.useState<{
+    request: WhenRequest;
+    apply: (pick: WhenPick) => void;
+  } | null>(null);
+  const [openBlock, setOpenBlock] = React.useState<string | null>(null);
+  const [capture, setCapture] = React.useState(false);
+  const closeWhen = React.useCallback(() => setWhen(null), []);
+  const closeBlock = React.useCallback(() => setOpenBlock(null), []);
+  const closeCapture = React.useCallback(() => setCapture(false), []);
+
+  /* Hlášky s akcí („Změnit“) se ťuknou až za chvíli - stav z renderu by byl
+     ten před přidáním bloku, takže se čte čerstvý. */
+  const latest = React.useRef(state);
+  latest.current = state;
+
   /* Brain dump drží rozepsané řádky sám u sebe, ale tah ven z něj (do mřížky,
      do trojky, do koše) končí tady v panelu. BrainDump proto při každém
      renderu podá do tohohle ref své funkce na práci s řádky. */
   const dumpApi = React.useRef<DumpApi | null>(null);
 
-  const planned = (start: number, title: string) =>
-    toast({ tone: "info", title: `Naplánováno na ${formatMinutes(start)}`, description: title });
+  /** Výběr času pro existující blok - z hlášky „Změnit“ i z panelu bloku. */
+  const reschedule = (block: TimeBlock, title: string) => {
+    setOpenBlock(null);
+    setWhen({
+      request: { title, date: block.date, duration: block.duration, exclude: block.id },
+      apply: (pick) => {
+        const before = { date: block.date, start: block.start, duration: block.duration };
+        updateBlock(block.id, pick);
+        void tapFeedback();
+        toast({
+          tone: "info",
+          title: `Přeplánováno na ${formatMinutes(pick.start)}`,
+          description: pick.date !== date ? `${title} · ${formatDate(pick.date)}` : title,
+          action: { label: "Vrátit", onClick: () => updateBlock(block.id, before) },
+        });
+      },
+    });
+  };
 
-  /** Puštění do políčka mřížky. */
-  const dropOnSlot = (source: DragSource, target: { date: ISODate; start: number }) => {
+  /** Ťuknutí na úchyt plánuje do nejbližšího volna - a hláška nabídne jiný čas. */
+  const changeTime = (id: string) => {
+    const block = latest.current.timeBlocks.find((b) => b.id === id);
+    if (block) reschedule(block, blockTitle(latest.current, block) || "Bez názvu");
+  };
+
+  const planned = (start: number, title: string, blockId?: string) =>
+    toast({
+      tone: "info",
+      title: `Naplánováno na ${formatMinutes(start)}`,
+      description: title,
+      ...(blockId ? { action: { label: "Změnit", onClick: () => changeTime(blockId) } } : {}),
+    });
+
+  /**
+   * Věc na půlhodinu - puštěním do mřížky i z výběru času. `duration` přijde
+   * jen z výběru času; tah drží délku přesouvaného bloku.
+   */
+  const placeOnSlot = (
+    source: DragSource,
+    target: { date: ISODate; start: number },
+    duration?: number,
+  ) => {
+    const spot = { date: target.date, start: target.start };
     // Zápis z mřížky se přesouvá, všechno ostatní do mřížky přibývá.
     if (source.kind === "block") {
-      const block = state.timeBlocks.find((b) => b.id === source.id);
-      if (!block) return;
-      if (block.date !== target.date) moveBlockToDay(source.id, target.date);
-      if (block.start !== target.start) moveBlock(source.id, target.start);
+      updateBlock(source.id, { ...spot, ...(duration ? { duration } : {}) });
       return;
     }
+    const length = duration ?? SHEET_SLOT;
 
     if (source.kind === "queue") {
-      addBlock({
-        date: target.date,
-        start: target.start,
-        duration: SHEET_SLOT,
+      const block = addBlock({
+        ...spot,
+        duration: length,
         title: source.title,
         todoId: source.todoId ?? null,
         taskId: source.taskId ?? null,
       });
-      planned(target.start, source.title);
+      planned(spot.start, source.title, block.id);
       return;
     }
 
     // Řádek brain dumpu: padne kam ho člověk pustil a z dumpu zmizí - věc
     // nesmí zůstat ležet dvakrát (jednou tady, jednou v mřížce).
     if (source.kind === "dump") {
-      addBlock({ date: target.date, start: target.start, duration: SHEET_SLOT, title: source.title });
+      const block = addBlock({ ...spot, duration: length, title: source.title });
       dumpApi.current?.remove(source.rowId);
-      planned(target.start, source.title);
+      planned(spot.start, source.title, block.id);
       return;
     }
 
@@ -129,15 +192,14 @@ export function TimeboxPanel() {
     // přenesený. Cílový den projde a blok zůstane neodškrtnutý? Zítra se
     // věc zase ozve v „Nestihl jsem“.
     if (source.kind === "carryover") {
-      addBlock({
-        date: target.date,
-        start: target.start,
-        duration: SHEET_SLOT,
+      const block = addBlock({
+        ...spot,
+        duration: length,
         title: source.title,
         priorityId: priorityRef(source.date, source.index),
       });
-      markPriorityCarried(source.date, source.index, target.date);
-      planned(target.start, source.title);
+      markPriorityCarried(source.date, source.index, spot.date);
+      planned(spot.start, source.title, block.id);
       return;
     }
 
@@ -145,22 +207,35 @@ export function TimeboxPanel() {
        zůstat (je to pořád hlavní věc dne), v mřížce přibude čas, kdy se na ní
        bude dělat. Odškrtnutí pak platí na obou stranách. */
     const ref = priorityRef(source.date, source.index);
-    if (hasPriorityBlockAt(state.timeBlocks, ref, target.start, target.date)) {
+    if (hasPriorityBlockAt(state.timeBlocks, ref, spot.start, spot.date)) {
       toast({
         tone: "info",
-        title: `Už tam je - ${formatMinutes(target.start)}`,
+        title: `Už tam je - ${formatMinutes(spot.start)}`,
         description: source.title,
       });
       return;
     }
-    addBlock({
-      date: target.date,
-      start: target.start,
-      duration: SHEET_SLOT,
-      title: source.title,
-      priorityId: ref,
+    const block = addBlock({ ...spot, duration: length, title: source.title, priorityId: ref });
+    planned(spot.start, source.title, block.id);
+  };
+
+  /** Výběr času pro věc, která se teprve plánuje (podržení, puštění na volno). */
+  const askWhen = (source: DragSource, range?: WhenRequest["range"]) => {
+    const block =
+      source.kind === "block" ? state.timeBlocks.find((b) => b.id === source.id) : undefined;
+    setWhen({
+      request: {
+        title: source.title,
+        date: range?.date ?? block?.date ?? date,
+        duration: block?.duration ?? SHEET_SLOT,
+        exclude: block?.id ?? null,
+        range: range ?? null,
+      },
+      apply: (pick) => {
+        placeOnSlot(source, pick, pick.duration);
+        void tapFeedback();
+      },
     });
-    planned(target.start, source.title);
   };
 
   /** Puštění nahoru mezi tři hlavní věci dne. */
@@ -263,12 +338,32 @@ export function TimeboxPanel() {
    * Tažení po celém listu - proto bydlí tady, ne v mřížce: přetahuje se mezi
    * pásem rozdělané práce, trojkou hlavních věcí, brain dumpem a mřížkou, a
    * to jsou části listu, které spolu jinak nemají co dělat.
+   *
+   * Podržení bez pohybu je volba místa bez tahu: zápis z mřížky otevře svůj
+   * panel, všechno ostatní výběr času.
    */
-  const drag = useTimeboxDrag((source, target) => {
-    if (target.kind === "slot") return dropOnSlot(source, target);
-    if (target.kind === "priority") return dropOnPriority(source, target.index);
-    return dropOnTrash(source);
-  });
+  const drag = useTimeboxDrag(
+    (source, target) => {
+      if (target.kind === "slot") {
+        placeOnSlot(source, target);
+        return;
+      }
+      if (target.kind === "free") {
+        askWhen(source, {
+          date: target.date,
+          from: target.start,
+          to: target.start + target.count * SHEET_SLOT,
+        });
+        return;
+      }
+      if (target.kind === "priority") return dropOnPriority(source, target.index);
+      return dropOnTrash(source);
+    },
+    (source) => {
+      if (source.kind === "block") setOpenBlock(source.id);
+      else askWhen(source);
+    },
+  );
 
   /* Koš nemá být vidět pořád - je to cesta, jak sundat zápis navázaný na úkol
      nebo na položku ToDo, kterému se text v políčku přepsat nedá. */
@@ -284,14 +379,14 @@ export function TimeboxPanel() {
     <Queue
       date={date}
       showTodos={todoInTimebox}
-      hint="Ťukni a padne do nejbližšího volna, nebo si ji táhni do mřížky"
+      hint="Ťukni a padne do nejbližšího volna, podrž a vybereš čas, nebo ji táhni do mřížky"
       onDrop={(input) => {
         const start = nextFreeSlot(
           blocksOfDay(state, date),
           searchFrom(date, today, timeboxStart),
           SHEET_SLOT,
         );
-        addBlock({
+        const block = addBlock({
           date,
           start,
           duration: SHEET_SLOT,
@@ -300,7 +395,7 @@ export function TimeboxPanel() {
           taskId: input.taskId ?? null,
         });
         void tapFeedback();
-        planned(start, input.title);
+        planned(start, input.title, block.id);
       }}
       onPress={(input, event) => drag.press({ kind: "queue", ...input }, event)}
     />
@@ -311,6 +406,20 @@ export function TimeboxPanel() {
        listu - když nic nevisí, jen to vypíše, ať má list pokaždé všech
        pět částí na stejném místě. */
     <Carryover date={date} today={today} drag={drag} />;
+
+  const grid = (className?: string) => (
+    <TimeboxGrid
+      date={date}
+      today={today}
+      drag={drag}
+      layout={timeboxLayout}
+      onOpenBlock={setOpenBlock}
+      className={className}
+    />
+  );
+
+  const ghost = drag.ghost;
+  const aimLabel = ghost ? targetLabel(ghost.source, drag.target, date) : null;
 
   return (
     <div className="flex flex-col gap-3">
@@ -331,11 +440,17 @@ export function TimeboxPanel() {
             {/* Levý sloupec se natáhne na výšku mřížky a brain dump v něm zabere
                 všechno, co zbyde - psát se má kam, ne do řádkového pole. */}
             <div className="flex min-w-0 flex-col gap-3">
-              <Priorities date={date} drag={drag} />
-              <BrainDump date={date} size="fill" drag={drag} dumpApi={dumpApi} />
-              <AiSuggestions date={date} today={today} />
+              <Priorities date={date} drag={drag} onChangeTime={changeTime} />
+              <BrainDump
+                date={date}
+                size="fill"
+                drag={drag}
+                dumpApi={dumpApi}
+                onChangeTime={changeTime}
+              />
+              <AiSuggestions date={date} today={today} onChangeTime={changeTime} />
             </div>
-            <TimeboxGrid date={date} today={today} drag={drag} />
+            {grid()}
           </div>
         </>
       ) : (
@@ -351,65 +466,125 @@ export function TimeboxPanel() {
             className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] sm:items-start"
           >
             <div className="contents sm:flex sm:min-w-0 sm:flex-col sm:gap-3">
-              <Priorities date={date} drag={drag} className="order-1 sm:order-none" />
+              <Priorities
+                date={date}
+                drag={drag}
+                onChangeTime={changeTime}
+                className="order-1 sm:order-none"
+              />
               <BrainDump
                 date={date}
                 size="fixed"
                 drag={drag}
                 dumpApi={dumpApi}
+                onChangeTime={changeTime}
                 className="order-3 sm:order-none"
               />
-              <AiSuggestions date={date} today={today} className="order-4 sm:order-none" />
+              <AiSuggestions
+                date={date}
+                today={today}
+                onChangeTime={changeTime}
+                className="order-4 sm:order-none"
+              />
             </div>
-            <TimeboxGrid
-              date={date}
-              today={today}
-              drag={drag}
-              layout={timeboxLayout}
-              className="order-2 sm:order-none"
-            />
+            {grid("order-2 sm:order-none")}
           </div>
         </>
       )}
 
+      {/* Koš je bublina v rohu, ne pruh přes celou spodní hranu: u spodní
+          hrany se při tahu roluje, a kdo mířil dolů na pozdější hodinu, pustil
+          věc do koše. Bublina sedí nad pásmem rolování. */}
       {trashable ? (
         <div
           data-trash=""
+          aria-label="Pustit sem a zmizí to z listu"
           className={cn(
-            "mw-safe-bottom mw-safe-x fixed inset-x-0 bottom-0 z-[45] flex items-center justify-center gap-2 border-t py-3 text-xs transition-colors",
+            "mw-fab-in fixed bottom-[calc(5.25rem+var(--mw-safe-bottom))] left-[calc(1rem+var(--mw-safe-left))] z-[45] flex size-16 flex-col items-center justify-center gap-0.5 rounded-full border text-[10px] font-medium shadow-lg transition-[transform,background-color,color] sm:bottom-6",
             drag.target?.kind === "trash"
-              ? "border-destructive bg-destructive text-destructive-foreground"
+              ? "scale-110 border-destructive bg-destructive text-destructive-foreground"
               : "bg-background/95 text-muted-foreground backdrop-blur",
           )}
         >
-          <Trash2 className="size-4" />
-          Pustit sem a zmizí to z listu
+          <Trash2 className="size-5" />
+          pryč
         </div>
       ) : null}
 
-      {drag.ghost ? (
+      {ghost ? (
         <div
-          /* Větší duch než na desktopu: na telefonu ho prst zakrývá, takže
-             aspoň vystoupí nad okolí a čte se, co se nese. */
-          className="pointer-events-none fixed z-50 max-w-[70vw] truncate rounded-lg border-2 bg-popover px-3 py-2 text-xs font-medium shadow-xl"
-          style={{ left: drag.ghost.x + 14, top: drag.ghost.y - 34 }}
+          /* Duch visí nad prstem (ten by ho zakryl) a říká, kam věc padne -
+             půlhodinu pod prstem není vidět, takže ji musí říct on. */
+          className="pointer-events-none fixed z-50 flex max-w-[70vw] -translate-x-1/2 flex-col rounded-lg border-2 bg-popover px-3 py-1.5 shadow-xl"
+          style={ghostPosition(ghost.x, ghost.y)}
         >
-          {drag.ghost.source.kind === "dump" ? drag.ghost.source.label : drag.ghost.source.title}
+          <span className="truncate text-xs font-medium">
+            {ghost.source.kind === "dump" ? ghost.source.label : ghost.source.title}
+          </span>
+          {aimLabel ? (
+            <span
+              className={cn(
+                "tabular truncate text-sm font-semibold",
+                drag.target?.kind === "trash" ? "text-destructive" : "text-foreground",
+              )}
+            >
+              {aimLabel}
+            </span>
+          ) : null}
         </div>
       ) : null}
+
+      {ghost ? null : (
+        <Fab onClick={() => setCapture(true)} aria-label="Zapsat do brain dumpu">
+          <PenLine /> Zapsat
+        </Fab>
+      )}
+
+      <WhenSheet
+        request={when?.request ?? null}
+        onClose={closeWhen}
+        onPick={(pick) => {
+          const current = when;
+          setWhen(null);
+          current?.apply(pick);
+        }}
+      />
+      <BlockSheet
+        blockId={openBlock}
+        onClose={closeBlock}
+        onReschedule={(block) => reschedule(block, blockTitle(state, block) || "Bez názvu")}
+      />
+      <CaptureSheet open={capture} date={date} onClose={closeCapture} />
     </div>
   );
 }
-/**
- * Odkud hledat volné místo v mřížce. Dnes od nynějška - do minulosti se
- * neplánuje - jiný den od začátku mřížky.
- */
-function searchFrom(date: ISODate, today: ISODate, timeboxStart: number): number {
-  if (date !== today) return timeboxStart * 60;
-  const now = new Date();
-  return Math.max(timeboxStart * 60, now.getHours() * 60 + now.getMinutes());
+
+/** Kam věc padne, když se teď pustí - napsané v duchovi nad prstem. */
+function targetLabel(source: DragSource, target: DropTarget | null, date: ISODate): string | null {
+  if (!target) return null;
+  switch (target.kind) {
+    case "slot":
+      return `→ ${formatMinutes(target.start)}${target.date !== date ? ` · ${formatDate(target.date)}` : ""}`;
+    case "free":
+      return `→ volno ${formatMinutes(target.start)}–${formatMinutes((target.start + target.count * SHEET_SLOT) % (24 * 60))}`;
+    case "priority":
+      if (source.kind !== "priority") return `→ ${target.index + 1}. hlavní věc`;
+      // Nad vlastním řádkem se nic neprohodí - puštění tam tah jen zruší.
+      return source.index === target.index ? null : `↔ prohodit s ${target.index + 1}.`;
+    case "trash":
+      return "→ pryč z listu";
+  }
 }
 
+/** Švihnutí v hlavičce: jak daleko do strany a jak rychle, stejně jako mezi sekcemi. */
+const DAY_SWIPE = 56;
+const DAY_SWIPE_MS = 700;
+
+/**
+ * Hlavička dne. Švihnutím doleva a doprava se přepíná den (jen tady - na
+ * zbytku listu švihnutí patří sekcím appky a řádkům mřížky), ťuknutím na
+ * datum se otevře výběr data.
+ */
 function DateBar({
   date,
   today,
@@ -423,11 +598,67 @@ function DateBar({
   const blocks = blocksOfDay(state, date);
   const planned = plannedMinutes(blocks);
   const done = doneMinutes(blocks);
+  const picker = React.useRef<HTMLInputElement | null>(null);
+  const swipe = React.useRef<{ id: number; x: number; y: number; at: number } | null>(null);
+  const swallowClick = React.useRef(false);
+
+  const go = (days: number) => {
+    onDate(addDays(date, days));
+    void tickFeedback();
+  };
+
+  const openPicker = () => {
+    const input = picker.current;
+    if (!input) return;
+    try {
+      input.showPicker();
+    } catch {
+      // starší WebView bez showPicker - aspoň fokus, ať naskočí systémový výběr
+      input.focus();
+      input.click();
+    }
+  };
 
   return (
-    <div className="flex items-center gap-1">
-      <div className="min-w-0 flex-1">
-        <h2 className="truncate text-base font-semibold tracking-tight">
+    <div
+      data-no-swipe=""
+      className="flex touch-pan-y items-center gap-1"
+      onPointerDown={(e) => {
+        if (e.pointerType === "mouse") return;
+        swipe.current = { id: e.pointerId, x: e.clientX, y: e.clientY, at: Date.now() };
+      }}
+      onPointerUp={(e) => {
+        const s = swipe.current;
+        swipe.current = null;
+        if (!s || s.id !== e.pointerId || isHoldDragging()) return;
+        const dx = e.clientX - s.x;
+        const dy = e.clientY - s.y;
+        if (Date.now() - s.at > DAY_SWIPE_MS) return;
+        if (Math.abs(dx) < DAY_SWIPE || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+        // Prst doleva = den odjíždí doleva = jsme o den dál.
+        swallowClick.current = true;
+        window.setTimeout(() => {
+          swallowClick.current = false;
+        }, 350);
+        go(dx < 0 ? 1 : -1);
+      }}
+      onPointerCancel={() => {
+        swipe.current = null;
+      }}
+      onClickCapture={(e) => {
+        if (!swallowClick.current) return;
+        swallowClick.current = false;
+        e.preventDefault();
+        e.stopPropagation();
+      }}
+    >
+      <button
+        type="button"
+        onClick={openPicker}
+        aria-label={`Vybrat den, teď ${formatDate(date)}`}
+        className="min-w-0 flex-1 rounded-md py-1 text-left"
+      >
+        <h2 key={date} className="animate-in-up truncate text-base font-semibold tracking-tight">
           <span className="text-muted-foreground">{DAY_SHORT[fromISODate(date).getDay()]} </span>
           {formatDate(date)}
           {date === today ? <span className="ml-1.5 text-xs text-progress">dnes</span> : null}
@@ -439,16 +670,40 @@ function DateBar({
                 done > 0 ? ` · hotovo ${formatLength(done)}` : ""
               }`}
         </p>
-      </div>
-      <Button variant="ghost" size="icon" aria-label="Předchozí den" onClick={() => onDate(addDays(date, -1))}>
+      </button>
+      <input
+        ref={picker}
+        type="date"
+        tabIndex={-1}
+        aria-hidden
+        value={date}
+        onChange={(e) => {
+          if (isValidISODate(e.target.value)) onDate(e.target.value);
+        }}
+        className="pointer-events-none absolute size-px opacity-0"
+      />
+      <Button
+        variant="ghost"
+        size="icon"
+        className="size-10"
+        aria-label="Předchozí den"
+        onClick={() => go(-1)}
+      >
         <ChevronLeft />
       </Button>
-      <Button variant="ghost" size="icon" aria-label="Další den" onClick={() => onDate(addDays(date, 1))}>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="size-10"
+        aria-label="Další den"
+        onClick={() => go(1)}
+      >
         <ChevronRight />
       </Button>
       <Button
         variant="ghost"
         size="icon"
+        className="size-10"
         aria-label="Dnes"
         title="Dnes"
         disabled={date === today}
@@ -465,10 +720,12 @@ function DateBar({
 function Priorities({
   date,
   drag,
+  onChangeTime,
   className,
 }: {
   date: ISODate;
   drag: TimeboxDrag;
+  onChangeTime: (blockId: string) => void;
   className?: string;
 }) {
   const { state, setPriority, togglePriority } = useStore();
@@ -489,6 +746,7 @@ function Priorities({
             done={sheet.priorities[i]?.done ?? false}
             carriedTo={sheet.priorities[i]?.carriedTo ?? null}
             drag={drag}
+            onChangeTime={onChangeTime}
             onCommit={(text) => setPriority(date, i, text)}
             onToggle={() => togglePriority(date, i)}
           />
@@ -509,6 +767,7 @@ function PriorityRow({
   done,
   carriedTo,
   drag,
+  onChangeTime,
   onCommit,
   onToggle,
 }: {
@@ -518,6 +777,7 @@ function PriorityRow({
   done: boolean;
   carriedTo: ISODate | null;
   drag: TimeboxDrag;
+  onChangeTime: (blockId: string) => void;
   onCommit: (text: string) => void;
   onToggle: () => void;
 }) {
@@ -546,16 +806,21 @@ function PriorityRow({
       searchFrom(date, today, timeboxStart),
       SHEET_SLOT,
     );
-    addBlock({ date, start, duration: SHEET_SLOT, title: draft, priorityId: ref });
+    const block = addBlock({ date, start, duration: SHEET_SLOT, title: draft, priorityId: ref });
     void tapFeedback();
-    toast({ tone: "info", title: `Naplánováno na ${formatMinutes(start)}`, description: draft });
+    toast({
+      tone: "info",
+      title: `Naplánováno na ${formatMinutes(start)}`,
+      description: draft,
+      action: { label: "Změnit", onClick: () => onChangeTime(block.id) },
+    });
   };
 
   return (
     <div
       data-priority-index={index}
       className={cn(
-        "flex items-start gap-2 px-2.5 py-1.5 transition-colors",
+        "flex min-h-12 items-center gap-2 px-2.5 py-1.5 transition-colors",
         isTarget && "bg-progress/20 ring-1 ring-inset ring-progress",
         dragging && "opacity-40",
       )}
@@ -569,15 +834,20 @@ function PriorityRow({
         disabled={empty}
         aria-pressed={done}
         aria-label={done ? `Vrátit zpět: ${draft}` : `Hotovo: ${draft || `${index + 1}. priorita`}`}
-        className={cn(
-          "tabular mt-0.5 grid size-5 shrink-0 place-items-center rounded-[5px] border text-[11px] transition-colors",
-          done
-            ? "border-progress bg-progress text-progress-foreground"
-            : "text-muted-foreground",
-          !empty && !done && "hover:border-foreground/40",
-        )}
+        className="group/check -my-2 -ml-2.5 grid size-11 shrink-0 place-items-center"
       >
-        {done ? <Check className="size-3.5" /> : index + 1}
+        {/* Klikací plocha na prst (44 px), vidět je jen čtvereček s číslem. */}
+        <span
+          className={cn(
+            "tabular grid size-6 place-items-center rounded-[5px] border text-xs transition-colors",
+            done
+              ? "border-progress bg-progress text-progress-foreground"
+              : "text-muted-foreground",
+            !empty && !done && "group-hover/check:border-foreground/40",
+          )}
+        >
+          {done ? <Check className="size-4" /> : index + 1}
+        </span>
       </button>
       <AutoTextarea
         value={draft}
@@ -604,7 +874,7 @@ function PriorityRow({
         <span
           title={`Přeneseno na ${formatDate(carriedTo)}`}
           aria-label={`Přeneseno na ${formatDate(carriedTo)}`}
-          className="mt-1 shrink-0 text-muted-foreground/60"
+          className="shrink-0 text-muted-foreground/60"
         >
           <CornerUpRight className="size-3.5" />
         </span>
@@ -620,8 +890,8 @@ function PriorityRow({
           onClick={planNearest}
           onContextMenu={(e) => e.preventDefault()}
           aria-label={`Přetáhnout: ${draft}`}
-          title="Přetáhni do mřížky - vznikne blok navázaný na tuhle věc. Samotné ťuknutí ji posadí do nejbližšího volna."
-          className="mt-0.5 grid size-7 shrink-0 cursor-grab place-items-center rounded text-muted-foreground/50 hover:text-foreground [-webkit-touch-callout:none]"
+          title="Ťuknutí posadí do nejbližšího volna, podržení nechá vybrat čas, tah přenese do mřížky."
+          className="-my-1.5 -mr-1.5 grid size-11 shrink-0 cursor-grab place-items-center rounded text-muted-foreground/60 hover:text-foreground [-webkit-touch-callout:none]"
         >
           <GripVertical className="size-4" />
         </button>
@@ -678,12 +948,14 @@ function BrainDump({
   className,
   drag,
   dumpApi,
+  onChangeTime,
 }: {
   date: ISODate;
   size: keyof typeof DUMP_SIZE;
   className?: string;
   drag: TimeboxDrag;
   dumpApi: React.RefObject<DumpApi | null>;
+  onChangeTime: (blockId: string) => void;
 }) {
   const { state, today, addBlock, setBrainDump } = useStore();
   const { timeboxStart } = usePrefs();
@@ -728,6 +1000,9 @@ function BrainDump({
       každé akci, co řádky mění - rozmělněné ukládání po písmenu by přepisovalo
       celý stav při každém stisku klávesy. */
   const persist = (next: DumpRowData[]) => {
+    // Poslední řádek odešel do mřížky či trojky - prázdný dump musí mít
+    // aspoň jeden řádek, jinak by do něj nebylo kam psát.
+    if (next.length === 0) next = [{ id: Math.max(0, ...ref.current.rows.map((r) => r.id)) + 1, text: "" }];
     setRows(next);
     const text = serializeDump(next);
     if (text !== ref.current.value) setBrainDump(date, text);
@@ -804,10 +1079,15 @@ function BrainDump({
     const start = timed
       ? timed.start
       : nextFreeSlot(blocksOfDay(state, date), searchFrom(date, today, timeboxStart), SHEET_SLOT);
-    addBlock({ date, start, duration: SHEET_SLOT, title });
+    const block = addBlock({ date, start, duration: SHEET_SLOT, title });
     persist(ref.current.rows.filter((r) => r.id !== row.id));
     void tapFeedback();
-    toast({ tone: "info", title: `Naplánováno na ${formatMinutes(start)}`, description: title });
+    toast({
+      tone: "info",
+      title: `Naplánováno na ${formatMinutes(start)}`,
+      description: title,
+      action: { label: "Změnit", onClick: () => onChangeTime(block.id) },
+    });
   };
 
   /* Panel tady hledá cestu ven pro tažení - proto se API hlásí při každém
@@ -864,8 +1144,9 @@ function BrainDump({
         </div>
       </div>
       <p className="px-0.5 text-xs text-muted-foreground">
-        Čas dopředu („14:30 běh“) se odchodem z řádku sám posadí do mřížky; úchytem řádek přetáhni
-        do trojky, mřížky nebo na koš.
+        Čas dopředu („14:30 běh“) se odchodem z řádku sám posadí do mřížky. Úchyt: ťuknutí do
+        nejbližšího volna, podržení vybere čas, tah do trojky, mřížky nebo do koše. Rychle zapsat
+        jde i tlačítkem Zapsat dole.
       </p>
     </section>
   );
@@ -911,7 +1192,7 @@ function DumpInput({
   const dragging = drag.ghost?.source.kind === "dump" && drag.ghost.source.rowId === row.id;
 
   return (
-    <div className={cn("flex items-start gap-2 px-2.5 py-1 transition-opacity", dragging && "opacity-40")}>
+    <div className={cn("flex min-h-11 items-center gap-2 px-2.5 py-1 transition-opacity", dragging && "opacity-40")}>
       <AutoTextarea
         ref={input}
         value={row.text}
@@ -944,8 +1225,8 @@ function DumpInput({
           onClick={onPlan}
           onContextMenu={(e) => e.preventDefault()}
           aria-label={`Přetáhnout: ${row.text.trim()}`}
-          title="Přetáhni do trojky či mřížky. Samotné ťuknutí naplánuje do nejbližšího volna."
-          className="mt-0.5 grid size-7 shrink-0 cursor-grab place-items-center rounded text-muted-foreground/50 hover:text-foreground [-webkit-touch-callout:none]"
+          title="Ťuknutí naplánuje do nejbližšího volna, podržení nechá vybrat čas, tah přenese do trojky či mřížky."
+          className="-my-1.5 -mr-1.5 grid size-11 shrink-0 cursor-grab place-items-center rounded text-muted-foreground/60 hover:text-foreground [-webkit-touch-callout:none]"
         >
           <GripVertical className="size-4" />
         </button>
@@ -1157,7 +1438,7 @@ function Carryover({ date, today, drag }: { date: ISODate; today: ISODate; drag:
           return (
             <div
               key={item.block?.id ?? `${item.date}#${item.index}`}
-              className="flex items-start gap-2 px-2.5 py-1.5"
+              className="flex min-h-12 items-center gap-2 px-2.5 py-1"
             >
               {/* Check-box - prázdný čtvereček, fajfka by se ukázala jen u hotových,
                   ale hotová věc okamžitě mizí ze seznamu, takže ji v praxi
@@ -1167,9 +1448,11 @@ function Carryover({ date, today, drag }: { date: ISODate; today: ISODate; drag:
                 onClick={(e) => handleToggle(e, item)}
                 aria-label="Označit jako hotové"
                 title="Hotovo"
-                className="mt-0.5 grid size-7 shrink-0 place-items-center rounded border border-border text-muted-foreground transition-colors hover:border-foreground hover:text-foreground"
-              />
-              <span className="tabular mt-1 shrink-0 whitespace-nowrap text-[11px] text-muted-foreground">
+                className="group/check -my-1 -ml-2 grid size-11 shrink-0 place-items-center"
+              >
+                <span className="size-6 rounded border border-border transition-colors group-hover/check:border-foreground" />
+              </button>
+              <span className="tabular shrink-0 whitespace-nowrap text-[11px] text-muted-foreground">
                 {DAY_SHORT[day.getDay()]} {day.getDate()}. {day.getMonth() + 1}.
               </span>
               <p className="min-w-0 flex-1 py-0.5 text-sm leading-5">
@@ -1185,7 +1468,7 @@ function Carryover({ date, today, drag }: { date: ISODate; today: ISODate; drag:
                 onClick={(e) => handleDelete(e, item)}
                 aria-label={`Smazat: ${item.text}`}
                 title="Smazat"
-                className="mt-0.5 grid size-7 shrink-0 place-items-center rounded text-muted-foreground/50 hover:text-destructive"
+                className="-my-1 grid size-10 shrink-0 place-items-center rounded text-muted-foreground/50 hover:text-destructive"
               >
                 <Trash2 className="size-4" />
               </button>
@@ -1202,8 +1485,8 @@ function Carryover({ date, today, drag }: { date: ISODate; today: ISODate; drag:
                 onClick={() => place(item)}
                 onContextMenu={(e) => e.preventDefault()}
                 aria-label={`Přenést: ${item.text}`}
-                title="Ťukni a padne do nejbližšího volna, nebo přetáhni do trojky a mřížky."
-                className="mt-0.5 grid size-7 shrink-0 cursor-grab place-items-center rounded text-muted-foreground/50 hover:text-foreground [-webkit-touch-callout:none]"
+                title="Ťukni a padne do nejbližšího volna, podrž a vybereš čas, nebo přetáhni do trojky a mřížky."
+                className="-my-1 -mr-1.5 grid size-11 shrink-0 cursor-grab place-items-center rounded text-muted-foreground/60 hover:text-foreground [-webkit-touch-callout:none]"
               >
                 <GripVertical className="size-4" />
               </button>
@@ -1233,10 +1516,12 @@ function Carryover({ date, today, drag }: { date: ISODate; today: ISODate; drag:
 function AiSuggestions({
   date,
   today,
+  onChangeTime,
   className,
 }: {
   date: ISODate;
   today: ISODate;
+  onChangeTime: (blockId: string) => void;
   className?: string;
 }) {
   const { state, setPriority, addBlock } = useStore();
@@ -1294,8 +1579,13 @@ function AiSuggestions({
         searchFrom(date, today, timeboxStart),
         SHEET_SLOT,
       );
-      addBlock({ date, start, duration: SHEET_SLOT, title: item.text });
-      toast({ tone: "info", title: `Naplánováno na ${formatMinutes(start)}`, description: item.text });
+      const block = addBlock({ date, start, duration: SHEET_SLOT, title: item.text });
+      toast({
+        tone: "info",
+        title: `Naplánováno na ${formatMinutes(start)}`,
+        description: item.text,
+        action: { label: "Změnit", onClick: () => onChangeTime(block.id) },
+      });
     }
     void tapFeedback();
     setItems((prev) => prev.filter((i) => i !== item));

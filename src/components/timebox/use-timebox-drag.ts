@@ -8,7 +8,8 @@ import type { ISODate } from "@/lib/types";
  *
  * Samotné držení a hledání cíle pod prstem řeší `useHoldDrag`; tady se jen
  * pojmenují místa listu. Políčka mřížky se hlásí atributem `data-slot`,
- * hlavní věci dne `data-priority-index`, koš `data-trash`.
+ * slité volno agendy `data-free`, hlavní věci dne `data-priority-index`,
+ * koš `data-trash`.
  */
 
 export type DragSource =
@@ -23,27 +24,53 @@ export type DragSource =
   /** Nedokončená hlavní věc z dřívějšího dne (sekce „Nestihl jsem“). */
   | { kind: "carryover"; date: ISODate; index: number; title: string };
 
-export type DropTarget =
+/** Místo v mřížce: půlhodina, nebo slité volno agendy. */
+export type SheetTarget =
   | { kind: "slot"; date: ISODate; start: number }
+  /**
+   * Řádek „volno 2 h“ v agendě. Podržený prst ho rozbalí na půlhodiny,
+   * puštění rovnou na něj nechá vybrat čas z toho úseku.
+   */
+  | { kind: "free"; date: ISODate; start: number; count: number; index: number };
+
+export type DropTarget =
+  | SheetTarget
   | { kind: "priority"; index: number }
-  /** Pruh, který se ukáže jen při tažení - puštění tam věc z listu sundá. */
+  /** Bublina, která se ukáže jen při tažení - puštění tam věc z listu sundá. */
   | { kind: "trash" };
 
 export type TimeboxDrag = HoldDrag<DragSource, DropTarget>;
 
-function findTarget(x: number, y: number): DropTarget | null {
-  const el = document.elementFromPoint(x, y) as HTMLElement | null;
-  if (!el) return null;
-
-  // Koš je nade vším ostatním, takže se hledá první.
-  if (el.closest("[data-trash]")) return { kind: "trash" };
-
+/** Půlhodina nebo volno pod bodem - pro tah věcí i pro tah za spodní hranu bloku. */
+export function findSheetTarget(el: Element): SheetTarget | null {
   const slot = el.closest<HTMLElement>("[data-slot]");
   if (slot) {
     const start = Number(slot.dataset.slotStart);
     const date = slot.dataset.slotDate;
     if (date && Number.isFinite(start)) return { kind: "slot", date, start };
   }
+  const free = el.closest<HTMLElement>("[data-free]");
+  if (free) {
+    const start = Number(free.dataset.freeStart);
+    const count = Number(free.dataset.freeCount);
+    const index = Number(free.dataset.freeIndex);
+    const date = free.dataset.freeDate;
+    if (date && Number.isFinite(start) && count > 0 && Number.isInteger(index)) {
+      return { kind: "free", date, start, count, index };
+    }
+  }
+  return null;
+}
+
+function findTarget(x: number, y: number): DropTarget | null {
+  const el = document.elementFromPoint(x, y);
+  if (!el) return null;
+
+  // Koš je nade vším ostatním, takže se hledá první.
+  if (el.closest("[data-trash]")) return { kind: "trash" };
+
+  const sheet = findSheetTarget(el);
+  if (sheet) return sheet;
 
   const priority = el.closest<HTMLElement>("[data-priority-index]");
   if (priority) {
@@ -55,6 +82,7 @@ function findTarget(x: number, y: number): DropTarget | null {
 
 export function useTimeboxDrag(
   onDrop: (source: DragSource, target: DropTarget) => void,
+  onHold: (source: DragSource) => void,
 ): TimeboxDrag {
-  return useHoldDrag<DragSource, DropTarget>({ findTarget, onDrop });
+  return useHoldDrag<DragSource, DropTarget>({ findTarget, onDrop, onHold });
 }

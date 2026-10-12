@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
+import { isHoldDragging } from "@/components/ui/use-hold-drag";
 
 /**
  * Přejíždění mezi sekcemi prstem.
@@ -111,6 +112,8 @@ export function useSwipeNav(routes: string[], current: string): void {
       const t = track;
       track = null;
       if (!t || t.dead || t.pointerId !== e.pointerId) return;
+      // Puštění přetahované věci není přejetí, i kdyby byl tah rychlý a do strany.
+      if (isHoldDragging()) return;
 
       const dx = e.clientX - t.x;
       const dy = e.clientY - t.y;

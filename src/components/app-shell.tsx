@@ -14,6 +14,7 @@ import { useSwipeNav } from "@/components/providers/use-swipe-nav";
 import { applyAccent } from "@/lib/prefs";
 import { applyPendingUpdate, checkForUpdate, markBootSucceeded } from "@/lib/live-update";
 import { hideSplash, isNative, registerBackButton, syncStatusBar } from "@/lib/native";
+import { closeTopLayer } from "@/components/ui/back-stack";
 import { streaks } from "@/lib/stats";
 import { cn, plural } from "@/lib/utils";
 import { logoImage } from "@/lib/logo-image";
@@ -85,6 +86,9 @@ function useNativeShell() {
   React.useEffect(() => {
     let cleanup = () => {};
     void registerBackButton(() => {
+      // Otevřený spodní panel zavře Zpět jako první - tak to dělá každá
+      // Android appka, a jinak by se pod ním odešlo z obrazovky.
+      if (closeTopLayer()) return true;
       // Uvnitř detailu se vrátíme, na záložce necháme systém appku zavřít.
       if (atRoot.current) return false;
       router.back();

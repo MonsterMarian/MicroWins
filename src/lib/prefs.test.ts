@@ -115,15 +115,17 @@ describe("rozvržení time boxu", () => {
     expect(parsePrefs({ timeboxLayout: "sheet" }).timeboxLayout).toBe("sheet");
   });
 
-  it("starší nastavení bez volby dostane jednosloupcový seznam", () => {
-    expect(parsePrefs({}).timeboxLayout).toBe("list");
-    expect(parsePrefs({ timeboxLayout: "grid" }).timeboxLayout).toBe("list");
+  it("nastavení bez volby dostane agendu se slitým volnem", () => {
+    expect(parsePrefs({}).timeboxLayout).toBe("agenda");
+    expect(parsePrefs({ timeboxLayout: "grid" }).timeboxLayout).toBe("agenda");
+    // Kdo si seznam vybral, tomu zůstane.
+    expect(parsePrefs({ timeboxLayout: "list" }).timeboxLayout).toBe("list");
   });
 
   /* „Záložky" padly - schovávaly brain dump na vlastní obrazovce, takže list
      vždy něčeho zbýval. Uložená volba nesmí nikoho rozbít. */
-  it("zrušené Záložky spadnou na Seznam", () => {
-    expect(parsePrefs({ timeboxLayout: "tabs" }).timeboxLayout).toBe("list");
+  it("zrušené Záložky spadnou na výchozí agendu", () => {
+    expect(parsePrefs({ timeboxLayout: "tabs" }).timeboxLayout).toBe("agenda");
   });
 });
 

@@ -162,7 +162,10 @@ export const DEFAULT_PREFS: Prefs = {
   todoTtlMinutes: DEFAULT_TODO_TTL_MINUTES,
   timeboxStart: DEFAULT_TIMEBOX_START,
   timeboxEnd: DEFAULT_TIMEBOX_END,
-  timeboxLayout: "list",
+  /* Agenda, ne seznam: na telefonu má prázdná mřížka 5:00-23:30 přes 1 600 px
+     a brain dump pod ní je o dvě obrazovky níž. Slité volno den zkrátí na pár
+     řádků a tah už agendu nerozbaluje celou (viz `agendaItems`). */
+  timeboxLayout: "agenda",
   todoInTimebox: true,
   dueRules: DEFAULT_DUE_RULES,
 };

@@ -419,6 +419,26 @@
     animation: mw-fab-in 0.22s ease-out both;
   }
 
+  /* Spodní panel vyjede zpod okraje, odkud se dá zase stáhnout dolů. */
+  @keyframes mw-sheet-in {
+    from {
+      transform: translateY(100%);
+    }
+    to {
+      transform: none;
+    }
+  }
+
+  .mw-sheet-in {
+    animation: mw-sheet-in 0.22s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .mw-sheet-in {
+      animation-duration: 0.01s;
+    }
+  }
+
   /* Přenos s neznámým koncem: kus pruhu jezdí zleva doprava, dokud server
      neřekne, kolik toho je. */
   @keyframes mw-indeterminate {

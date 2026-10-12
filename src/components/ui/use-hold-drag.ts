@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { tapFeedback } from "@/lib/native";
+import { tapFeedback, tickFeedback } from "@/lib/native";
 
 /**
  * Tažení věci na místo - „vezmi tohle a pusť to tam".
@@ -20,6 +20,10 @@ import { tapFeedback } from "@/lib/native";
  *    nescrolluje nic a čekání by znamenalo jen to, že „přetahování nefunguje".
  * 2. **Puštění po tahu není klepnutí.** Jinak by se hned otevřelo pole
  *    a přepisovalo by se to, co se jen přesunulo.
+ *
+ * Prstem navíc: přejetí na jiný cíl jemně cvakne (zakryté místo pod prstem
+ * se dá nahmatat) a podržení, po kterém se prst nehne, je „podržení“, ne tah -
+ * kdo chce, dostane na něj vlastní akci (`onHold`).
  */
 
 export interface HoldDragGhost<S> {
@@ -33,6 +37,21 @@ export interface HoldDrag<S, T> {
   press: (source: S, event: React.PointerEvent<HTMLElement>) => void;
   ghost: HoldDragGhost<S> | null;
   target: T | null;
+  /**
+   * Znovu najde cíl pod stojícím prstem. Volá se, když se pod ním přestaví
+   * stránka (rozbalené volno v agendě) - jinak by platil cíl, který už
+   * na obrazovce není, dokud se prst nepohne.
+   */
+  refresh: () => void;
+}
+
+/**
+ * Běží zrovna nějaký tah? Přejetí mezi sekcemi appky se podle toho
+ * zdrží - puštění rychle taženého zápisu by jinak přeskočilo na vedlejší
+ * obrazovku.
+ */
+export function isHoldDragging(): boolean {
+  return typeof document !== "undefined" && document.documentElement.dataset.mwDrag === "1";
 }
 
 /** Stejné držení jako u přetahování v seznamech. */
@@ -51,6 +70,10 @@ interface Session<S> {
   hold: number;
   raf: number;
   dragging: boolean;
+  /** Kde tah začal - podle toho se pozná podržení bez pohybu. */
+  engagedX: number;
+  engagedY: number;
+  moved: boolean;
   detach: () => void;
 }
 
@@ -58,9 +81,23 @@ export function useHoldDrag<S, T>({
   findTarget,
   onDrop,
   scroller,
+  onHold,
+  immediate = false,
 }: {
   findTarget: (x: number, y: number) => T | null;
   onDrop: (source: S, target: T) => void;
+  /**
+   * Prst podržel a pustil, aniž by se pohnul. Bez téhle akce se nestane nic
+   * (jako dřív); s ní je podržení cesta k volbě místa bez tahu přes stránku.
+   * Jen dotyk - myš podržení nezná, tah jí začíná prvním pohybem.
+   */
+  onHold?: (source: S) => void;
+  /**
+   * Táhnout hned, bez podržení - pro úchyty, které nic jiného neumí (spodní
+   * hrana bloku). Takový úchyt musí mít `touch-action: none`, jinak si prst
+   * vezme stránka.
+   */
+  immediate?: boolean;
   /**
    * Plocha, která se má u kraje sama posouvat, když má vlastní scrollování
    * (plátno atomů). Bez ní se posouvá okno.
@@ -71,16 +108,25 @@ export function useHoldDrag<S, T>({
   const [ghost, setGhost] = React.useState<HoldDragGhost<S> | null>(null);
   const [target, setTarget] = React.useState<T | null>(null);
 
-  const latest = React.useRef({ findTarget, onDrop, scroller });
-  latest.current = { findTarget, onDrop, scroller };
+  const latest = React.useRef({ findTarget, onDrop, scroller, onHold });
+  latest.current = { findTarget, onDrop, scroller, onHold };
+  const aimed = React.useRef<T | null>(null);
 
   /* Cíl se přepisuje jen při skutečné změně: pod prstem se hledá při každém
      pohybu, ale políčko bývá pořád to samé a nový objekt by překresloval celou
-     mřížku desetkrát za sekundu. */
-  const aim = React.useCallback((x: number, y: number) => {
+     mřížku desetkrát za sekundu. Nový cíl cvakne - prst ho zakrývá. */
+  const aim = React.useCallback((x: number, y: number, quiet = false) => {
     const next = latest.current.findTarget(x, y);
-    setTarget((prev) => (sameTarget(prev, next) ? prev : next));
+    if (sameTarget(aimed.current, next)) return;
+    aimed.current = next;
+    setTarget(next);
+    if (next !== null && !quiet) void tickFeedback();
   }, []);
+
+  const refresh = React.useCallback(() => {
+    const s = session.current;
+    if (s?.dragging) aim(s.x, s.y);
+  }, [aim]);
 
   const press = React.useCallback(
     (source: S, event: React.PointerEvent<HTMLElement>) => {
@@ -106,6 +152,7 @@ export function useHoldDrag<S, T>({
         if (e.cancelable) e.preventDefault();
         s.x = e.clientX;
         s.y = e.clientY;
+        if (!s.moved && Math.hypot(s.x - s.engagedX, s.y - s.engagedY) > SLOP) s.moved = true;
         setGhost({ source: s.source, x: s.x, y: s.y });
         aim(s.x, s.y);
       };
@@ -117,8 +164,25 @@ export function useHoldDrag<S, T>({
       const onEnd = (e: PointerEvent) => {
         const s = session.current;
         if (!s || s.pointerId !== e.pointerId) return;
-        const dropped = s.dragging ? latest.current.findTarget(e.clientX, e.clientY) : null;
         const dragged = s.source;
+        /* Prst (u okamžitého úchytu i myš) se po začátku tahu nepohnul: to je
+           podržení, ne puštění. Úchyt bez podržení tak nikdy „nepustí“ věc na
+           místo, kde už leží - u délky bloku by obyčejné ťuknutí blok zkrátilo. */
+        const still = s.dragging && !s.moved && e.type === "pointerup";
+        const held =
+          still &&
+          (immediate || (e.pointerType !== "mouse" && latest.current.onHold !== undefined));
+        if (held) {
+          cancel(true);
+          latest.current.onHold?.(dragged);
+          return;
+        }
+        // Zrušený dotyk (systém si vzal gesto) nikam nepouští - poslední cíl
+        // pod prstem by byl náhoda, ne volba.
+        const dropped =
+          s.dragging && e.type === "pointerup"
+            ? latest.current.findTarget(e.clientX, e.clientY)
+            : null;
         cancel(s.dragging);
         if (dropped !== null) latest.current.onDrop(dragged, dropped);
       };
@@ -132,6 +196,14 @@ export function useHoldDrag<S, T>({
         s.detach();
         setGhost(null);
         setTarget(null);
+        aimed.current = null;
+        if (s.dragging) {
+          // Až po doběhnutí puštění - posluchač přejetí mezi sekcemi visí na
+          // stejné události a musí ještě vidět, že šlo o tah.
+          window.setTimeout(() => {
+            if (!session.current?.dragging) delete document.documentElement.dataset.mwDrag;
+          }, 0);
+        }
         if (wasDragging) {
           const swallow = (ev: MouseEvent) => {
             ev.preventDefault();
@@ -184,6 +256,9 @@ export function useHoldDrag<S, T>({
         if (!s || s.dragging) return;
         window.clearTimeout(s.hold);
         s.dragging = true;
+        s.engagedX = s.x;
+        s.engagedY = s.y;
+        document.documentElement.dataset.mwDrag = "1";
         try {
           element.setPointerCapture(pointerId);
         } catch {
@@ -191,7 +266,8 @@ export function useHoldDrag<S, T>({
         }
         void tapFeedback();
         setGhost({ source: s.source, x: s.x, y: s.y });
-        aim(s.x, s.y);
+        // Start tahu už cvakl - první cíl pod prstem podruhé necvaká.
+        aim(s.x, s.y, true);
         s.raf = requestAnimationFrame(scroll);
       };
 
@@ -209,11 +285,19 @@ export function useHoldDrag<S, T>({
         y: event.clientY,
         raf: 0,
         dragging: false,
+        engagedX: event.clientX,
+        engagedY: event.clientY,
+        moved: false,
         detach,
-        hold: window.setTimeout(engage, HOLD),
+        hold: immediate ? 0 : window.setTimeout(engage, HOLD),
       };
+      if (immediate) {
+        // Úchyt nic jiného neumí, takže stránce nepatří ani první pohyb.
+        if (event.cancelable) event.preventDefault();
+        engage();
+      }
     },
-    [aim],
+    [aim, immediate],
   );
 
   React.useEffect(
@@ -224,11 +308,12 @@ export function useHoldDrag<S, T>({
       window.clearTimeout(s.hold);
       cancelAnimationFrame(s.raf);
       s.detach();
+      if (s.dragging) delete document.documentElement.dataset.mwDrag;
     },
     [],
   );
 
-  return { press, ghost, target };
+  return { press, ghost, target, refresh };
 }
 
 /** Jak rychle se posouvat, když je prst blízko kraje - čím blíž, tím rychleji. */

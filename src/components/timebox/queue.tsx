@@ -227,21 +227,26 @@ function TodoRow({
     : {};
 
   return (
-    <div className={cn("flex items-start gap-2 px-2.5 py-1.5", done && "opacity-60")}>
+    <div className={cn("flex min-h-12 items-center gap-2 px-2.5 py-1", done && "opacity-60")}>
       {/* Check-box button - prázdný pro nedokončené, plná fajfka jen pro hotové. */}
       <button
         type="button"
         onClick={handleToggle}
         aria-label={done ? "Označit jako nedokončené" : "Označit jako hotové"}
         title={done ? "Vrátit zpět" : "Hotovo"}
-        className={cn(
-          "mt-0.5 grid size-7 shrink-0 place-items-center rounded border transition-colors",
-          done
-            ? "border-progress bg-progress text-background"
-            : "border-border text-muted-foreground hover:border-foreground hover:text-foreground",
-        )}
+        className="group/check -my-1 -ml-2 grid size-11 shrink-0 place-items-center"
       >
-        {done ? <Check className="size-4" /> : null}
+        {/* Klikací plocha na prst (44 px), vidět je jen čtvereček. */}
+        <span
+          className={cn(
+            "grid size-6 place-items-center rounded border transition-colors",
+            done
+              ? "border-progress bg-progress text-background"
+              : "border-border text-muted-foreground group-hover/check:border-foreground",
+          )}
+        >
+          {done ? <Check className="size-4" /> : null}
+        </span>
       </button>
       <button
         type="button"
@@ -288,7 +293,7 @@ function TodoRow({
             onClick={handleDelete}
             aria-label={`Smazat: ${todo.text}`}
             title="Smazat položku"
-            className="mt-0.5 grid size-7 shrink-0 place-items-center rounded text-muted-foreground/50 hover:text-destructive"
+            className="-my-1 grid size-10 shrink-0 place-items-center rounded text-muted-foreground/50 hover:text-destructive"
           >
             <Trash2 className="size-4" />
           </button>
@@ -296,8 +301,8 @@ function TodoRow({
             type="button"
             {...pressProps}
             aria-label={`Přetáhnout: ${todo.text}`}
-            title="Ťukni a padne do nejbližšího volna, nebo přetáhni do mřížky."
-            className="mt-0.5 grid size-7 shrink-0 place-items-center rounded text-muted-foreground/50 hover:text-foreground"
+            title="Ťukni a padne do nejbližšího volna, podrž a vybereš čas, nebo přetáhni do mřížky."
+            className="-my-1 -mr-1.5 grid size-11 shrink-0 place-items-center rounded text-muted-foreground/60 hover:text-foreground"
           >
             <GripVertical className="size-4" />
           </button>
@@ -347,7 +352,7 @@ function TaskQueue({
 }
 
 const CHIP =
-  "flex shrink-0 items-center gap-2 rounded-full border bg-card py-1.5 pl-1.5 pr-3 text-xs transition-colors hover:bg-accent active:bg-accent";
+  "flex h-10 shrink-0 items-center gap-2 rounded-full border bg-card pl-2 pr-3.5 text-xs transition-colors hover:bg-accent active:bg-accent";
 
 function pressProps(onPress: ChipPress) {
   if (!onPress) return {};

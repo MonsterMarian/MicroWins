@@ -1,5 +1,5 @@
 import { addDays } from "./date";
-import { blockEnd, toggleBlockDone as toggleBlock } from "./timeblocks";
+import { blockEnd, MIN_DURATION, toggleBlockDone as toggleBlock } from "./timeblocks";
 import type { DaySheet, ISODate, MicroWinsState, TimeBlock } from "./types";
 
 /**
@@ -99,6 +99,108 @@ export function slotContent(blocks: TimeBlock[], start: number): SlotContent {
     blocks: own,
     running: blocks.find((b) => b.start < start && blockEnd(b) > start) ?? null,
   };
+}
+
+// --- agenda, výběr času, délka tahem ----------------------------------------
+
+/** Půlhodina mřížky: den a minuty od půlnoci. */
+export interface SheetSlot {
+  date: ISODate;
+  start: number;
+}
+
+/** Všechny půlhodiny mřížky po sobě, i přes půlnoc. */
+export function timeboxSlots(rows: TimeboxRow[]): SheetSlot[] {
+  return rows.flatMap((row) =>
+    [false, true].map((half) => ({ date: row.date, start: slotStart(row.hour, half) })),
+  );
+}
+
+export type AgendaItem =
+  | { kind: "slot"; index: number }
+  /** Prázdné půlhodiny slité do jednoho řádku - `from` je index první z nich. */
+  | { kind: "free"; from: number; count: number };
+
+/**
+ * Řádky agendy: obsazené půlhodiny zvlášť, prázdné mezi nimi slité do řádku
+ * volna.
+ *
+ * `expanded` jsou indexy začátků volna, které se mají rozbalit na jednotlivé
+ * půlhodiny. Rozbaluje se při tažení, jen ten úsek, nad kterým prst chvíli
+ * podrží. Celá agenda se dřív rozbalila hned při začátku tahu a obsah pod
+ * prstem poskočil o stovky pixelů, takže se netrefilo nic.
+ */
+export function agendaItems(
+  occupied: readonly boolean[],
+  expanded: ReadonlySet<number> = new Set(),
+): AgendaItem[] {
+  const out: AgendaItem[] = [];
+  let run: { from: number; count: number } | null = null;
+  const flush = () => {
+    if (!run) return;
+    if (expanded.has(run.from)) {
+      for (let i = run.from; i < run.from + run.count; i++) out.push({ kind: "slot", index: i });
+    } else {
+      out.push({ kind: "free", ...run });
+    }
+    run = null;
+  };
+  occupied.forEach((busy, index) => {
+    if (busy) {
+      flush();
+      out.push({ kind: "slot", index });
+    } else if (run) {
+      run.count += 1;
+    } else {
+      run = { from: index, count: 1 };
+    }
+  });
+  flush();
+  return out;
+}
+
+/** Půlhodina nabízená ve výběru času. */
+export interface SlotChoice extends SheetSlot {
+  /** Něco v ní už je - nabízí se dál (překryvy jsou povolené), jen ztlumeně. */
+  busy: boolean;
+}
+
+/**
+ * Půlhodiny, které má smysl nabídnout ve výběru „Kdy?“.
+ *
+ * Dnešní uplynulé půlhodiny se vynechávají - do minulosti se neplánuje, a
+ * stejně tak to dělá ťuknutí do nejbližšího volna. Blok, který se zrovna
+ * přeplánovává (`exclude`), své půlhodiny neobsazuje, jinak by se tvářil, že
+ * mu překáží sám sobě.
+ */
+export function slotChoices(
+  slots: readonly SheetSlot[],
+  blocks: readonly TimeBlock[],
+  options: { today: ISODate; nowMinutes: number; exclude?: string | null },
+): SlotChoice[] {
+  const others = blocks.filter((b) => b.id !== options.exclude);
+  return slots
+    .filter(
+      (slot) => !(slot.date === options.today && slot.start + SHEET_SLOT <= options.nowMinutes),
+    )
+    .map((slot) => ({
+      ...slot,
+      busy: others.some(
+        (b) =>
+          b.date === slot.date && b.start < slot.start + SHEET_SLOT && blockEnd(b) > slot.start,
+      ),
+    }));
+}
+
+/**
+ * Délka bloku po tahu za spodní hranu na půlhodinu `target`: blok skončí
+ * na jejím konci. Půlhodina nad začátkem bloku ho nezkrátí pod minimum a
+ * mřížka přes půlnoc počítá i s ranními hodinami dalšího dne.
+ */
+export function resizedDuration(block: TimeBlock, target: SheetSlot): number {
+  const nextDay = target.date > block.date ? 24 * 60 : 0;
+  const end = target.start + SHEET_SLOT + nextDay;
+  return Math.max(MIN_DURATION, end - block.start);
 }
 
 // --- propojení priority s blokem --------------------------------------------

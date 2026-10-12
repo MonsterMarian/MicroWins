@@ -1,18 +1,35 @@
 "use client";
 
 import * as React from "react";
-import { Check, Link2, Plus, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, ChevronsUpDown, Link2, Plus } from "lucide-react";
 import { Card } from "@/components/ui/card";
+import { useHoldDrag } from "@/components/ui/use-hold-drag";
 import { useStore } from "@/components/providers/store-provider";
 import { usePrefs } from "@/components/providers/use-prefs";
 import { useToast } from "@/components/providers/toast-provider";
+import { addDays } from "@/lib/date";
 import { tapFeedback, winFeedback } from "@/lib/native";
-import { blockTitle, formatLength, formatMinutes, TIMEBLOCK_MAX_TITLE } from "@/lib/timeblocks";
-import { SHEET_SLOT, slotContent, slotStart, timeboxRows } from "@/lib/timebox";
+import {
+  blockTitle,
+  formatLength,
+  formatMinutes,
+  TIMEBLOCK_MAX_TITLE,
+} from "@/lib/timeblocks";
+import {
+  agendaItems,
+  resizedDuration,
+  SHEET_SLOT,
+  slotContent,
+  timeboxRows,
+  timeboxSlots,
+  type AgendaItem,
+  type SheetSlot,
+} from "@/lib/timebox";
 import type { ISODate, TimeBlock } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { AutoTextarea } from "./auto-textarea";
-import type { TimeboxDrag } from "./use-timebox-drag";
+import { findSheetTarget, type SheetTarget, type TimeboxDrag } from "./use-timebox-drag";
+import { SWIPE_THRESHOLD, useSwipeRow } from "./use-swipe-row";
 
 /**
  * Mřížka time boxu: hodina na řádek, sloupce `:00` a `:30`.
@@ -21,18 +38,20 @@ import type { TimeboxDrag } from "./use-timebox-drag";
  * Do jedné půlhodiny se jich vejde víc (překryvy appka povoluje odjakživa)
  * a přetáhnout se dají prstem jinam; dlouhý text políčko neusekne, jen mu
  * naroste řádek.
+ *
+ * Na telefonu (seznam, agenda) má zápis navíc: ťuknutí otevře panel bloku,
+ * švihnutí doprava odškrtne, doleva pošle na zítra a pilulkou s délkou se
+ * blok protáhne tahem dolů.
  */
+
+/** Jak dlouho musí prst viset nad řádkem volna, než se rozbalí na půlhodiny. */
+const SPRING = 450;
 
 /** Které políčko se zrovna píše. `blockId: null` = nový blok. */
 interface Editing {
   date: ISODate;
   start: number;
   blockId: string | null;
-}
-
-interface SlotRef {
-  date: ISODate;
-  start: number;
 }
 
 /**
@@ -42,11 +61,18 @@ interface SlotRef {
  */
 export type GridLayout = "sheet" | "list" | "agenda";
 
+/** Tah za pilulku s délkou - co se protahuje. */
+interface ResizeSource {
+  id: string;
+  title: string;
+}
+
 export function TimeboxGrid({
   date,
   today,
   drag,
   layout = "sheet",
+  onOpenBlock,
   className,
 }: {
   date: ISODate;
@@ -54,12 +80,16 @@ export function TimeboxGrid({
   /** Tažení drží panel - přetahuje se i mezi trojkou hlavních věcí a mřížkou. */
   drag: TimeboxDrag;
   layout?: GridLayout;
+  /** Ťuknutí na zápis - panel bloku drží panel listu, ať je jen jeden naráz. */
+  onOpenBlock: (id: string) => void;
   className?: string;
 }) {
-  const { state } = useStore();
+  const { state, resizeBlock } = useStore();
   const { timeboxStart, timeboxEnd } = usePrefs();
   const [editing, setEditing] = React.useState<Editing | null>(null);
+  const [expanded, setExpanded] = React.useState<ReadonlySet<number>>(() => new Set());
   const now = useNowMinutes();
+  const container = React.useRef<HTMLElement | null>(null);
 
   const rows = React.useMemo(
     () => timeboxRows(date, timeboxStart, timeboxEnd),
@@ -67,13 +97,7 @@ export function TimeboxGrid({
   );
 
   /** Všechna políčka po sobě - Enter posouvá na další, i přes konec hodiny. */
-  const slots = React.useMemo(
-    () =>
-      rows.flatMap((row) =>
-        [false, true].map((half) => ({ date: row.date, start: slotStart(row.hour, half) })),
-      ),
-    [rows],
-  );
+  const slots = React.useMemo(() => timeboxSlots(rows), [rows]);
 
   /* Mřížka může přetéct přes půlnoc, takže dnů bývá víc než jeden - bloky se
      proto berou pro každý den zvlášť a ne jednou pro `date`. */
@@ -92,7 +116,76 @@ export function TimeboxGrid({
     return map;
   }, [state.timeBlocks, rows]);
 
-  const isEditing = (slot: SlotRef) =>
+  /* Tah za pilulku s délkou. Úchyt nic jiného neumí, takže táhne hned, bez
+     podržení; ťuknutí na něj (bez pohybu) otevře panel bloku s čipy délky. */
+  const resize = useHoldDrag<ResizeSource, SheetTarget>({
+    immediate: true,
+    findTarget: (x, y) => {
+      const el = document.elementFromPoint(x, y);
+      return el ? findSheetTarget(el) : null;
+    },
+    onDrop: (source, target) => {
+      const block = state.timeBlocks.find((b) => b.id === source.id);
+      if (!block) return;
+      const duration = resizedDuration(block, target);
+      if (duration === block.duration) return;
+      resizeBlock(block.id, duration);
+      void tapFeedback();
+    },
+    onHold: (source) => onOpenBlock(source.id),
+  });
+
+  /* Rozbalení volna pod prstem. Celá agenda se při tahu dřív rozbalila
+     naráz a obsah pod prstem uskočil o stovky pixelů - teď se rozbalí jen
+     úsek, nad kterým prst chvíli visí, a to dolů od místa, kde visí. */
+  const hovered =
+    drag.target?.kind === "free"
+      ? drag.target.index
+      : resize.target?.kind === "free"
+        ? resize.target.index
+        : null;
+  React.useEffect(() => {
+    if (hovered === null) return;
+    const timer = window.setTimeout(() => {
+      setExpanded((prev) => new Set(prev).add(hovered));
+    }, SPRING);
+    return () => window.clearTimeout(timer);
+  }, [hovered]);
+
+  const dragging = drag.ghost !== null || resize.ghost !== null;
+  React.useEffect(() => {
+    if (!dragging) setExpanded((prev) => (prev.size === 0 ? prev : new Set()));
+  }, [dragging]);
+
+  /* Pod stojícím prstem je teď jiný prvek (půlhodina místo volna) - cíl se
+     musí najít znovu, jinak by puštění šlo pořád „na volno“. */
+  const { refresh: refreshDrag } = drag;
+  const { refresh: refreshResize } = resize;
+  React.useLayoutEffect(() => {
+    refreshDrag();
+    refreshResize();
+  }, [expanded, refreshDrag, refreshResize]);
+
+  /** Kam až by blok po puštění pilulky sahal - políčka se v tom rozsahu rozsvítí. */
+  const resizeRange = React.useMemo(() => {
+    if (!resize.ghost || !resize.target) return null;
+    const block = state.timeBlocks.find((b) => b.id === resize.ghost?.source.id);
+    if (!block) return null;
+    const target =
+      resize.target.kind === "slot"
+        ? resize.target
+        : { date: resize.target.date, start: resize.target.start };
+    return { block, end: block.start + resizedDuration(block, target) };
+  }, [resize.ghost, resize.target, state.timeBlocks]);
+
+  const inResize = (slot: SheetSlot) => {
+    if (!resizeRange) return false;
+    const { block, end } = resizeRange;
+    const at = slot.start + (slot.date > block.date ? 24 * 60 : 0);
+    return (slot.date === block.date || slot.date === addDays(block.date, 1)) && at >= block.start && at < end;
+  };
+
+  const isEditing = (slot: SheetSlot) =>
     editing !== null && editing.date === slot.date && editing.start === slot.start;
 
   const renderSlot = (index: number, props: { roomy?: boolean; className?: string } = {}) => {
@@ -104,24 +197,57 @@ export function TimeboxGrid({
         blocks={blocksByDate.get(slot.date) ?? []}
         editing={isEditing(slot) ? editing : null}
         onEdit={setEditing}
+        onOpenBlock={onOpenBlock}
         next={slots[index + 1] ?? null}
         drag={drag}
+        onResizePress={(source, e) => resize.press(source, e)}
+        resizingId={resize.ghost?.source.id ?? null}
+        highlighted={inResize(slot)}
         isNow={isNowSlot(slot, today, now)}
         {...props}
       />
     );
   };
 
+  const isToday = slots.some((slot) => isNowSlot(slot, today, now));
+  const pill = useNowPill(container, isToday && !dragging, [layout, date, now, state.timeBlocks]);
+
+  const nowPill =
+    pill !== null ? (
+      <button
+        type="button"
+        onClick={() =>
+          container.current
+            ?.querySelector("[data-timebox-now]")
+            ?.scrollIntoView({ block: "center", behavior: "smooth" })
+        }
+        className="mw-fab-in fixed bottom-[calc(5.25rem+var(--mw-safe-bottom))] left-1/2 z-30 flex h-10 -translate-x-1/2 items-center gap-1.5 rounded-full bg-foreground px-4 text-sm font-semibold text-background shadow-lg shadow-black/30 sm:bottom-6"
+      >
+        {pill === "down" ? <ArrowDown className="size-4" /> : <ArrowUp className="size-4" />}
+        Teď {formatMinutes(now)}
+      </button>
+    ) : null;
+
+  const resizeGhost =
+    resize.ghost && resizeRange ? (
+      <div
+        className="pointer-events-none fixed z-50 -translate-x-1/2 rounded-lg border-2 border-progress bg-popover px-3 py-1.5 text-sm font-semibold shadow-xl"
+        style={ghostPosition(resize.ghost.x, resize.ghost.y)}
+      >
+        do {formatMinutes(resizeRange.end % (24 * 60))} · {formatLength(resizeRange.end - resizeRange.block.start)}
+      </div>
+    ) : null;
+
   const hint = (
     <p className="px-1 text-xs text-muted-foreground">
-      Ťukni do políčka a piš; Enter tě posune o půl hodiny dál. Zápis se dá přetáhnout jinam,
-      nahoru mezi hlavní věci dne, nebo dolů do koše. Odškrtnutí platí všude, kde se ta věc
-      ukáže - tady i v ToDo nebo u úkolu.
+      {layout === "sheet"
+        ? "Ťukni do políčka a piš; Enter tě posune o půl hodiny dál. Ťuknutí na zápis otevře jeho čas, délku a akce; podržený se dá přetáhnout jinam, nahoru mezi hlavní věci dne, nebo do koše."
+        : "Ťukni do políčka a piš. Zápis: ťuknutí otevře čas, délku a akce, švihnutí doprava odškrtne, doleva pošle na zítra, podržením ho přetáhneš a za pilulku s délkou protáhneš dolů. Odškrtnutí platí všude, kde se ta věc ukáže."}
     </p>
   );
 
   if (layout !== "sheet") {
-    const occupied = (slot: SlotRef) => {
+    const occupied = slots.map((slot) => {
       const content = slotContent(blocksByDate.get(slot.date) ?? [], slot.start);
       return (
         content.blocks.length > 0 ||
@@ -129,20 +255,27 @@ export function TimeboxGrid({
         isNowSlot(slot, today, now) ||
         isEditing(slot)
       );
-    };
-    const items = listItems(slots, layout, occupied, drag.ghost !== null);
+    });
+    const items: AgendaItem[] =
+      layout === "list"
+        ? slots.map((_, index) => ({ kind: "slot", index }))
+        : agendaItems(occupied, expanded);
 
     return (
-      <section className={cn("flex flex-col gap-1.5", className)}>
+      <section ref={container} className={cn("flex flex-col gap-1.5", className)}>
         <Card className="-mx-4 overflow-hidden rounded-none border-x-0 p-0 sm:mx-0 sm:rounded-xl sm:border-x">
           {items.map((item) => {
             if (item.kind === "free") {
               const from = slots[item.from];
+              const target = drag.target ?? resize.target;
               return (
                 <FreeRow
                   key={`${from.date}-${from.start}-free`}
                   from={from}
+                  index={item.from}
                   count={item.count}
+                  dragging={dragging}
+                  hovered={target?.kind === "free" && target.index === item.from}
                   onEdit={() => setEditing({ ...from, blockId: null })}
                 />
               );
@@ -152,7 +285,7 @@ export function TimeboxGrid({
               <div
                 key={`${slot.date}-${slot.start}`}
                 className={cn(
-                  "grid grid-cols-[3rem_minmax(0,1fr)] border-b last:border-b-0",
+                  "grid grid-cols-[3.25rem_minmax(0,1fr)] border-b last:border-b-0",
                   // Půlhodina uvnitř hodiny se odděluje jen jemně, hodiny naplno.
                   layout === "list" && slot.start % 60 === 0 && "border-border/40",
                 )}
@@ -164,12 +297,14 @@ export function TimeboxGrid({
           })}
         </Card>
         {hint}
+        {nowPill}
+        {resizeGhost}
       </section>
     );
   }
 
   return (
-    <section className={cn("flex flex-col gap-1.5", className)}>
+    <section ref={container} className={cn("flex flex-col gap-1.5", className)}>
       <div className="tabular grid grid-cols-[2.1rem_minmax(0,1fr)_minmax(0,1fr)] px-0.5 text-[11px] text-muted-foreground">
         <span />
         <span className="pl-1.5">:00</span>
@@ -195,42 +330,64 @@ export function TimeboxGrid({
       </Card>
 
       {hint}
+      {nowPill}
     </section>
   );
 }
 
-function isNowSlot(slot: SlotRef, today: ISODate, now: number): boolean {
+function isNowSlot(slot: SheetSlot, today: ISODate, now: number): boolean {
   return slot.date === today && now >= slot.start && now < slot.start + SHEET_SLOT;
 }
 
-type ListItem = { kind: "slot"; index: number } | { kind: "free"; from: number; count: number };
+/**
+ * Popisek nesený prstem: nad prstem (ten ho jinak zakryje) a nikdy přes kraj
+ * displeje. U horního kraje jde pod prst.
+ */
+export function ghostPosition(x: number, y: number): React.CSSProperties {
+  const width = typeof window === "undefined" ? 400 : window.innerWidth;
+  const margin = Math.min(width * 0.35, 150);
+  return {
+    left: Math.min(Math.max(x, margin), width - margin),
+    top: y < 110 ? y + 40 : y - 76,
+  };
+}
 
 /**
- * Řádky jednosloupcové mřížky. V seznamu je to každá půlhodina, v agendě jen
- * ty, kde něco je (nebo je teď, nebo se zrovna píšou) - prázdné mezi nimi
- * se slijí do jednoho řádku volna.
- *
- * Při tažení se agenda rozbalí celá: volno slité do řádku by šlo pustit jen
- * na jeho začátek, a z přesunu na 14:30 by byl přesun na 12:00.
+ * Je půlhodina „teď“ vidět? Když ne, nabídne se pilulka se směrem, kterým
+ * leží. Sama se stránka neposouvá - trojka nahoře má zůstat to první, co
+ * člověk po otevření vidí.
  */
-function listItems(
-  slots: SlotRef[],
-  layout: "list" | "agenda",
-  occupied: (slot: SlotRef) => boolean,
-  expanded: boolean,
-): ListItem[] {
-  if (layout === "list" || expanded) return slots.map((_, index) => ({ kind: "slot", index }));
-  const out: ListItem[] = [];
-  slots.forEach((slot, index) => {
-    if (occupied(slot)) {
-      out.push({ kind: "slot", index });
+function useNowPill(
+  container: React.RefObject<HTMLElement | null>,
+  enabled: boolean,
+  deps: unknown[],
+): "up" | "down" | null {
+  const [pill, setPill] = React.useState<"up" | "down" | null>(null);
+  React.useEffect(() => {
+    const el = enabled ? container.current?.querySelector("[data-timebox-now]") : null;
+    if (!el) {
+      setPill(null);
       return;
     }
-    const last = out[out.length - 1];
-    if (last?.kind === "free") last.count += 1;
-    else out.push({ kind: "free", from: index, count: 1 });
-  });
-  return out;
+    /* Jedno měření při rolování - stav se mění jen na hranách, takže se
+       nepřekresluje nic. (IntersectionObserver by stačil taky, ale v okně,
+       které zrovna nekreslí, nedá vědět vůbec a pilulka by chyběla.) */
+    const check = () => {
+      const rect = el.getBoundingClientRect();
+      // Spodní lišta a pilulka samy zakrývají kus displeje - za ně se nepočítá.
+      const bottom = window.innerHeight - 96;
+      setPill(rect.bottom < 0 ? "up" : rect.top > bottom ? "down" : null);
+    };
+    check();
+    window.addEventListener("scroll", check, { passive: true });
+    window.addEventListener("resize", check);
+    return () => {
+      window.removeEventListener("scroll", check);
+      window.removeEventListener("resize", check);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, container, ...deps]);
+  return pill;
 }
 
 /** Čas řádku - celé hodiny výrazně, půlhodiny potichu, ať se dá číst po hodinách. */
@@ -239,7 +396,7 @@ function TimeLabel({ start }: { start: number }) {
   return (
     <span
       className={cn(
-        "tabular border-r px-1.5 pt-2.5 text-right text-xs leading-4",
+        "tabular border-r px-1.5 pt-3.5 text-right text-xs leading-4",
         full ? "font-medium text-foreground" : "text-muted-foreground/70",
       )}
     >
@@ -248,30 +405,56 @@ function TimeLabel({ start }: { start: number }) {
   );
 }
 
-/** Slité volno v agendě. Ťuknutí začne psát do jeho první půlhodiny. */
-function FreeRow({ from, count, onEdit }: { from: SlotRef; count: number; onEdit: () => void }) {
+/**
+ * Slité volno v agendě. Ťuknutí začne psát do jeho první půlhodiny.
+ *
+ * Při tahu je to cíl: podržený prst ho po chvíli rozbalí na půlhodiny,
+ * puštění rovnou na něj nechá vybrat čas jen z tohohle úseku.
+ */
+function FreeRow({
+  from,
+  index,
+  count,
+  dragging,
+  hovered,
+  onEdit,
+}: {
+  from: SheetSlot;
+  index: number;
+  count: number;
+  dragging: boolean;
+  hovered: boolean;
+  onEdit: () => void;
+}) {
   const end = from.start + count * SHEET_SLOT;
   return (
     <div
-      data-slot=""
-      data-slot-date={from.date}
-      data-slot-start={from.start}
-      className="grid grid-cols-[3rem_minmax(0,1fr)] border-b last:border-b-0"
+      data-free=""
+      data-free-date={from.date}
+      data-free-start={from.start}
+      data-free-count={count}
+      data-free-index={index}
+      className={cn(
+        "grid grid-cols-[3.25rem_minmax(0,1fr)] border-b transition-colors last:border-b-0",
+        hovered && "bg-progress/15 ring-1 ring-inset ring-progress",
+      )}
     >
-      <span className="tabular border-r px-1.5 py-2 text-right text-xs text-muted-foreground/70">
+      <span className="tabular border-r px-1.5 py-3.5 text-right text-xs leading-4 text-muted-foreground/70">
         {formatMinutes(from.start)}
       </span>
       <button
         type="button"
         onClick={onEdit}
         aria-label={`Naplánovat na ${formatMinutes(from.start)}`}
-        className="flex items-center gap-2 px-2 py-2 text-left text-xs text-muted-foreground hover:bg-accent/60"
+        className="flex min-h-12 items-center gap-2 px-2 text-left text-xs text-muted-foreground hover:bg-accent/60"
       >
         <span className="h-px flex-1 border-t border-dashed" />
         <span className="tabular shrink-0">
-          volno {formatLength(count * SHEET_SLOT)} · do {formatMinutes(end)}
+          {hovered
+            ? "podrž a rozbalí se · pusť a vybereš čas"
+            : `volno ${formatLength(count * SHEET_SLOT)} · do ${formatMinutes(end % (24 * 60))}`}
         </span>
-        <Plus className="size-3.5 shrink-0" />
+        {dragging ? null : <Plus className="size-3.5 shrink-0" />}
       </button>
     </div>
   );
@@ -283,8 +466,12 @@ function Slot({
   blocks,
   editing,
   onEdit,
+  onOpenBlock,
   next,
   drag,
+  onResizePress,
+  resizingId,
+  highlighted,
   isNow,
   roomy = false,
   className,
@@ -294,8 +481,13 @@ function Slot({
   blocks: TimeBlock[];
   editing: Editing | null;
   onEdit: (editing: Editing | null) => void;
-  next: SlotRef | null;
+  onOpenBlock: (id: string) => void;
+  next: SheetSlot | null;
   drag: TimeboxDrag;
+  onResizePress: (source: ResizeSource, event: React.PointerEvent<HTMLElement>) => void;
+  resizingId: string | null;
+  /** Políčko v rozsahu, kam by sahal protahovaný blok. */
+  highlighted: boolean;
   isNow: boolean;
   /** Políčko přes celou šířku (seznam, agenda) - větší písmo a prsty. */
   roomy?: boolean;
@@ -312,18 +504,16 @@ function Slot({
     toggleBlockDone(block.id);
   };
 
-  /** Smazání bloku z mřížky - bez tahu do koše, rovnou ťuknutím na × u zápisu.
-   * Funguje i u bloků napojených na prioritu/ToDo/úkol, kde text nejde
-   * editovat: taky se dal vygumovat jen tahem, a to nebylo zřejmé. */
-  const onDelete = (block: TimeBlock) => {
-    const removed = deleteBlock(block.id);
-    if (!removed) return;
+  /** Švihnutí doleva: na zítra ve stejný čas - stejně jako v panelu bloku. */
+  const onTomorrow = (block: TimeBlock) => {
+    const from = block.date;
+    updateBlock(block.id, { date: addDays(block.date, 1) });
     void tapFeedback();
     toast({
       tone: "info",
-      title: "Odebráno",
-      description: `${formatMinutes(removed.start)} ${blockTitle(state, removed)}`,
-      action: { label: "Vrátit", onClick: () => restoreBlock(removed) },
+      title: `Na zítra ${formatMinutes(block.start)}`,
+      description: blockTitle(state, block),
+      action: { label: "Vrátit", onClick: () => updateBlock(block.id, { date: from }) },
     });
   };
 
@@ -360,10 +550,12 @@ function Slot({
       data-slot=""
       data-slot-date={date}
       data-slot-start={start}
+      {...(isNow ? { "data-timebox-now": "" } : {})}
       className={cn(
         "flex flex-col justify-center gap-px transition-colors",
-        roomy ? "min-h-[2.5rem] px-2 py-1" : "min-h-[2rem] py-0.5 pl-1 pr-0.5",
+        roomy ? "min-h-12 px-2 py-1" : "min-h-[2rem] py-0.5 pl-1 pr-0.5",
         isNow && "bg-progress-muted/40",
+        highlighted && "bg-progress/15",
         isTarget && "bg-progress/20 ring-1 ring-inset ring-progress",
         className,
       )}
@@ -394,14 +586,18 @@ function Slot({
                 }
                 offset={block.start !== start}
                 dragging={
-                  drag.ghost?.source.kind === "block" && drag.ghost.source.id === block.id
+                  (drag.ghost?.source.kind === "block" && drag.ghost.source.id === block.id) ||
+                  resizingId === block.id
                 }
                 onPress={(e) =>
                   drag.press({ kind: "block", id: block.id, title: blockTitle(state, block) }, e)
                 }
+                onResizePress={(e) =>
+                  onResizePress({ id: block.id, title: blockTitle(state, block) }, e)
+                }
                 onToggle={() => onToggle(block)}
-                onEdit={() => onEdit({ date, start, blockId: block.id })}
-                onDelete={() => onDelete(block)}
+                onTomorrow={() => onTomorrow(block)}
+                onOpen={() => onOpenBlock(block.id)}
               />
             ),
           )}
@@ -423,12 +619,15 @@ function Slot({
           aria-label={`Naplánovat na ${formatMinutes(start)}`}
           className={cn(
             "flex w-full items-center rounded-[4px] text-left hover:bg-accent/60",
-            roomy ? "h-8" : "h-6",
+            roomy ? "h-10" : "h-6",
           )}
         >
           {/* Delší blok tu jen pokračuje - popsaný je ve svém prvním políčku. */}
           {content.running ? (
-            <span className="ml-0.5 h-3.5 w-0.5 rounded-full bg-progress/50" aria-hidden />
+            <span
+              className={cn("ml-0.5 w-0.5 rounded-full bg-progress/50", roomy ? "h-8" : "h-3.5")}
+              aria-hidden
+            />
           ) : null}
         </button>
       ) : (
@@ -439,7 +638,10 @@ function Slot({
           onClick={() => onEdit({ date, start, blockId: null })}
           aria-label={`Přidat další na ${formatMinutes(start)}`}
           title="Přidat další"
-          className="group flex h-3.5 w-full items-center justify-center rounded-[3px] border border-dashed border-transparent text-muted-foreground/50 hover:border-border hover:text-foreground"
+          className={cn(
+            "group flex w-full items-center justify-center rounded-[3px] border border-dashed border-transparent text-muted-foreground/50 hover:border-border hover:text-foreground",
+            roomy ? "h-5" : "h-3.5",
+          )}
         >
           <Plus className="size-2.5 opacity-0 transition-opacity group-hover:opacity-100" />
         </button>
@@ -449,11 +651,13 @@ function Slot({
 }
 
 /**
- * Jeden zápis v políčku. Zaškrtávátko odškrtává, text se přepisuje - ale jen
- * u bloku, který si text nese sám. Blok z ToDo, z úkolu nebo z hlavní věci dne
- * zobrazuje jejich jméno, takže přepsat ho tady by vypadalo, že se nic nestalo:
- * uložilo by se do bloku a na obrazovce by dál svítil původní text odkazu.
- * Ťuknutí na takový zápis proto odškrtává a sundat se dá tahem do koše.
+ * Jeden zápis v políčku. Zaškrtávátko odškrtává, ťuknutí na text otevře
+ * panel bloku (text, čas, délka, na zítra, smazat). Malý křížek, který tu
+ * dřív visel, je pryč - na telefonu se na něj ťukalo omylem.
+ *
+ * Na celou šířku (seznam, agenda) navíc: švihnutí doprava odškrtne, doleva
+ * pošle na zítra a pilulka s délkou se dá táhnout dolů - blok se protáhne
+ * do půlhodiny, kde se prst pustí.
  */
 function BlockLine({
   roomy,
@@ -463,9 +667,10 @@ function BlockLine({
   offset,
   dragging,
   onPress,
+  onResizePress,
   onToggle,
-  onEdit,
-  onDelete,
+  onTomorrow,
+  onOpen,
 }: {
   roomy: boolean;
   block: TimeBlock;
@@ -474,44 +679,67 @@ function BlockLine({
   offset: boolean;
   dragging: boolean;
   onPress: (event: React.PointerEvent<HTMLElement>) => void;
+  onResizePress: (event: React.PointerEvent<HTMLElement>) => void;
   onToggle: () => void;
-  onEdit: () => void;
-  onDelete: () => void;
+  onTomorrow: () => void;
+  onOpen: () => void;
 }) {
   const done = block.doneAt !== null;
-  /* × u každého zápisu - v papírové mřížce trvale viditelný, ale bledý,
-     aby nepřekážel při čtení. V roomy zůstává plně vidět jako dosud. */
+  const swipe = useSwipeRow({ enabled: roomy, onRight: onToggle, onLeft: onTomorrow });
+  const armedRight = swipe.offset >= SWIPE_THRESHOLD;
+  const armedLeft = swipe.offset <= -SWIPE_THRESHOLD;
 
-  return (
+  const line = (
     <span
-      onPointerDown={onPress}
+      onPointerDown={(e) => {
+        onPress(e);
+        swipe.handlers.onPointerDown(e);
+      }}
+      onPointerMove={swipe.handlers.onPointerMove}
+      onPointerUp={swipe.handlers.onPointerUp}
+      onPointerCancel={swipe.handlers.onPointerCancel}
+      onClickCapture={swipe.handlers.onClickCapture}
       onContextMenu={(e) => e.preventDefault()}
+      data-no-swipe={roomy ? "" : undefined}
       className={cn(
-        "group/line flex items-start rounded-[3px] [-webkit-touch-callout:none]",
-        roomy ? "min-w-[8rem] flex-[1_1_8rem] gap-2 py-1" : "min-w-[4.5rem] flex-[1_1_4.5rem] gap-1",
+        "group/line relative flex items-center rounded-[3px] [-webkit-touch-callout:none]",
+        // Při švihnutí kryje řádek to, co pod ním prosvítá; jinak je průhledný,
+        // ať je vidět zvýraznění „teď“.
+        swipe.offset !== 0 && "bg-card",
+        roomy ? "min-h-10 gap-1 touch-pan-y" : "min-w-[4.5rem] flex-[1_1_4.5rem] items-start gap-1",
         dragging && "opacity-40",
       )}
+      style={
+        swipe.offset !== 0
+          ? { transform: `translateX(${swipe.offset}px)` }
+          : { transition: "transform 0.18s ease-out" }
+      }
     >
+      {/* Klikací plocha zaškrtávátka je na prst (44 px), vidět je jen malý čtvereček. */}
       <button
         type="button"
         onClick={onToggle}
         aria-pressed={done}
         aria-label={done ? `Vrátit zpět: ${label}` : `Hotovo: ${label}`}
-        className={cn(
-          "grid shrink-0 place-items-center border transition-colors",
-          roomy ? "mt-px size-[1.125rem] rounded-[4px]" : "mt-0.5 size-3.5 rounded-[3px]",
-          done ? "border-progress bg-progress text-progress-foreground" : "border-muted-foreground/40",
-        )}
+        className={cn("grid shrink-0 place-items-center", roomy ? "-my-1 -ml-2 size-11" : "mt-0.5")}
       >
-        {done ? <Check className={roomy ? "size-3" : "size-2.5"} /> : null}
+        <span
+          className={cn(
+            "grid place-items-center border transition-colors",
+            roomy ? "size-5 rounded-[4px]" : "size-3.5 rounded-[3px]",
+            done ? "border-progress bg-progress text-progress-foreground" : "border-muted-foreground/40",
+          )}
+        >
+          {done ? <Check className={roomy ? "size-3.5" : "size-2.5"} /> : null}
+        </span>
       </button>
       <button
         type="button"
-        onClick={linked ? onToggle : onEdit}
+        onClick={onOpen}
         title={label}
         className={cn(
           "min-w-0 flex-1 break-words text-left",
-          roomy ? "text-sm leading-5" : "text-[11px] leading-4",
+          roomy ? "py-2 text-sm leading-5" : "text-[11px] leading-4",
           done && "text-muted-foreground line-through",
         )}
       >
@@ -525,25 +753,51 @@ function BlockLine({
         ) : null}
         {label}
       </button>
-      {/* × pro smazání - v papírové mřížce trvale bledý (ne aby se zapisoval),
-          v roomy plný. Klik se nerozšíří na span, takže tažení nezačne. */}
-      <button
-        type="button"
-        onPointerDown={(e) => e.stopPropagation()}
-        onClick={(e) => {
-          e.stopPropagation();
-          onDelete();
-        }}
-        aria-label={`Smazat: ${label}`}
-        title="Smazat blok"
-        className={cn(
-          "grid shrink-0 place-items-center rounded text-muted-foreground/50 transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:bg-destructive/10 focus-visible:text-destructive",
-          roomy ? "size-5" : "size-3.5",
-        )}
-      >
-        <X className={roomy ? "size-3" : "size-2.5"} />
-      </button>
+      {roomy ? (
+        /* Pilulka s délkou = úchyt pro protažení. Táhne hned (nic jiného
+           neumí), takže si stránka nesmí vzít ani první pohyb. */
+        <button
+          type="button"
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            onResizePress(e);
+          }}
+          onContextMenu={(e) => e.preventDefault()}
+          aria-label={`Délka ${formatLength(block.duration)} - táhni dolů a protáhni`}
+          title="Táhni dolů a blok se protáhne. Ťuknutí otevře délky."
+          className="tabular flex h-9 shrink-0 cursor-ns-resize touch-none items-center gap-0.5 rounded-full border px-2 text-[11px] text-muted-foreground [-webkit-touch-callout:none]"
+        >
+          <ChevronsUpDown className="size-3" />
+          {formatLength(block.duration)}
+        </button>
+      ) : null}
     </span>
+  );
+
+  if (!roomy) return line;
+
+  /* Pod švihaným řádkem prosvítá, co se po puštění stane - a rozsvítí se, až
+     je prst za hranicí. */
+  return (
+    <div className="relative min-w-[8rem] flex-[1_1_8rem] overflow-hidden rounded-[3px]">
+      {swipe.offset !== 0 ? (
+        <div
+          aria-hidden
+          className={cn(
+            "absolute inset-0 flex items-center px-3 text-xs font-semibold transition-colors",
+            swipe.offset > 0 ? "justify-start" : "justify-end",
+            armedRight
+              ? "bg-progress text-progress-foreground"
+              : armedLeft
+                ? "bg-foreground text-background"
+                : "bg-muted text-muted-foreground",
+          )}
+        >
+          {swipe.offset > 0 ? (done ? "Vrátit" : "Hotovo") : "Na zítra →"}
+        </div>
+      ) : null}
+      {line}
+    </div>
   );
 }
 
@@ -578,7 +832,7 @@ function SlotInput({
       className={cn(
         "rounded-[4px] border bg-background",
         roomy
-          ? "min-w-[8rem] flex-[1_1_8rem] px-2 py-1 text-sm leading-5"
+          ? "min-w-[8rem] flex-[1_1_8rem] px-2 py-2 text-sm leading-5"
           : "min-w-[4.5rem] flex-[1_1_4.5rem] px-1 py-0.5 text-[11px] leading-4",
       )}
     />
@@ -600,3 +854,4 @@ function useNowMinutes(): number {
   }, []);
   return minutes;
 }
+

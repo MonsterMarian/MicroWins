@@ -39,6 +39,19 @@ export async function tapFeedback(): Promise<void> {
   }
 }
 
+/**
+ * Nejjemnější cvaknutí - při tažení, když prst přejede na jiné místo, kam se
+ * dá pustit. Zakrytá půlhodina pod prstem se tak dá „nahmatat“.
+ */
+export async function tickFeedback(): Promise<void> {
+  if (!isNative()) return;
+  try {
+    await Haptics.selectionChanged();
+  } catch {
+    // zařízení bez vibrace
+  }
+}
+
 /** Delší cvaknutí, když padne microwin. */
 export async function winFeedback(): Promise<void> {
   if (!isNative()) return;

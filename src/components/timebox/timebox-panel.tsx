@@ -1144,7 +1144,7 @@ function BrainDump({
         </div>
       </div>
       <p className="px-0.5 text-xs text-muted-foreground">
-        Čas dopředu („14:30 běh“) se odchodem z řádku sám posadí do mřížky. Úchyt: ťuknutí do
+        Čas za dvojtečkou („úkol1:14:30“) se odchodem z řádku sám posadí do mřížky. Úchyt: ťuknutí do
         nejbližšího volna, podržení vybere čas, tah do trojky, mřížky nebo do koše. Rychle zapsat
         jde i tlačítkem Zapsat dole.
       </p>

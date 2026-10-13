@@ -309,6 +309,29 @@ describe("čas na začátku řádku brain dumpu", () => {
     expect(rest).toBe("nápady");
   });
 
+  it("čas za dvojtečkou na konci: úkol1:14:30 → úkol1 ve 14:30", () => {
+    expect(parseDumpTime("úkol1:14:30")).toEqual({ start: 14 * 60 + 30, title: "úkol1" });
+    expect(parseDumpTime("  zavolat mámě : 9:05 ")).toEqual({ start: 9 * 60 + 5, title: "zavolat mámě" });
+    // Dvojtečka uvnitř textu zůstává textu.
+    expect(parseDumpTime("Poznámka: zavolat:14:30")).toEqual({
+      start: 14 * 60 + 30,
+      title: "Poznámka: zavolat",
+    });
+    const { rest, scheduled } = splitDumpSchedule("úkol1:14:30\nnápady\n14:00 oběd");
+    expect(scheduled).toEqual([
+      { start: 14 * 60 + 30, title: "úkol1" },
+      { start: 14 * 60, title: "oběd" },
+    ]);
+    expect(rest).toBe("nápady");
+  });
+
+  it("nesmyslný čas na konci i dvojtečka bez času zůstávají textem", () => {
+    expect(parseDumpTime("vlak:25:00")).toBe(null);
+    expect(parseDumpTime(":14:30")).toBe(null);
+    expect(parseDumpTime("Poznámka: zavolat")).toBe(null);
+    expect(parseDumpTime("vlak 14:30")).toBe(null);
+  });
+
   it("nesmyslný čas i čas bez textu zůstávají obyčejným zápisem", () => {
     expect(splitDumpSchedule("25:00 vlak\n14:30\n14:3 káva\nvlak 14:30").scheduled).toEqual([]);
     expect(parseDumpTime("24:00 x")).toBe(null);

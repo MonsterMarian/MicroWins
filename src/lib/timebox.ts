@@ -441,21 +441,39 @@ export interface DumpSchedule {
   title: string;
 }
 
-const DUMP_TIME = /^\s*(\d{1,2}):(\d{2})\s+(\S.*)$/;
+/** „úkol1:14:30" - čas za dvojtečkou na konci řádku. Text se bere co nejkratší,
+    takže dvojtečka uvnitř textu („Poznámka: zavolat:14:30") nevadí. */
+const DUMP_TIME_AFTER = /^\s*(\S.*?)\s*:\s*(\d{1,2}):(\d{2})\s*$/;
+/** „14:30 běh" - starší zápis s časem na začátku, platí dál. */
+const DUMP_TIME_BEFORE = /^\s*(\d{1,2}):(\d{2})\s+(\S.*)$/;
 
 /**
- * „14:30 běh" → `{ start: 870, title: "běh" }`. Čas patří na začátek řádku,
- * protože řádek se pak do mřížky posadí sám - psát čas na konec by znamenalo
- * hledat ho pohledem uprostřed textu. Nesmyslný čas (25:00) i samotný čas
- * bez textu se berou jako obyčejný zápis.
+ * Řádek brain dumpu s časem → blok v mřížce.
+ *
+ * Hlavní zápis je **„úkol1:14:30"** - nejdřív co, za dvojtečkou kdy. Píše se
+ * to tak, jak člověk věc vymyslí: napřed ho napadne úkol, čas až potom.
+ * Do mřížky jde jen text („úkol1"), čas určí půlhodinu.
+ *
+ * Starší zápis s časem na začátku („14:30 běh") se čte dál, ať se nerozbijí
+ * řádky, které už v dumpu leží. Nesmyslný čas (25:00) i samotný čas bez
+ * textu se berou jako obyčejný zápis.
  */
 export function parseDumpTime(line: string): DumpSchedule | null {
-  const match = DUMP_TIME.exec(line);
-  if (!match) return null;
-  const hours = Number(match[1]);
-  const minutes = Number(match[2]);
-  if (hours > 23 || minutes > 59) return null;
-  return { start: hours * 60 + minutes, title: match[3].trim() };
+  const after = DUMP_TIME_AFTER.exec(line);
+  if (after) {
+    const hit = toSchedule(after[2], after[3], after[1]);
+    if (hit) return hit;
+  }
+  const before = DUMP_TIME_BEFORE.exec(line);
+  return before ? toSchedule(before[1], before[2], before[3]) : null;
+}
+
+function toSchedule(hours: string, minutes: string, title: string): DumpSchedule | null {
+  const h = Number(hours);
+  const m = Number(minutes);
+  const text = title.trim();
+  if (h > 23 || m > 59 || text === "") return null;
+  return { start: h * 60 + m, title: text };
 }
 
 /**

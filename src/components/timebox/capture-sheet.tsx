@@ -14,7 +14,7 @@ import type { ISODate } from "@/lib/types";
  *
  * Brain dump je na telefonu pod celou mřížkou, takže „rychle si to zapsat"
  * znamenalo sjet o dvě obrazovky. Tady se píše řádek po řádku: Enter ho
- * uloží a pole zůstane připravené na další. Čas na začátku („14:30 běh")
+ * uloží a pole zůstane připravené na další. Čas za dvojtečkou („úkol1:14:30")
  * ho posadí rovnou do mřížky, stejně jako v samotném dumpu.
  */
 export function CaptureSheet({
@@ -31,7 +31,7 @@ export function CaptureSheet({
       open={open}
       onClose={onClose}
       title="Do brain dumpu"
-      description="Enter uloží řádek. Čas na začátku („14:30 běh“) ho posadí rovnou do mřížky."
+      description="Enter uloží řádek. Čas za dvojtečkou („úkol1:14:30“) ho posadí rovnou do mřížky."
     >
       {open ? <CaptureBody date={date} onClose={onClose} /> : null}
     </BottomSheet>

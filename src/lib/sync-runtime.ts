@@ -1,4 +1,11 @@
-import { describeAuthError, getAccount, getClient, initAccount, subscribeAccount } from "./account";
+import {
+  describeAuthError,
+  ensureSession,
+  getAccount,
+  getClient,
+  initAccount,
+  subscribeAccount,
+} from "./account";
 import { same } from "./account-merge";
 import {
   DEFAULT_PREFS,
@@ -339,14 +346,23 @@ function signedInUser(): string | null {
   return account.status === "signed-in" ? account.userId : null;
 }
 
-/** Databáze přihlášení zrušila - appka jede dál, synchronizace čeká. */
-function loginExpired(): boolean {
-  const account = getAccount();
-  return account.status === "signed-in" && account.expired;
-}
+/**
+ * Session k databázi se zajistí bez ptaní (`ensureSession`). Když to teď
+ * nejde, kolo se vynechá a změny počkají v telefonu - na heslo se nikdy
+ * neptá.
+ */
+const NO_SESSION_OFFLINE = "Bez připojení - změny odejdou, až se to spojí.";
+const NO_SESSION =
+  "Synchronizace čeká na spojení s databází - změny zůstávají v telefonu a odejdou samy.";
 
-export const LOGIN_EXPIRED =
-  "Přihlášení k databázi vypršelo - přihlas se znovu. Změny zatím čekají v telefonu.";
+async function sessionReady(): Promise<boolean> {
+  if (await ensureSession()) return true;
+  const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+  publish(
+    offline ? { phase: "offline", message: NO_SESSION_OFFLINE } : { phase: "error", message: NO_SESSION },
+  );
+  return false;
+}
 
 let running = false;
 let again = false;
@@ -356,10 +372,6 @@ let timer: number | null = null;
 export async function syncNow(): Promise<void> {
   const user = signedInUser();
   if (!bridge || !user) return;
-  if (loginExpired()) {
-    publish({ phase: "error", message: LOGIN_EXPIRED });
-    return;
-  }
   if (engine.owner() !== user) {
     /* Data ještě nepatří účtu. Když se kontrola po přihlášení nepovedla
        (bez signálu), zkusí se znovu - jinak by appka čekala do restartu.
@@ -374,6 +386,7 @@ export async function syncNow(): Promise<void> {
   running = true;
   publish({ phase: "syncing", message: undefined });
   try {
+    if (!(await sessionReady())) return;
     await engine.sync();
     publish({ phase: "idle", lastSyncAt: new Date().toISOString(), message: undefined });
     void seedSettingsOnce(user);
@@ -436,9 +449,10 @@ function watchSettings(): void {
 
 /** Po přihlášení: synchronizace, nebo nejdřív převzetí dat do účtu. */
 async function onSignedIn(userId: string): Promise<void> {
-  if (engine.owner() === userId || loginExpired()) return syncNow();
+  if (engine.owner() === userId) return syncNow();
   publish({ phase: "checking", message: undefined });
   try {
+    if (!(await sessionReady())) return;
     const plan = await engine.planAdoption(userId);
     if (signedInUser() !== userId) return;
     if (!plan) return syncNow();
@@ -508,18 +522,9 @@ function watch(): void {
   watchSettings();
 
   let lastUser: string | null = null;
-  let lastExpired = false;
   const onAccount = () => {
     const user = signedInUser();
-    const expired = loginExpired();
-    const changed = expired !== lastExpired;
-    lastExpired = expired;
-    if (user === lastUser) {
-      // Tentýž člověk: buď mu databáze zrušila přihlášení (synchronizace to
-      // ohlásí), nebo se přihlásil znovu a čekající změny můžou odejít.
-      if (user && changed) void syncNow();
-      return;
-    }
+    if (user === lastUser) return;
     lastUser = user;
     if (user) void onSignedIn(user);
     else publish({ phase: "off", plan: undefined, asking: false, message: undefined });

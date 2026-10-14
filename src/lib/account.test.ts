@@ -5,6 +5,7 @@ import {
   isValidEmail,
   isValidPassword,
   normalizeEmail,
+  parseCredentials,
   parseIdentity,
   storedUser,
   WRONG_PASSWORD,
@@ -138,5 +139,23 @@ describe("zapamatované přihlášení", () => {
     expect(parseIdentity("{nesmysl")).toBeNull();
     expect(parseIdentity(JSON.stringify({ id: "" }))).toBeNull();
     expect(parseIdentity(JSON.stringify({ email: "a@b.cz" }))).toBeNull();
+  });
+});
+
+describe("zapamatované přihlašovací údaje", () => {
+  /* Synchronizace se po zrušené session přihlásí sama - bez nich by musela
+     chtít heslo. Poškozený záznam nesmí poslat do Supabase nesmysl. */
+  it("přečte e-mail a heslo", () => {
+    expect(parseCredentials(JSON.stringify({ email: "a@b.cz", password: "tajne1" }))).toEqual({
+      email: "a@b.cz",
+      password: "tajne1",
+    });
+  });
+
+  it("bez záznamu, s poškozeným nebo neúplným nic", () => {
+    expect(parseCredentials(null)).toBeNull();
+    expect(parseCredentials("{nesmysl")).toBeNull();
+    expect(parseCredentials(JSON.stringify({ email: "a@b.cz" }))).toBeNull();
+    expect(parseCredentials(JSON.stringify({ email: "a@b.cz", password: "" }))).toBeNull();
   });
 });

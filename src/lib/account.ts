@@ -3,18 +3,18 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 /**
  * Uživatelský účet - e-mail a heslo (návrh v DATABAZE.md).
  *
- * Účet je volitelný: kdo se nepřihlásí, má appku přesně jako dřív. Proto se
- * knihovna Supabase načítá až ve chvíli, kdy je potřeba (`import()`), stejně
- * jako SDK k AI - v balíku neleží nikomu, kdo účet nepoužívá, a appka bez
- * uloženého přihlášení ji při startu vůbec nesahá.
+ * Účet je povinný: data žijí v databázi a appka bez přihlášení ukáže jen
+ * přihlášení (`AuthGate`). V telefonu je kopie dat, takže po prvním
+ * přihlášení appka jede i bez signálu a synchronizuje se, až se spojí.
+ * Knihovna Supabase se načítá až ve chvíli, kdy je potřeba (`import()`).
  *
  * Žádné e-maily se neposílají: účet vznikne rovnou z adresy a hesla, bez
  * potvrzování. V Supabase musí být proto vypnuté "Confirm email" - jinak by
  * registrace skončila na čekání na mail, který nikdo nepošle (viz `signUp`).
  * Daň za to: zapomenuté heslo si člověk sám neobnoví, obnova chodí mailem.
  *
- * Synchronizace dat zatím není - přihlášení nic nenahrává ani nestahuje.
- * Převzetí dat z telefonu do účtu je připravené v `account-merge.ts`.
+ * Synchronizace a převzetí dat z telefonu do účtu: `sync-runtime.ts`,
+ * `account-merge.ts`.
  */
 
 /**
@@ -90,12 +90,15 @@ export function getClient(): Promise<SupabaseClient> {
         detectSessionInUrl: false,
       },
     });
-    supabase.auth.onAuthStateChange((_event, session) => {
-      publish(
-        session?.user
-          ? { status: "signed-in", email: session.user.email ?? "", userId: session.user.id }
-          : { status: "signed-out" },
-      );
+    supabase.auth.onAuthStateChange((event, session) => {
+      if (session?.user) {
+        publish({ status: "signed-in", email: session.user.email ?? "", userId: session.user.id });
+        return;
+      }
+      // Bez sítě se prošlý token neobnoví a Supabase hlásí „bez přihlášení“,
+      // i když ho v telefonu nechal. Odhlašuje jen opravdové odhlášení nebo
+      // přihlášení, které server zahodil (to z úložiště zmizí).
+      if (event === "SIGNED_OUT" || storedUser() === null) publish({ status: "signed-out" });
     });
     return supabase;
   });
@@ -110,11 +113,31 @@ function hasStoredSession(): boolean {
   }
 }
 
+/**
+ * Uživatel z uloženého přihlášení. Supabase ho v úložišti nechá i tehdy, když
+ * se token bez sítě nedá obnovit - a zahodí ho, až když ho odmítne server.
+ */
+export function storedUser(): { id: string; email: string } | null {
+  try {
+    const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);
+    const user = raw ? (JSON.parse(raw) as { user?: { id?: unknown; email?: unknown } }).user : null;
+    return user && typeof user.id === "string"
+      ? { id: user.id, email: typeof user.email === "string" ? user.email : "" }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 let started = false;
 
 /**
  * Zjistí, jestli je někdo přihlášený. Bez uloženého přihlášení se knihovna
  * vůbec nenačítá - odpověď je "odhlášeno" a hotovo.
+ *
+ * Bez signálu platí uložené přihlášení, i když prošel token: appka musí jet
+ * offline a jinak by po hodině bez sítě vyhodila člověka na přihlášení, které
+ * bez sítě nejde. Token se obnoví sám, až se spojí.
  */
 export function initAccount(): void {
   if (started || typeof window === "undefined") return;
@@ -126,13 +149,15 @@ export function initAccount(): void {
     .then((supabase) => supabase.auth.getSession())
     .then(({ data }) => {
       const user = data.session?.user;
-      publish(
-        user
-          ? { status: "signed-in", email: user.email ?? "", userId: user.id }
-          : { status: "signed-out" },
-      );
+      if (user) return publish({ status: "signed-in", email: user.email ?? "", userId: user.id });
+      keepStoredOrSignOut();
     })
-    .catch(() => publish({ status: "signed-out" }));
+    .catch(keepStoredOrSignOut);
+}
+
+function keepStoredOrSignOut(): void {
+  const kept = storedUser();
+  publish(kept ? { status: "signed-in", email: kept.email, userId: kept.id } : { status: "signed-out" });
 }
 
 // --- přihlášení -------------------------------------------------------------

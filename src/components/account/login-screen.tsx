@@ -1,9 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { Eye, EyeOff, LogIn, UserPlus } from "lucide-react";
+import { Eye, EyeOff, Loader2, LogIn, UserPlus, WifiOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Dialog } from "@/components/ui/dialog";
 import { Field, Input } from "@/components/ui/input";
 import { useAccount } from "@/components/providers/use-account";
 import { useToast } from "@/components/providers/toast-provider";
@@ -17,6 +16,7 @@ import {
   signUp,
   WRONG_PASSWORD,
 } from "@/lib/account";
+import { logoImage } from "@/lib/logo-image";
 import { tapFeedback } from "@/lib/native";
 import { cn } from "@/lib/utils";
 
@@ -28,20 +28,17 @@ const MODES: { id: Mode; label: string }[] = [
 ];
 
 /**
- * Přihlášení a založení účtu - e-mail a heslo, nic víc.
+ * Vstup do appky - bez účtu se dál nejde.
+ *
+ * Data žijí v databázi účtu. V telefonu je jejich kopie, takže bez signálu
+ * se pracuje dál a změny odejdou, až se spojí. Proto se tu přihlašuje jen
+ * jednou na zařízení: přihlášení vydrží i bez sítě (viz `initAccount`).
  *
  * Žádný potvrzovací e-mail: účet vznikne hned a rovnou se do něj přihlásí.
- * Obě cesty jsou v jednom dialogu pod přepínačem, protože se liší jen jedním
- * tlačítkem - a kdo se splete (zakládá účet, který už má), dostane nabídku
- * přepnout se, místo aby musel dialog zavírat.
+ * Obě cesty jsou pod jedním přepínačem, protože se liší jen tlačítkem - a kdo
+ * se splete (zakládá účet, který už má), dostane nabídku přepnout se.
  */
-export function LoginDialog({
-  open,
-  onOpenChange,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}) {
+export function LoginScreen() {
   const account = useAccount();
   const { toast } = useToast();
   const [mode, setMode] = React.useState<Mode>("signin");
@@ -50,22 +47,12 @@ export function LoginDialog({
   const [visible, setVisible] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const online = useOnline();
   const passwordRef = React.useRef<HTMLInputElement>(null);
 
   const off = account.status === "off";
   const signup = mode === "signup";
-
-  // Každé otevření začíná přihlášením a s prázdným heslem. Adresa zůstává,
-  // ať se po překlepu v hesle nemusí psát znovu.
-  React.useEffect(() => {
-    if (!open) return;
-    setMode("signin");
-    setPassword("");
-    setVisible(false);
-    setError(null);
-  }, [open]);
-
-  const ready = isValidEmail(email) && isValidPassword(password) && !busy && !off;
+  const ready = isValidEmail(email) && isValidPassword(password) && !busy && !off && online;
 
   const switchTo = (next: Mode) => {
     setMode(next);
@@ -85,43 +72,40 @@ export function LoginDialog({
         title: signup ? "Účet založený" : "Přihlášeno",
         description: normalizeEmail(email),
       });
-      onOpenChange(false);
       return;
     }
     setError(res.message);
   };
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={onOpenChange}
-      title={signup ? "Založit účet" : "Přihlásit se"}
-      description={
-        signup ? "Účet vznikne hned, bez potvrzovacího e-mailu." : "E-mail a heslo k tvému účtu."
-      }
-      footer={
-        <>
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            Zrušit
-          </Button>
-          <Button disabled={!ready} onClick={submit}>
-            {signup ? <UserPlus /> : <LogIn />}
-            {busy ? (signup ? "Zakládám…" : "Přihlašuju…") : signup ? "Založit účet" : "Přihlásit"}
-          </Button>
-        </>
-      }
-    >
-      <div className="flex flex-col gap-4">
-        {/* Stejné záložky jako v Nastavení - přepínač, ne dva dialogy. */}
-        <div className="flex gap-1 border-b">
+    <main className="mw-safe-x flex min-h-[100dvh] items-center justify-center px-4 pb-[calc(1rem+var(--mw-safe-bottom))] pt-[calc(1rem+var(--mw-safe-top))]">
+      <form
+        className="animate-in-up flex w-full max-w-sm flex-col gap-5"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void submit();
+        }}
+      >
+        <div className="flex flex-col items-center gap-2 text-center">
+          {/* eslint-disable-next-line @next/next/no-img-element -- statický export, bez optimalizace obrázků */}
+          <img src={logoImage} alt="" className="size-14 object-contain" />
+          <h1 className="text-xl font-semibold tracking-tight">MicroWins</h1>
+          <p className="text-sm text-muted-foreground">
+            Data se ukládají do účtu, takže je máš na každém zařízení. Bez signálu appka jede dál
+            a změny odejdou později.
+          </p>
+        </div>
+
+        <div className="flex gap-1 border-b" role="tablist">
           {MODES.map((m) => (
             <button
               key={m.id}
               type="button"
+              role="tab"
               onClick={() => switchTo(m.id)}
-              aria-pressed={mode === m.id}
+              aria-selected={mode === m.id}
               className={cn(
-                "-mb-px border-b-2 px-3 py-2 text-sm transition-colors",
+                "-mb-px flex-1 border-b-2 px-3 py-2 text-sm transition-colors",
                 mode === m.id
                   ? "border-foreground font-medium text-foreground"
                   : "border-transparent text-muted-foreground hover:text-foreground",
@@ -132,11 +116,11 @@ export function LoginDialog({
           ))}
         </div>
 
-        {off ? (
-          <div className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
-            Účty zatím nejsou napojené na databázi. Appka mezitím jede dál bez účtu a data zůstávají
-            v tomhle zařízení.
-          </div>
+        {!online ? (
+          <p className="flex items-center gap-2 rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
+            <WifiOff className="size-4 shrink-0" />
+            Bez připojení se přihlásit nejde. Po prvním přihlášení už appka pojede i offline.
+          </p>
         ) : null}
 
         <Field label="E-mail" htmlFor="login-email">
@@ -156,9 +140,9 @@ export function LoginDialog({
               setError(null);
             }}
             onKeyDown={(e) => {
-              if (e.key !== "Enter") return;
-              if (password === "") passwordRef.current?.focus();
-              else void submit();
+              if (e.key !== "Enter" || password !== "") return;
+              e.preventDefault();
+              passwordRef.current?.focus();
             }}
           />
         </Field>
@@ -186,9 +170,6 @@ export function LoginDialog({
               onChange={(e) => {
                 setPassword(e.target.value);
                 setError(null);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void submit();
               }}
               className="pr-10"
             />
@@ -229,7 +210,48 @@ export function LoginDialog({
             ) : null}
           </div>
         ) : null}
-      </div>
-    </Dialog>
+
+        <Button type="submit" size="lg" disabled={!ready}>
+          {busy ? <Loader2 className="animate-spin" /> : signup ? <UserPlus /> : <LogIn />}
+          {busy ? (signup ? "Zakládám…" : "Přihlašuju…") : signup ? "Založit účet" : "Přihlásit"}
+        </Button>
+      </form>
+    </main>
   );
+}
+
+/** Je zařízení online? Při změně se přepne samo. */
+function useOnline(): boolean {
+  const [online, setOnline] = React.useState(true);
+  React.useEffect(() => {
+    const update = () => setOnline(navigator.onLine);
+    update();
+    window.addEventListener("online", update);
+    window.addEventListener("offline", update);
+    return () => {
+      window.removeEventListener("online", update);
+      window.removeEventListener("offline", update);
+    };
+  }, []);
+  return online;
+}
+
+/**
+ * Brána appky: přihlášený vidí appku, ostatní přihlášení. Než se zjistí,
+ * kdo je přihlášený (načtení knihovny účtu), stojí na místě tichá plocha
+ * se značkou - probliknutí přihlášení u přihlášeného by vypadalo jako
+ * odhlášení.
+ */
+export function AuthGate({ children }: { children: React.ReactNode }) {
+  const account = useAccount();
+  if (account.status === "signed-in") return <>{children}</>;
+  if (account.status === "loading") {
+    return (
+      <main className="flex min-h-[100dvh] items-center justify-center" aria-busy>
+        {/* eslint-disable-next-line @next/next/no-img-element -- statický export, bez optimalizace obrázků */}
+        <img src={logoImage} alt="" className="size-12 animate-pulse object-contain opacity-60" />
+      </main>
+    );
+  }
+  return <LoginScreen />;
 }

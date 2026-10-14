@@ -1,10 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ACCOUNT_EXISTS,
   describeAuthError,
   isValidEmail,
   isValidPassword,
   normalizeEmail,
+  storedUser,
   WRONG_PASSWORD,
 } from "./account";
 
@@ -94,5 +95,28 @@ describe("chyby přihlášení česky", () => {
   it("neznámá chyba se neztratí, jen se zkrátí", () => {
     expect(describeAuthError({ message: "Something odd" }).message).toBe("Something odd");
     expect(describeAuthError(null).message).toMatch(/nepovedlo/);
+  });
+});
+
+describe("uložené přihlášení bez sítě", () => {
+  const withStorage = (value: string | null) => {
+    vi.stubGlobal("window", { localStorage: { getItem: () => value } });
+  };
+  afterEach(() => vi.unstubAllGlobals());
+
+  /* Bez signálu se prošlý token neobnoví, ale Supabase přihlášení v úložišti
+     nechá - appka podle něj jede dál offline, místo aby chtěla přihlásit. */
+  it("vezme uživatele z uloženého přihlášení", () => {
+    withStorage(JSON.stringify({ access_token: "x", user: { id: "u1", email: "a@b.cz" } }));
+    expect(storedUser()).toEqual({ id: "u1", email: "a@b.cz" });
+  });
+
+  it("bez přihlášení nebo s poškozeným záznamem nic", () => {
+    withStorage(null);
+    expect(storedUser()).toBeNull();
+    withStorage("{nesmysl");
+    expect(storedUser()).toBeNull();
+    withStorage(JSON.stringify({ user: { email: "a@b.cz" } }));
+    expect(storedUser()).toBeNull();
   });
 });

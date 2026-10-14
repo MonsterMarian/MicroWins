@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { AppShell } from "@/components/app-shell";
 import { SyncDialogs } from "@/components/account/adopt-dialog";
+import { AuthGate } from "@/components/account/login-screen";
 import { StoreProvider } from "@/components/providers/store-provider";
 import { ToastProvider } from "@/components/providers/toast-provider";
 
@@ -70,8 +71,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="min-h-screen antialiased">
         <StoreProvider>
           <ToastProvider>
-            <AppShell>{children}</AppShell>
-            <SyncDialogs />
+            {/* Bez účtu se dál nejde - data žijí v databázi. */}
+            <AuthGate>
+              <AppShell>{children}</AppShell>
+              <SyncDialogs />
+            </AuthGate>
           </ToastProvider>
         </StoreProvider>
       </body>

@@ -2,6 +2,7 @@ import {
   describeAuthError,
   ensureSession,
   getAccount,
+  sessionRevoked,
   getClient,
   initAccount,
   subscribeAccount,
@@ -62,6 +63,7 @@ function loadMeta(): SyncMeta {
       owner: typeof parsed.owner === "string" ? parsed.owner : null,
       cursor: typeof parsed.cursor === "string" ? parsed.cursor : null,
       outbox: parsed.outbox && typeof parsed.outbox === "object" ? parsed.outbox : {},
+      clock: typeof parsed.clock === "string" ? parsed.clock : null,
     };
   } catch {
     metaCache = EMPTY_META;
@@ -348,18 +350,19 @@ function signedInUser(): string | null {
 
 /**
  * Session k databázi se zajistí bez ptaní (`ensureSession`). Když to teď
- * nejde, kolo se vynechá a změny počkají v telefonu - na heslo se nikdy
- * neptá.
+ * nejde, kolo se vynechá a změny počkají v telefonu. Zrušené přihlášení
+ * (vzácné - změna hesla) se jen ohlásí v Nastavení, nic samo nevyskočí.
  */
-const NO_SESSION_OFFLINE = "Bez připojení - změny odejdou, až se to spojí.";
-const NO_SESSION =
-  "Synchronizace čeká na spojení s databází - změny zůstávají v telefonu a odejdou samy.";
+export const SESSION_REVOKED =
+  "Přihlášení zrušil server (třeba změna hesla). Data zůstávají v telefonu; synchronizace pojede po přihlášení.";
+const NO_SESSION = "Bez připojení - změny odejdou, až se to spojí.";
 
 async function sessionReady(): Promise<boolean> {
   if (await ensureSession()) return true;
-  const offline = typeof navigator !== "undefined" && navigator.onLine === false;
   publish(
-    offline ? { phase: "offline", message: NO_SESSION_OFFLINE } : { phase: "error", message: NO_SESSION },
+    sessionRevoked()
+      ? { phase: "error", message: SESSION_REVOKED }
+      : { phase: "offline", message: NO_SESSION },
   );
   return false;
 }

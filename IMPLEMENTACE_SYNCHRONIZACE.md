@@ -34,7 +34,7 @@ Omezení: když se řádek smaže jen na jednom zařízení a druhé ho mezitím
 ## 2. Povinný účet, offline a konflikty (od 14. 10. 2026)
 
 - **Bez účtu appka nejede.** `AuthGate` (`components/account/login-screen.tsx`) pustí do appky jen přihlášeného. Lokální zálohy (export/import do souboru) padly - zdrojem pravdy je databáze účtu, `localStorage` je její kopie pro práci bez signálu.
-- **Appka nikoho sama neodhlásí a nikdy nechce heslo znovu.** Kdo je přihlášený, si drží sama (`microwins:account`, `lib/account.ts`), nezávisle na tokenech Supabase; smaže to jen tlačítko Odhlásit. Prošlý token obnoví Supabase sám po spojení. Když databáze session zahodí, synchronizace se před dalším kolem přihlásí tiše zapamatovanými údaji (`ensureSession`, `microwins:credentials`, uložené při přihlášení, smazané Odhlásit). Daň: heslo leží v úložišti appky v telefonu.
+- **Appka nikoho sama neodhlásí.** Kdo je přihlášený, si drží sama (`microwins:account`, `lib/account.ts`), nezávisle na tokenech Supabase; smaže to jen tlačítko Odhlásit. Synchronizace jede na obnovovacím tokenu Supabase (best practice offline-first appek): heslo se zadá jednou a v zařízení se **neukládá**, token ve výchozím nastavení projektu nevyprší a obnovuje se sám - přihlášení vydrží roky. Zrušit ho může jen server (změna hesla, odhlášení všude); pak appka jede dál, změny čekají v telefonu a Nastavení → Účet nabídne „Přihlásit“ (nic samo nevyskočí).
 - **První přihlášení na zařízení s daty** jde přes převzetí (`account-merge.ts`): data se spojí s účtem, nic se na serveru nemaže.
 
 ### Jak se řeší konflikty
@@ -46,10 +46,11 @@ Omezení: když se řádek smaže jen na jednom zařízení a druhé ho mezitím
 | Jedno věc **smaže**, druhé ji **upraví** | Taky novější vyhrává: pozdější úprava věc vrátí, pozdější smazání ji vezme i s úpravou. |
 | List time boxu téhož dne na dvou zařízeních | Slije se (`mergeDaySheet`), nic z textu se neztratí. |
 | Dlouho bez signálu | Fronta drží poslední podobu každé věci; po spojení odejde jednou (po 500 záznamech). |
+| Hodiny telefonu jdou špatně | Hybridní logické hodiny (`nextStamp`): čas změny je vždycky až za vším, co zařízení vidělo, takže rozhoduje pořadí, v jakém se změny opravdu děly. |
 
 Všechno je otestované proti serveru v paměti se dvěma „telefony“ (`sync-engine.test.ts`).
 
-**Známé riziko: hodiny zařízení.** `changed_at` dává zařízení podle svých hodin. Telefon s hodinami napřed vyhraje i nad pozdější změnou jinde, telefon pozadu prohraje. U telefonů se síťovým časem je to vzácné. Pojistka na serveru by byla v `push_records` brát `least(changed_at, now())` - je to změna funkce, žádná data nemaže, ale nasadit ji musí vlastník projektu v Supabase.
+**Hodiny zařízení:** samy o pořadí nerozhodují - čas změny se razí hybridními hodinami (`SyncMeta.clock`). Telefon s hodinami pozadu tak neprohraje změnu, kterou dělal až po té cizí, a telefon s hodinami napřed nepřebije to, co se dělá po něm. Souběžné změny bez spojení (nikdo neviděl tu druhou) rozhodne čas zařízení - jiná informace o pořadí neexistuje.
 
 ## 3. Přehled modulů
 

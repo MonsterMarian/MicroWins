@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Eye, EyeOff, Loader2, LogIn, UserPlus, WifiOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Dialog } from "@/components/ui/dialog";
 import { Field, Input } from "@/components/ui/input";
 import { useAccount } from "@/components/providers/use-account";
 import { useToast } from "@/components/providers/toast-provider";
@@ -254,4 +255,94 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     );
   }
   return <LoginScreen />;
+}
+
+/**
+ * Nové přihlášení, když server to staré zrušil (změna hesla, odhlášení
+ * všude). Vzácné - obnovovací token jinak nevyprší. Appka mezitím jede dál
+ * a změny čekají v telefonu; po zadání hesla se synchronizace rozjede sama.
+ * Otevírá se jen z Nastavení → Účet, nikdy samo.
+ */
+export function ReloginDialog({
+  email,
+  open,
+  onOpenChange,
+}: {
+  email: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const { toast } = useToast();
+  const [password, setPassword] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const online = useOnline();
+
+  React.useEffect(() => {
+    if (!open) return;
+    setPassword("");
+    setError(null);
+  }, [open]);
+
+  const ready = isValidPassword(password) && !busy && online;
+
+  const submit = async () => {
+    if (!ready) return;
+    setBusy(true);
+    setError(null);
+    const res = await signIn(email, password);
+    setBusy(false);
+    if (res.ok) {
+      void tapFeedback();
+      toast({ tone: "info", title: "Přihlášeno znovu", description: "Čekající změny odcházejí." });
+      onOpenChange(false);
+      return;
+    }
+    setError(res.message);
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Přihlásit znovu"
+      description={email}
+      footer={
+        <>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+            Zrušit
+          </Button>
+          <Button disabled={!ready} onClick={() => void submit()}>
+            {busy ? <Loader2 className="animate-spin" /> : <LogIn />}
+            {busy ? "Přihlašuju…" : "Přihlásit"}
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-3">
+        {!online ? (
+          <p className="flex items-center gap-2 text-sm text-muted-foreground">
+            <WifiOff className="size-4 shrink-0" /> Bez připojení se přihlásit nejde.
+          </p>
+        ) : null}
+        <Field label="Heslo" htmlFor="relogin-password">
+          <Input
+            id="relogin-password"
+            type="password"
+            autoComplete="current-password"
+            enterKeyHint="go"
+            value={password}
+            onChange={(e) => {
+              setPassword(e.target.value);
+              setError(null);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void submit();
+            }}
+          />
+        </Field>
+        {error ? <p className="text-xs text-destructive">{error}</p> : null}
+      </div>
+    </Dialog>
+  );
 }

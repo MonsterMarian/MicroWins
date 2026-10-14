@@ -3,6 +3,7 @@ import { addCategory, reorderNodes } from "./actions";
 import { createProject, createTask, updateTask } from "./project-actions";
 import { recordId, type SyncRecord } from "./sync";
 import {
+  nextStamp,
   SyncEngine,
   type OutgoingRow,
   type RemoteRow,
@@ -69,6 +70,8 @@ class Device {
     server: FakeServer,
     state: MicroWinsState = EMPTY_STATE,
     settings: Record<string, unknown> = { accent: "green", plan: "day" },
+    /** O kolik jdou hodiny zařízení vedle skutečného času (ms). */
+    skew = 0,
   ) {
     this.state = state;
     this.settings = { ...settings };
@@ -82,7 +85,7 @@ class Device {
       replaceState: (s) => {
         this.state = s;
       },
-      now: tick,
+      now: () => new Date(tick().getTime() + skew),
       deviceId: () => this.id,
       onProgress: (p) => {
         this.progress.push(p);
@@ -318,6 +321,46 @@ describe("běžná synchronizace", () => {
     expect(tablet.state.todos[0].text).toBe("verze 10");
   });
 
+  /* Hybridní hodiny: telefon s hodinami o hodinu pozadu udělá změnu až po
+     té z tabletu (a viděl ji). Bez nich by prohrál - jeho čas je „starší“. */
+  it("telefon s hodinami pozadu neprohraje se změnou, kterou dělal až potom", async () => {
+    const phone = new Device(server, withProject("Web"), undefined, -3_600_000);
+    await phone.signIn("u1");
+    const tablet = new Device(server);
+    await tablet.signIn("u1");
+    const id = phone.state.todos[0].id;
+
+    tablet.change(renameTodo(tablet.state, id, "z tabletu"));
+    await tablet.engine.sync();
+    await phone.engine.sync();
+    expect(phone.state.todos[0].text).toBe("z tabletu");
+
+    phone.change(renameTodo(phone.state, id, "z telefonu potom"));
+    await phone.engine.sync();
+    await tablet.engine.sync();
+
+    expect(phone.state.todos[0].text).toBe("z telefonu potom");
+    expect(tablet.state.todos[0].text).toBe("z telefonu potom");
+  });
+
+  it("telefon s hodinami napřed nepřebije, co se dělá po něm", async () => {
+    const phone = new Device(server, withProject("Web"), undefined, 3_600_000);
+    await phone.signIn("u1");
+    const tablet = new Device(server);
+    await tablet.signIn("u1");
+    const id = phone.state.todos[0].id;
+
+    phone.change(renameTodo(phone.state, id, "z telefonu napřed"));
+    await phone.engine.sync();
+    await tablet.engine.sync();
+    tablet.change(renameTodo(tablet.state, id, "z tabletu potom"));
+    await tablet.engine.sync();
+    await phone.engine.sync();
+
+    expect(phone.state.todos[0].text).toBe("z tabletu potom");
+    expect(tablet.state.todos[0].text).toBe("z tabletu potom");
+  });
+
   it("pořadí ve stromu se přenese", async () => {
     const { phone, tablet } = await pair();
     const a = addCategory(phone.state, null, "A");
@@ -517,5 +560,18 @@ describe("nastavení appky", () => {
     const loose = new Device(server, withProject("Bez účtu"));
     loose.setSetting("accent", "white");
     expect(loose.engine.pending()).toBe(0);
+  });
+});
+
+describe("hybridní hodiny", () => {
+  const now = new Date("2026-10-14T10:00:00.000Z");
+
+  it("bez viděného času je to čas zařízení", () => {
+    expect(nextStamp(now, null)).toBe("2026-10-14T10:00:00.000Z");
+  });
+
+  it("nikdy nejde pod to, co zařízení už vidělo", () => {
+    expect(nextStamp(now, "2026-10-14T11:00:00.000Z")).toBe("2026-10-14T11:00:00.001Z");
+    expect(nextStamp(now, "2026-10-14T09:00:00.000Z")).toBe("2026-10-14T10:00:00.000Z");
   });
 });

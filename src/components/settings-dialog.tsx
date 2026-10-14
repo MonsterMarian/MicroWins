@@ -4,6 +4,7 @@ import * as React from "react";
 import {
   Check,
   ChevronRight,
+  LogIn,
   LogOut,
   Merge,
   Moon,
@@ -19,11 +20,13 @@ import { usePrefs, setPrefs } from "@/components/providers/use-prefs";
 import { useToast } from "@/components/providers/toast-provider";
 import { useAccount } from "@/components/providers/use-account";
 import { useSyncStatus } from "@/components/providers/use-sync";
+import { ReloginDialog } from "@/components/account/login-screen";
 import { signOut } from "@/lib/account";
 import {
   progressLabel,
   progressPercent,
   reopenAdoption,
+  SESSION_REVOKED,
   syncNow,
   type SyncStatus,
 } from "@/lib/sync-runtime";
@@ -199,7 +202,9 @@ function AccountSection() {
   const account = useAccount();
   const sync = useSyncStatus();
   const { toast } = useToast();
+  const [relogin, setRelogin] = React.useState(false);
   const signedIn = account.status === "signed-in";
+  const revoked = signedIn && sync.message === SESSION_REVOKED;
 
   const line = signedIn ? syncLine(sync) : "Zjišťuju přihlášení…";
 
@@ -264,7 +269,11 @@ function AccountSection() {
         {/* Stejná patička jako u addonů - akce, které se nedělají každý den. */}
         {signedIn && sync.phase !== "off" && sync.phase !== "checking" ? (
           <div className="flex items-center gap-1 border-t px-1.5 py-1">
-            {sync.phase === "needs-adoption" ? (
+            {revoked ? (
+              <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => setRelogin(true)}>
+                <LogIn className="size-3.5" /> Přihlásit
+              </Button>
+            ) : sync.phase === "needs-adoption" ? (
               <Button variant="ghost" size="sm" className="h-7 px-2" onClick={reopenAdoption}>
                 <Merge className="size-3.5" /> Spojit data s účtem
               </Button>
@@ -283,6 +292,10 @@ function AccountSection() {
           </div>
         ) : null}
       </div>
+
+      {account.status === "signed-in" ? (
+        <ReloginDialog email={account.email} open={relogin} onOpenChange={setRelogin} />
+      ) : null}
     </Section>
   );
 }

@@ -7,11 +7,16 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * přihlášení (`AuthGate`). V telefonu je kopie dat, takže po prvním
  * přihlášení appka jede i bez signálu a synchronizuje se, až se spojí.
  *
- * **Appka nikoho sama neodhlásí a nikdy nechce heslo znovu** - ani po letech
- * bez signálu. Kdo je přihlášený, si drží sama (`IDENTITY_KEY`), nezávisle na
- * tokenu Supabase; odhlásí jen tlačítko Odhlásit. Když databáze přihlášení
- * zruší (zneplatněný token), synchronizace se před dalším kolem přihlásí
- * sama zapamatovanými údaji (`ensureSession`) - člověk o ničem neví.
+ * **Appka nikoho sama neodhlásí** - ani po letech bez signálu. Kdo je
+ * přihlášený, si drží sama (`IDENTITY_KEY`), nezávisle na tokenu Supabase;
+ * odhlásí jen tlačítko Odhlásit.
+ *
+ * Synchronizace jede na obnovovacím tokenu Supabase, jak je zvykem u appek
+ * offline-first: heslo se zadá jednou a v zařízení se **neukládá**. Token
+ * ve výchozím nastavení projektu nevyprší a obnovuje se sám, takže přihlášení
+ * vydrží roky. Zrušit ho může jen server (změna hesla, odhlášení všude) -
+ * pak appka jede dál, změny čekají v telefonu a Nastavení → Účet nabídne
+ * přihlášení (`sessionRevoked`). Žádné okno samo nevyskočí.
  * Knihovna Supabase se načítá až ve chvíli, kdy je potřeba (`import()`).
  *
  * Žádné e-maily se neposílají: účet vznikne rovnou z adresy a hesla, bez
@@ -48,12 +53,10 @@ export const AUTH_STORAGE_KEY = "microwins:auth";
 export const IDENTITY_KEY = "microwins:account";
 
 /**
- * E-mail a heslo k tichému přihlášení, když databáze session zahodí.
- * Leží jen v tomhle zařízení (úložiště appky), nikam se neposílá kromě
- * přihlášení do Supabase a smaže ho Odhlásit. Daň za „nikdy nechtít heslo
- * znovu“: kdo má telefon odemčený a v ruce, heslo z úložiště appky přečte.
+ * Heslo, které tu krátce (verze 2026.10.14.09.34) leželo kvůli tichému
+ * přihlášení. Hesla se v zařízení neukládají - při startu se smaže.
  */
-export const CREDENTIALS_KEY = "microwins:credentials";
+const OLD_CREDENTIALS_KEY = "microwins:credentials";
 
 /** Nejkratší heslo, které Supabase ve výchozím nastavení vezme. */
 export const PASSWORD_MIN = 6;
@@ -198,64 +201,29 @@ function signedInAs(identity: Identity): void {
   publish({ status: "signed-in", email: identity.email, userId: identity.id });
 }
 
-export interface Credentials {
-  email: string;
-  password: string;
-}
-
-/** Přečte zapamatované přihlašovací údaje. Poškozené = žádné. */
-export function parseCredentials(raw: string | null): Credentials | null {
-  if (!raw) return null;
+/**
+ * Platná session k synchronizaci, bez ptaní. Prošlý token obnoví Supabase
+ * sám z obnovovacího tokenu. `false` = teď to nejde - bez sítě, nebo server
+ * přihlášení zrušil (`sessionRevoked`). Appka jede dál, změny počkají.
+ */
+export async function ensureSession(): Promise<boolean> {
+  if (!accountsEnabled() || !hasStoredSession()) return false;
   try {
-    const value = JSON.parse(raw) as { email?: unknown; password?: unknown };
-    return typeof value.email === "string" &&
-      value.email !== "" &&
-      typeof value.password === "string" &&
-      value.password !== ""
-      ? { email: value.email, password: value.password }
-      : null;
+    const supabase = await getClient();
+    const { data } = await supabase.auth.getSession();
+    return data.session !== null;
   } catch {
-    return null;
-  }
-}
-
-function rememberCredentials(credentials: Credentials): void {
-  try {
-    window.localStorage.setItem(CREDENTIALS_KEY, JSON.stringify(credentials));
-  } catch {
-    // soukromý režim - tiché přihlášení pak nepůjde, appka jede dál
-  }
-}
-
-function loadCredentials(): Credentials | null {
-  try {
-    return parseCredentials(window.localStorage.getItem(CREDENTIALS_KEY));
-  } catch {
-    return null;
+    return false;
   }
 }
 
 /**
- * Platná session k synchronizaci - bez ptaní. Prošlý token obnoví Supabase
- * sám; když session není vůbec (server ji zahodil), přihlásí se tiše
- * zapamatovanými údaji. `false` = teď to nejde (bez sítě, nebo se heslo
- * změnilo jinde) - synchronizace to zkusí příště, appka jede dál.
+ * Server přihlášení zrušil: appka si člověka pamatuje, ale Supabase session
+ * z úložiště vyhodil (změna hesla, odhlášení všude). Bez sítě session v
+ * úložišti zůstává - tehdy to zrušené není, jen se čeká na signál.
  */
-export async function ensureSession(): Promise<boolean> {
-  if (!accountsEnabled()) return false;
-  try {
-    const supabase = await getClient();
-    const { data } = await supabase.auth.getSession();
-    if (data.session) return true;
-    const credentials = loadCredentials();
-    if (!credentials) return false;
-    const signed = await supabase.auth.signInWithPassword(credentials);
-    if (signed.error || !signed.data.session) return false;
-    signedIn(signed.data.user);
-    return true;
-  } catch {
-    return false;
-  }
+export function sessionRevoked(): boolean {
+  return getAccount().status === "signed-in" && !hasStoredSession();
 }
 
 let started = false;
@@ -272,6 +240,11 @@ export function initAccount(): void {
   if (started || typeof window === "undefined") return;
   started = true;
   if (!accountsEnabled()) return publish({ status: "off" });
+  try {
+    window.localStorage.removeItem(OLD_CREDENTIALS_KEY);
+  } catch {
+    // soukromý režim - nic uloženého není
+  }
   const known = loadIdentity() ?? storedUser();
   if (!known) return publish({ status: "signed-out" });
   signedInAs(known);
@@ -309,7 +282,6 @@ export async function signIn(email: string, password: string): Promise<AuthResul
       password,
     });
     if (error) return { ok: false, ...describeAuthError(error) };
-    rememberCredentials({ email: normalizeEmail(email), password });
     signedIn(data.user);
     return { ok: true };
   } catch (e) {
@@ -339,7 +311,6 @@ export async function signUp(email: string, password: string): Promise<AuthResul
           "Účet vznikl, ale databáze chce potvrzení e-mailem. V Supabase je potřeba vypnout Confirm email.",
       };
     }
-    rememberCredentials({ email: normalizeEmail(email), password });
     signedIn(data.user);
     return { ok: true };
   } catch (e) {
@@ -361,7 +332,6 @@ export async function signOut(): Promise<void> {
   if (!accountsEnabled()) return;
   try {
     window.localStorage.removeItem(IDENTITY_KEY);
-    window.localStorage.removeItem(CREDENTIALS_KEY);
   } catch {
     // soukromý režim - nic uloženého není
   }

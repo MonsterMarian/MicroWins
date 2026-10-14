@@ -23,6 +23,11 @@ import type { DaySheet, MicroWinsState } from "./types";
  *
  * Pravidla v kostce:
  *
+ * - **Hybridní logické hodiny.** Čas změny je čas zařízení, ale nikdy ne
+ *   menší než nejnovější čas, který zařízení už vidělo (vlastní i stažený),
+ *   plus milisekunda (`nextStamp`). Telefon s hodinami pozadu tak nepřehraje
+ *   změnu, kterou dělá až po té cizí, a telefon s hodinami napřed nepřebije
+ *   to, co se dělá po něm - kdo jeho změnu stáhl, razí dál od jejího času.
  * - **Deník změn.** Každá změna stavu zapíše do fronty `druh:klíč → čas`.
  *   Odesílá se až při synchronizaci a vždy aktuální podoba záznamu, takže
  *   deset úprav téže položky odejde jako jedna.
@@ -83,6 +88,25 @@ export interface SyncMeta {
   cursor: string | null;
   /** Neodeslané změny: `druh:klíč` → kdy se změnily. */
   outbox: Record<string, string>;
+  /** Nejnovější čas změny, který zařízení vidělo - hybridní hodiny. */
+  clock?: string | null;
+}
+
+/**
+ * Čas pro novou změnu: hodiny zařízení, ale vždycky až za vším, co zařízení
+ * už vidělo. Bez toho by rozhodovaly hodiny telefonu a ten s časem pozadu by
+ * prohrál i se změnou, kterou dělal až po té cizí.
+ */
+export function nextStamp(now: Date, clock: string | null | undefined): string {
+  const seen = clock ? Date.parse(clock) : Number.NaN;
+  return new Date(Number.isFinite(seen) ? Math.max(now.getTime(), seen + 1) : now.getTime()).toISOString();
+}
+
+/** Pozdější ze dvou časů (ISO); chybějící se nepočítá. */
+function laterOf(a: string | null | undefined, b: string | null | undefined): string | null {
+  if (!a) return b ?? null;
+  if (!b) return a;
+  return Date.parse(b) > Date.parse(a) ? b : a;
 }
 
 export interface SyncDeps {
@@ -137,6 +161,8 @@ export type AdoptionPlan = (
       cursor: string | null;
     }
 ) & {
+  /** Nejnovější čas změny v účtu - od něj se razí čas převzetí. */
+  seen?: string | null;
   /**
    * Nastavení uložené v účtu. Prázdné = účet ho ještě nemá a vezme si ho
    * z tohohle zařízení; jinak vyhrává účet - je to to, co už vidí ostatní
@@ -166,6 +192,13 @@ function toRecords(rows: readonly RemoteRow[]): SyncRecord[] {
   return rows.map((r) => ({ kind: r.kind as SyncRecord["kind"], key: r.key, data: r.data }));
 }
 
+/** Nejnovější čas změny mezi staženými řádky - posouvá hybridní hodiny. */
+function latestChange(rows: readonly RemoteRow[]): string | null {
+  let best: string | null = null;
+  for (const r of rows) best = laterOf(best, r.changed_at);
+  return best;
+}
+
 function latest(rows: readonly RemoteRow[], cursor: string | null): string | null {
   let best = cursor;
   for (const r of rows) {
@@ -192,10 +225,10 @@ export class SyncEngine {
   touch(ids: readonly string[]): number {
     const meta = this.deps.loadMeta();
     if (meta.owner === null || ids.length === 0) return 0;
-    const at = this.deps.now().toISOString();
+    const at = nextStamp(this.deps.now(), meta.clock);
     const outbox = { ...meta.outbox };
     for (const id of ids) outbox[id] = at;
-    this.deps.saveMeta({ ...meta, outbox });
+    this.deps.saveMeta({ ...meta, outbox, clock: at });
     return ids.length;
   }
 
@@ -206,10 +239,10 @@ export class SyncEngine {
     if (meta.owner === null) return 0;
     const changes = diffStates(prev, next);
     if (changes.length === 0) return 0;
-    const at = this.deps.now().toISOString();
+    const at = nextStamp(this.deps.now(), meta.clock);
     const outbox = { ...meta.outbox };
     for (const c of changes) outbox[recordId(c.kind, c.key)] = at;
-    this.deps.saveMeta({ ...meta, outbox });
+    this.deps.saveMeta({ ...meta, outbox, clock: at });
     return changes.length;
   }
 
@@ -226,11 +259,12 @@ export class SyncEngine {
     const account = fromRecords(records.filter((r) => isStateRecordKind(r.kind)));
     const extras = records.filter((r) => !isStateRecordKind(r.kind) && r.data !== null);
     const cursor = latest(rows, null);
+    const seen = latestChange(rows);
     const local = this.deps.getState();
 
-    if (isEmptyState(local)) return { kind: "fresh", userId, account, cursor, extras };
+    if (isEmptyState(local)) return { kind: "fresh", userId, account, cursor, extras, seen };
     if (meta.owner !== null) {
-      return { kind: "foreign", userId, owner: meta.owner, account, local, cursor, extras };
+      return { kind: "foreign", userId, owner: meta.owner, account, local, cursor, extras, seen };
     }
     return {
       kind: "merge",
@@ -240,6 +274,7 @@ export class SyncEngine {
       merged: mergeIntoAccount(account, local),
       cursor,
       extras,
+      seen,
     };
   }
 
@@ -251,7 +286,7 @@ export class SyncEngine {
    * v telefonu zůstane všechno, jak bylo, a převzetí jde pustit znovu.
    */
   async adopt(plan: AdoptionPlan): Promise<void> {
-    const at = this.deps.now().toISOString();
+    const at = nextStamp(this.deps.now(), laterOf(this.deps.loadMeta().clock, plan.seen));
     const rows: OutgoingRow[] = [];
     let next = plan.account;
     if (plan.kind === "merge") {
@@ -269,7 +304,7 @@ export class SyncEngine {
     // Až po úspěšném odeslání - jinak zůstane zařízení, jak bylo.
     this.deps.replaceState(next);
     if (plan.extras.length > 0) this.deps.applyExtra?.(plan.extras);
-    this.deps.saveMeta({ owner: plan.userId, cursor: plan.cursor, outbox: {} });
+    this.deps.saveMeta({ owner: plan.userId, cursor: plan.cursor, outbox: {}, clock: at });
   }
 
   /** Jedno kolo: stáhnout novinky, propsat je, odeslat frontu. */
@@ -318,7 +353,10 @@ export class SyncEngine {
     }
     // Slité listy odejdou s časem, který přebije obě verze.
     for (const [id, sheet] of sheets) merged[id] = sheet.at;
-    this.deps.saveMeta({ ...this.deps.loadMeta(), cursor, outbox: merged });
+    const latestMeta = this.deps.loadMeta();
+    let clock = laterOf(latestMeta.clock, latestChange(rows));
+    for (const sheet of sheets.values()) clock = laterOf(clock, sheet.at);
+    this.deps.saveMeta({ ...latestMeta, cursor, outbox: merged, clock });
 
     const pushed = await this.pushOutbox();
     return { pulled: rows.length, pushed, applied };

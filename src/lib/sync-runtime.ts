@@ -1,6 +1,5 @@
 import { describeAuthError, getAccount, getClient, initAccount, subscribeAccount } from "./account";
 import { same } from "./account-merge";
-import { serializeBackup } from "./backup";
 import {
   DEFAULT_PREFS,
   getPrefs,
@@ -34,8 +33,8 @@ import { createId } from "./utils";
 
 const META_KEY = "microwins:sync";
 const DEVICE_KEY = "microwins:device";
-/** Záloha dat zařízení těsně před spojením s účtem - poslední záchrana. */
-export const PRE_ACCOUNT_KEY = "microwins:pre-account";
+/** Odložená záloha z doby lokálních záloh - po nich už jen zabírá místo. */
+const OLD_PRE_ACCOUNT_KEY = "microwins:pre-account";
 
 const PAGE = 1000;
 const AFTER_CHANGE_MS = 2_000;
@@ -442,23 +441,14 @@ async function onSignedIn(userId: string): Promise<void> {
   }
 }
 
-function backupBeforeAdoption(): void {
-  try {
-    window.localStorage.setItem(PRE_ACCOUNT_KEY, serializeBackup(bridge!.get()));
-  } catch {
-    // na zálohu nezbylo místo - dialog nabízí i stažení do souboru
-  }
-}
-
 /**
  * Potvrzené převzetí. `merge` data zařízení spojí s účtem; `account` je
  * zahodí a vezme účet, jak je - pro zařízení se zkušebními daty, nebo pro
- * data jiného účtu. Předtím se data zařízení vždycky odloží stranou.
+ * data jiného účtu.
  */
 export async function confirmAdoption(mode: "merge" | "account" = "merge"): Promise<boolean> {
   const plan = status.plan;
   if (!plan || !bridge) return false;
-  backupBeforeAdoption();
   publish({ phase: "checking", asking: false });
   try {
     await engine.adopt(
@@ -533,6 +523,11 @@ function watch(): void {
 /** StoreProvider se připojí po načtení dat - dřív není co synchronizovat. */
 export function connectStore(next: StoreBridge): void {
   bridge = next;
+  try {
+    window.localStorage.removeItem(OLD_PRE_ACCOUNT_KEY);
+  } catch {
+    // soukromý režim - není co uklízet
+  }
   publish({});
   watch();
 }

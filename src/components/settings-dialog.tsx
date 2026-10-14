@@ -4,29 +4,21 @@ import * as React from "react";
 import {
   Check,
   ChevronRight,
-  Download,
-  ListChecks,
-  LogIn,
   LogOut,
   Merge,
   Moon,
   RefreshCw,
-  Save,
-  Share2,
   Sun,
-  Upload,
   Trophy,
   UserRound,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Input, Select } from "@/components/ui/input";
-import { useStore } from "@/components/providers/store-provider";
 import { usePrefs, setPrefs } from "@/components/providers/use-prefs";
 import { useToast } from "@/components/providers/toast-provider";
 import { useAccount } from "@/components/providers/use-account";
 import { useSyncStatus } from "@/components/providers/use-sync";
-import { LoginDialog } from "@/components/account/login-dialog";
 import { signOut } from "@/lib/account";
 import {
   progressLabel,
@@ -36,7 +28,6 @@ import {
   type SyncStatus,
 } from "@/lib/sync-runtime";
 import { ProgressBar } from "@/components/ui/progress";
-import { ADDON_PART, describePart, type DataPart } from "@/lib/parts";
 import { ACCENTS, ADDONS, TODO_TTL_CHOICES, type Accent } from "@/lib/prefs";
 import { timeboxRowCount } from "@/lib/timebox";
 import {
@@ -51,13 +42,6 @@ import {
   setAiProvider,
   type AiProvider,
 } from "@/lib/ai";
-import {
-  ExportDialog,
-  ImportDialog,
-  useBackupPicker,
-  useExport,
-  type PendingImport,
-} from "./settings/backup-dialogs";
 import { DueRulesSection } from "./settings/due-rules-section";
 import { formatDuration } from "@/lib/todos";
 import { logoImage } from "@/lib/logo-image";
@@ -128,7 +112,6 @@ export function SettingsDialog({
         {activeTab === "main" ? (
           <div className="flex flex-col gap-5 animate-in-up">
             <AccountSection />
-            <DataSection native={native} onImported={() => onOpenChange(false)} />
             {native ? (
               <UpdateSection />
             ) : null}
@@ -149,9 +132,9 @@ export function SettingsDialog({
           <div className="flex flex-col gap-5 animate-in-up">
             <Section
               title="Addony"
-              hint="Vypnutá část zmizí i se svou záložkou; data zůstanou. Appka se otevírá na první záložce zleva - pořadí si přetáhneš přímo v liště nad projekty. Uložit a Načíst pod addonem sahají jen na jeho data."
+              hint="Vypnutá část zmizí i se svou záložkou; data zůstanou. Appka se otevírá na první záložce zleva - pořadí si přetáhneš přímo v liště nad projekty."
             >
-              <AddonChoice onImported={() => onOpenChange(false)} />
+              <AddonChoice />
             </Section>
 
             <TimeboxHoursSection />
@@ -206,26 +189,19 @@ const TABS: { id: Tab; label: string }[] = [
 ];
 
 /**
- * Účet. Nahoře v Nastavení, protože s ním souvisí všechno pod ním - záloha
- * je jedna cesta, jak dostat data z telefonu, účet je ta druhá.
+ * Účet. Nahoře v Nastavení - appka bez něj nejede, data žijí v databázi
+ * a v telefonu je jejich kopie pro chvíle bez signálu.
  *
- * Odhlášení se neptá: nic nemaže, data v telefonu zůstávají a změny z doby
- * bez přihlášení odejdou po dalším přihlášení.
+ * Odhlášení se neptá: nic nemaže, appka se vrátí na přihlášení a kopie dat
+ * v telefonu zůstane účtu, kterému patří.
  */
 function AccountSection() {
   const account = useAccount();
   const sync = useSyncStatus();
   const { toast } = useToast();
-  const [loginOpen, setLoginOpen] = React.useState(false);
   const signedIn = account.status === "signed-in";
 
-  const line = signedIn
-    ? syncLine(sync)
-    : account.status === "off"
-      ? "Data jsou jen v tomhle zařízení. Účty se zapnou po napojení databáze."
-      : account.status === "loading"
-        ? "Zjišťuju přihlášení…"
-        : "Data jsou jen v tomhle zařízení.";
+  const line = signedIn ? syncLine(sync) : "Zjišťuju přihlášení…";
 
   return (
     <Section
@@ -253,7 +229,7 @@ function AccountSection() {
           </span>
           <span className="min-w-0 flex-1">
             <span className="block truncate text-sm font-medium">
-              {signedIn ? account.email || "Přihlášeno" : "Bez účtu"}
+              {signedIn ? account.email || "Přihlášeno" : "Účet"}
             </span>
             <span
               className={cn(
@@ -264,26 +240,18 @@ function AccountSection() {
               {line}
             </span>
           </span>
-          {account.status === "loading" ? null : signedIn ? (
+          {signedIn ? (
             <Button
               size="sm"
               variant="ghost"
               onClick={async () => {
                 await signOut();
-                toast({ tone: "info", title: "Odhlášeno", description: "Data v telefonu zůstala." });
+                toast({ tone: "info", title: "Odhlášeno" });
               }}
             >
               <LogOut /> Odhlásit
             </Button>
-          ) : (
-            <Button
-              size="sm"
-              variant={account.status === "off" ? "outline" : "default"}
-              onClick={() => setLoginOpen(true)}
-            >
-              <LogIn /> Přihlásit
-            </Button>
-          )}
+          ) : null}
         </div>
 
         {/* Průběh přenosu i tady - kdo se dívá do Nastavení, chce vidět, kolik zbývá. */}
@@ -315,8 +283,6 @@ function AccountSection() {
           </div>
         ) : null}
       </div>
-
-      <LoginDialog open={loginOpen} onOpenChange={setLoginOpen} />
     </Section>
   );
 }
@@ -348,94 +314,6 @@ function syncLine(sync: SyncStatus): string {
     default:
       return "Připojuju…";
   }
-}
-
-/**
- * Záloha a obnova. "Poslat" a "Uložit" berou celý stav včetně nastavení (viz
- * `lib/backup.ts`), takže odsud vypadne úplně všechno, co appka drží - ne jen
- * to, co je zrovna vidět na obrazovce. Kdo chce jen kus, vybere si ho.
- */
-function DataSection({ native, onImported }: { native: boolean; onImported: () => void }) {
-  const { busy, run } = useExport();
-  const [choosing, setChoosing] = React.useState(false);
-  /** Záloha čekající na potvrzení - import umí smazat práci několika měsíců. */
-  const [pending, setPending] = React.useState<PendingImport | null>(null);
-  const picker = useBackupPicker(setPending);
-
-  return (
-    <>
-      <Section title="Záloha">
-        {/* V appce má smysl vybrat si doručení, v prohlížeči vede všechno na
-            stažení - jedno tlačítko tam říká pravdu líp než dvě. */}
-        {native ? (
-          <>
-            <Button
-              variant="outline"
-              className="justify-start"
-              disabled={busy !== null}
-              onClick={() => run("share")}
-            >
-              <Share2 /> {busy === "share" ? "Připravuju zálohu…" : "Poslat zálohu"}
-            </Button>
-            <Button
-              variant="outline"
-              className="justify-start"
-              disabled={busy !== null}
-              onClick={() => run("save")}
-            >
-              <Save /> {busy === "save" ? "Ukládám…" : "Uložit do telefonu"}
-            </Button>
-          </>
-        ) : (
-          <Button
-            variant="outline"
-            className="justify-start"
-            disabled={busy !== null}
-            onClick={() => run("share")}
-          >
-            <Download /> {busy ? "Připravuju zálohu…" : "Exportovat vše"}
-          </Button>
-        )}
-
-        <Button variant="outline" className="justify-start" onClick={() => setChoosing(true)}>
-          <ListChecks /> Uložit jen část…
-        </Button>
-        <Button variant="outline" className="justify-start" onClick={() => picker.open()}>
-          <Upload /> Obnovit ze souboru
-        </Button>
-        {picker.input}
-
-        <p className="px-1 text-xs text-muted-foreground">
-          {native
-            ? "Poslat = vybereš appku, kam záloha odletí (Disk, mail). Uložit = soubor zůstane v Dokumentech a vyřídíš si ho potom. "
-            : ""}
-          Obnova se napřed zeptá, které části ze souboru vzít a jestli je přidat, nebo nahradit.
-        </p>
-      </Section>
-
-      <ExportDialog open={choosing} onOpenChange={setChoosing} />
-
-      {pending ? (
-        <ImportDialog
-          pending={pending}
-          onClose={() => setPending(null)}
-          onDone={() => {
-            setPending(null);
-            onImported();
-          }}
-        />
-      ) : null}
-    </>
-  );
-}
-
-function Stat({ value, label }: { value: number; label: string }) {
-  return (
-    <div>
-      <dd className="tabular text-base font-semibold">{value}</dd>
-      <dt className="text-[11px] leading-tight text-muted-foreground">{label}</dt>
-    </div>
-  );
 }
 
 function UpdateSection() {
@@ -553,25 +431,14 @@ function Section({
   );
 }
 
-/**
- * Addony - vypínač a pod ním uložení a načtení jen jejich dat.
- *
- * Každý addon si ukládá svoje: ToDo seznam, Time box priority s brain dumpem
- * i mřížkou (časové bloky). Atomy jsou úkoly, takže jdou s projekty; jednu
- * mapu uložíš i přímo nad ní. Přehled nic vlastního nemá, jen počítá.
- */
-function AddonChoice({ onImported }: { onImported: () => void }) {
+/** Addony - vypínače částí appky. Data vypnutého addonu v účtu zůstávají. */
+function AddonChoice() {
   const { addons } = usePrefs();
-  const { state } = useStore();
-  const [exporting, setExporting] = React.useState<DataPart | null>(null);
-  const [pending, setPending] = React.useState<PendingImport | null>(null);
-  const picker = useBackupPicker(setPending);
 
   return (
     <div className="flex flex-col gap-2">
       {ADDONS.map((addon) => {
         const on = addons[addon.id];
-        const part = ADDON_PART[addon.id];
         return (
           <div
             key={addon.id}
@@ -607,55 +474,9 @@ function AddonChoice({ onImported }: { onImported: () => void }) {
                 />
               </span>
             </button>
-
-            {/* Data zůstávají i u vypnutého addonu, takže uložit jdou vždycky. */}
-            {part ? (
-              <div className="flex items-center gap-1 border-t border-foreground/10 px-1.5 py-1">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 px-2"
-                  onClick={() => setExporting(part)}
-                  aria-label={`Uložit ${addon.label} do souboru`}
-                >
-                  <Download className="size-3.5" /> Uložit
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 px-2"
-                  onClick={() => picker.open([part])}
-                  aria-label={`Načíst ${addon.label} ze souboru`}
-                >
-                  <Upload className="size-3.5" /> Načíst
-                </Button>
-                <span className="tabular ml-auto min-w-0 truncate pr-1.5 text-[11px] text-muted-foreground">
-                  {addon.id === "atoms" ? "s projekty · " : ""}
-                  {describePart(state, part)}
-                </span>
-              </div>
-            ) : null}
           </div>
         );
       })}
-      {picker.input}
-
-      <ExportDialog
-        open={exporting !== null}
-        onOpenChange={(open) => !open && setExporting(null)}
-        initial={exporting ? [exporting] : undefined}
-      />
-
-      {pending ? (
-        <ImportDialog
-          pending={pending}
-          onClose={() => setPending(null)}
-          onDone={() => {
-            setPending(null);
-            onImported();
-          }}
-        />
-      ) : null}
     </div>
   );
 }

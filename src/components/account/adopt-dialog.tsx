@@ -1,16 +1,14 @@
 "use client";
 
 import * as React from "react";
-import { Download, LogOut, Merge } from "lucide-react";
+import { LogOut, Merge } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { useAccount } from "@/components/providers/use-account";
 import { useSyncStatus } from "@/components/providers/use-sync";
 import { useToast } from "@/components/providers/toast-provider";
-import { useExport } from "@/components/settings/backup-dialogs";
 import { signOut } from "@/lib/account";
-import { countState, type StateCounts } from "@/lib/import";
-import { isNative } from "@/lib/native";
+import { countState, type StateCounts } from "@/lib/account-merge";
 import { confirmAdoption, postponeAdoption } from "@/lib/sync-runtime";
 import type { MicroWinsState } from "@/lib/types";
 import { cn, plural } from "@/lib/utils";
@@ -153,8 +151,6 @@ function MergeDialog({
           </p>
         ) : null}
 
-        <BackupNote />
-
         {/* Zkušební data (vývoj, půjčený telefon) do účtu nepatří - a spojit
             je by znamenalo, že je dostane i každé další zařízení. */}
         <button
@@ -230,11 +226,10 @@ function ForeignDialog({
           <Row label="V účtu" value={summary(countState(account)) || "nic"} />
         </div>
         <p className="text-sm text-muted-foreground">
-          Nahrazením se data v zařízení přepíšou tím, co je v účtu. Pokud je chceš mít u sebe,
-          ulož si je napřed do souboru.
+          Nahrazením se data v zařízení přepíšou tím, co je v účtu. Data z tohohle zařízení
+          zůstávají v účtu, kterému patří - jen to, co ještě nestihlo odejít, se ztratí.
         </p>
         <SettingsNote inAccount={settingsInAccount} />
-        <BackupNote />
         {message ? <p className="text-xs text-destructive">{message}</p> : null}
       </div>
     </Dialog>
@@ -253,27 +248,6 @@ function SettingsNote({ inAccount }: { inAccount: boolean }) {
         : "Nastavení appky z tohohle zařízení se uloží do účtu."}{" "}
       Klíč k AI zůstává jen tady.
     </p>
-  );
-}
-
-/** Záloha před spojením se odkládá sama; do souboru si ji člověk může vzít. */
-function BackupNote() {
-  const { busy, run } = useExport();
-  return (
-    <div className="flex items-center gap-2 rounded-lg bg-muted/30 px-3 py-2">
-      <p className="min-w-0 flex-1 text-xs text-muted-foreground">
-        Než se cokoli změní, odloží se záloha dat z tohohle zařízení.
-      </p>
-      <Button
-        variant="ghost"
-        size="sm"
-        className="h-7 shrink-0 px-2"
-        disabled={busy !== null}
-        onClick={() => run(isNative() ? "save" : "share")}
-      >
-        <Download className="size-3.5" /> Do souboru
-      </Button>
-    </div>
   );
 }
 

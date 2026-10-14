@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { mergeIntoAccount, stampKey } from "./account-merge";
+import { countState, mergeIntoAccount, stampKey } from "./account-merge";
 import { addCategory, addEntry, addMetric } from "./actions";
 import { createProject, createTask } from "./project-actions";
 import { setBrainDump, setPriority } from "./timebox";
-import { addTodo } from "./todos";
+import { addTodo, toggleTodo } from "./todos";
 import { EMPTY_STATE, type MicroWinsState } from "./types";
 
 const TODAY = "2026-09-30";
@@ -182,5 +182,22 @@ describe("microwin ze dvou zařízení", () => {
 
     expect(res.state.microwins).toHaveLength(1);
     expect(res.state.microwins[0].id).toBe("w_tablet");
+  });
+});
+
+describe("počty ve stavu", () => {
+  it("rozdělí strom a projekty", () => {
+    const counts = countState(device("Telefon"));
+    expect(counts.folders).toBe(1);
+    expect(counts.wins).toBe(1);
+    expect(counts.entries).toBe(1);
+    expect(counts.projects).toBe(1);
+    expect(counts.tasks).toBe(1);
+    expect(counts.todos).toBe(1);
+  });
+
+  it("odškrtnuté položky se do počtů neberou - mizí samy", () => {
+    const base = addTodo(EMPTY_STATE, "hotová").state;
+    expect(countState(toggleTodo(base, base.todos[0].id)).todos).toBe(0);
   });
 });

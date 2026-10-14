@@ -337,6 +337,9 @@ export interface MicroWinsState {
   daySheets: DaySheet[];
 }
 
+/** Kolekce stavu - všechno kromě čísla verze. */
+export type StateKey = Exclude<keyof MicroWinsState, "version">;
+
 export const STATE_VERSION = 8;
 
 export const EMPTY_STATE: MicroWinsState = {

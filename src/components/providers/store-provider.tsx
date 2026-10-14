@@ -3,18 +3,8 @@
 import * as React from "react";
 import * as actions from "@/lib/actions";
 import * as projectActions from "@/lib/project-actions";
-import {
-  applySettings,
-  exportBackup,
-  parseBackup,
-  type BackupOptions,
-  type ExportOutcome,
-  type ExportTarget,
-} from "@/lib/backup";
 import { todayISO } from "@/lib/date";
 import { applyDevSeed } from "@/lib/dev-seed";
-import { graftTaskTrees, mergeState, type ImportMode } from "@/lib/import";
-import { ALL_PARTS, isAllParts, type DataPart } from "@/lib/parts";
 import { todoTtlMs } from "@/lib/prefs";
 import { loadState, saveState } from "@/lib/storage";
 import { connectStore, journalCommit } from "@/lib/sync-runtime";
@@ -84,11 +74,6 @@ export interface StoreApi {
   placeTask: (id: string, offset: MapOffset | null) => void;
   /** Celá mapa úkolu zpátky na automatické rozmístění. */
   resetTaskMap: (rootId: string) => void;
-  /**
-   * Načte mapy atomů ze souboru pod existující projekt (nová id, řazení za
-   * stávající úkoly). Vrací id nových kořenů, ať se dá rovnou jeden otevřít.
-   */
-  graftTaskTrees: (incoming: MicroWinsState, rootIds: string[], projectId: string) => string[];
 
   /** Jednoduchý seznam. Vrací null, když text po očištění nic neobsahuje. */
   addTodo: (text: string) => Todo | null;
@@ -157,30 +142,6 @@ export interface StoreApi {
   deleteMilestone: (id: string) => void;
 
   reset: () => void;
-  /**
-   * Načte zálohu (nový formát i starší holý export). Bez options se chová jako
-   * dřív - nahradí celý stav. S `parts` vezme jen vybrané části, takže se dají
-   * natáhnout projekty odjinud, aniž by se sáhlo na strom winů, nebo samotné
-   * ToDo bez plánu.
-   *
-   * Nastavení ze zálohy se převezme, když o to `settings` řekne; bez udání
-   * jen při nahrazení úplně všeho - tehdy jde o obnovu celé appky.
-   */
-  importJson: (
-    text: string,
-    options?: { parts?: readonly DataPart[]; mode?: ImportMode; settings?: boolean },
-  ) => boolean;
-  /**
-   * Vyexportuje zálohu - celou, nebo jen vybrané části (`options.parts`).
-   * V appce podle `target` buď nabídne sdílení, nebo soubor rovnou uloží do
-   * Dokumentů; v prohlížeči vždycky stáhne.
-   *
-   * `source` místo stavu appky vyexportuje hotový výřez - jednu mapu atomů.
-   */
-  exportJson: (
-    target?: ExportTarget,
-    options?: BackupOptions & { source?: MicroWinsState },
-  ) => Promise<ExportOutcome>;
 }
 
 const StoreContext = React.createContext<StoreApi | null>(null);
@@ -331,11 +292,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       reorderTasks: (ids) => commit(projectActions.reorderTasks(ref.current, ids)),
       placeTask: (id, offset) => commit(projectActions.setTaskMapOffset(ref.current, id, offset)),
       resetTaskMap: (rootId) => commit(projectActions.clearTaskMap(ref.current, rootId)),
-      graftTaskTrees: (incoming, rootIds, projectId) => {
-        const res = graftTaskTrees(ref.current, incoming, rootIds, projectId, todayISO());
-        if (res.state !== ref.current) commit(res.state);
-        return res.rootIds;
-      },
 
       addTodo: (text) => {
         const res = todoActions.addTodo(ref.current, text);
@@ -426,23 +382,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       deleteMilestone: (id) => commit(projectActions.deleteMilestone(ref.current, id)),
 
       reset: () => commit(EMPTY_STATE),
-      importJson: (text, options) => {
-        const parsed = parseBackup(text);
-        if (!parsed) return false;
-        const parts = options?.parts ?? ALL_PARTS;
-        const mode = options?.mode ?? "replace";
-        commit(mergeState(ref.current, parsed.state, parts, mode));
-        // Nastavení vzhledu patří k celé záloze; při načítání jedné části by
-        // bez zeptání přepsalo volby, o kterých uživatel nic neříkal.
-        if (options?.settings ?? (isAllParts(parts) && mode === "replace")) {
-          applySettings(parsed.settings);
-        }
-        return true;
-      },
-      exportJson: (target, options) => {
-        const { source, ...rest } = options ?? {};
-        return exportBackup(source ?? ref.current, target, rest);
-      },
     }),
     [state, today, hydrated, commit],
   );

@@ -5,13 +5,11 @@ import Link from "next/link";
 import {
   ChevronsDownUp,
   ChevronsUpDown,
-  Download,
   ExternalLink,
   Eye,
   EyeOff,
   Plus,
   Trash2,
-  Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -35,7 +33,6 @@ import type { MicroWinsState, Task } from "@/lib/types";
 import { cn, plural } from "@/lib/utils";
 import { AtomCanvas } from "./atom-canvas";
 import { AtomEditor } from "./atom-editor";
-import { SaveMapDialog, useMapLoader } from "./map-transfer";
 
 /**
  * Atomizér - rozsekání úkolu na stále menší kusy.
@@ -56,8 +53,6 @@ export function AtomsPanel() {
   const { state } = useStore();
   const [selected, setSelected] = React.useState<string | null>(null);
   const [creating, setCreating] = React.useState(false);
-  // Načtená mapa se rovnou otevře - ať je vidět, kam přistála.
-  const loader = useMapLoader(setSelected);
 
   /* V liště jsou úkoly nejvyšší úrovně ze všech neodložených projektů - to jsou
      ty celky, které se rozsekávají. Podúkoly v ní nejsou, ty už jsou uvnitř. */
@@ -74,14 +69,9 @@ export function AtomsPanel() {
               Atomizér krájí úkoly na menší kusy. Nemusíš kvůli tomu nic chystat jinde - založ
               úkol rovnou tady, klidně do projektu, který nikde jinde nebude svítit.
             </p>
-            <div className="flex flex-wrap justify-center gap-2">
-              <Button size="sm" onClick={() => setCreating(true)}>
-                <Plus /> Nový úkol
-              </Button>
-              <Button size="sm" variant="outline" onClick={loader.open}>
-                <Upload /> Načíst mapu
-              </Button>
-            </div>
+            <Button size="sm" onClick={() => setCreating(true)}>
+              <Plus /> Nový úkol
+            </Button>
           </CardContent>
         </Card>
       ) : (
@@ -91,15 +81,12 @@ export function AtomsPanel() {
             current={current}
             onPick={setSelected}
             onNew={() => setCreating(true)}
-            onLoad={loader.open}
           />
           {current ? <AtomMap key={current.id} task={current} /> : null}
         </>
       )}
 
       <NewTaskDialog open={creating} onOpenChange={setCreating} onCreated={setSelected} />
-      {loader.input}
-      {loader.dialog}
     </div>
   );
 }
@@ -272,13 +259,11 @@ function TaskStrip({
   current,
   onPick,
   onNew,
-  onLoad,
 }: {
   tasks: Task[];
   current: Task | null;
   onPick: (id: string) => void;
   onNew: () => void;
-  onLoad: () => void;
 }) {
   const { state } = useStore();
   const stripRef = React.useRef<HTMLDivElement>(null);
@@ -340,16 +325,6 @@ function TaskStrip({
           <Plus className="size-4" />
           <span className="text-[11px]">Nový úkol</span>
         </button>
-
-        <button
-          type="button"
-          onClick={onLoad}
-          aria-label="Načíst mapu ze souboru"
-          className="flex w-24 shrink-0 flex-col items-center justify-center gap-1 rounded-xl border border-dashed p-2.5 text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
-        >
-          <Upload className="size-4" />
-          <span className="text-[11px]">Načíst mapu</span>
-        </button>
       </div>
     </div>
   );
@@ -364,7 +339,6 @@ function AtomMap({ task }: { task: Task }) {
   const [openId, setOpenId] = React.useState<string | null>(null);
   const [adding, setAdding] = React.useState<string | null>(null);
   const [pending, setPending] = React.useState<Task | null>(null);
-  const [saving, setSaving] = React.useState(false);
 
   const toggle = React.useCallback(
     (id: string) =>
@@ -436,15 +410,6 @@ function AtomMap({ task }: { task: Task }) {
             {project.hidden ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
           </button>
         ) : null}
-        <button
-          type="button"
-          onClick={() => setSaving(true)}
-          aria-label="Uložit mapu do souboru"
-          title="Uložit mapu do souboru"
-          className="text-muted-foreground hover:text-foreground"
-        >
-          <Download className="size-3.5" />
-        </button>
         <Link
           href={`/tasks?id=${task.id}`}
           aria-label="Otevřít úkol"
@@ -470,8 +435,6 @@ function AtomMap({ task }: { task: Task }) {
         zaškrtávátko nebo počítadlo, popis), <span className="font-medium">+</span> pod ní ji
         rozseká na menší kusy.
       </p>
-
-      <SaveMapDialog task={task} open={saving} onOpenChange={setSaving} />
 
       <AtomEditor
         task={openId ? (state.tasks.find((t) => t.id === openId) ?? null) : null}

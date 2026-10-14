@@ -1,6 +1,5 @@
-import type { StateKey } from "./parts";
 import { BRAIN_DUMP_MAX } from "./timebox";
-import type { DaySheet, Microwin, MicroWinsState, Priority } from "./types";
+import type { DaySheet, Microwin, MicroWinsState, Priority, StateKey } from "./types";
 
 /**
  * Převzetí dat ze zařízení do uživatelského účtu.
@@ -265,4 +264,38 @@ function appendOrder<T extends { id: string; order: number; createdAt: string }>
     const i = rank.get(r.id);
     return i === undefined ? r : { ...r, order: base + i };
   });
+}
+
+// --- počty pro dialog převzetí ------------------------------------------------
+
+/** Kolik čeho ve stavu je - dialog převzetí podle toho píše, co se spojí. */
+export interface StateCounts {
+  folders: number;
+  wins: number;
+  entries: number;
+  microwins: number;
+  projects: number;
+  tasks: number;
+  milestones: number;
+  /** Otevřené položky ToDo; odškrtnuté se do zálohy počítat nemají, mizí samy. */
+  todos: number;
+  /** Bloky v plánu dne. */
+  blocks: number;
+  /** Dny, ke kterým je v time boxu napsaná priorita nebo brain dump. */
+  sheets: number;
+}
+
+export function countState(state: MicroWinsState): StateCounts {
+  return {
+    folders: state.nodes.filter((n) => n.kind === "category").length,
+    wins: state.nodes.filter((n) => n.kind !== "category").length,
+    entries: state.entries.length,
+    microwins: state.microwins.length,
+    projects: state.projects.length,
+    tasks: state.tasks.length,
+    milestones: state.milestones.length,
+    todos: state.todos.filter((t) => t.doneAt === null).length,
+    blocks: state.timeBlocks.length,
+    sheets: state.daySheets.length,
+  };
 }

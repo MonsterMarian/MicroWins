@@ -1,8 +1,14 @@
 import { recordKey, same } from "./account-merge";
-import type { StateKey } from "./parts";
 import { parseState } from "./storage";
 import { BRAIN_DUMP_MAX } from "./timebox";
-import { EMPTY_STATE, type DaySheet, type MicroWinsState, type Priority, type TreeNode } from "./types";
+import {
+  EMPTY_STATE,
+  type DaySheet,
+  type MicroWinsState,
+  type Priority,
+  type StateKey,
+  type TreeNode,
+} from "./types";
 
 /**
  * Synchronizace - čistá část: stav jako záznamy a zpátky.

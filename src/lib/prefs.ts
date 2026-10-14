@@ -7,6 +7,7 @@
  * potřebuje pár komponent naráz. `useSyncExternalStore` si na něj sedne bez
  * dalšího providera.
  */
+import { isAvatar } from "./avatar";
 import { DEFAULT_DUE_RULES, parseDueRules, type DueRule } from "./due-rules";
 import { clampHour, DEFAULT_TIMEBOX_END, DEFAULT_TIMEBOX_START } from "./timebox";
 
@@ -98,6 +99,8 @@ export interface Prefs {
   overview: Overview;
   /** Nové logo z fotky v hlavičce místo samotného textu. */
   headerLogo: boolean;
+  /** Profilová fotka účtu - malý JPEG jako data URI (`lib/avatar.ts`), nebo nic. */
+  avatar: string | null;
   /** Ukázat oranžový pohár u složky, když v ní přibyl microwin dnes. */
   folderTrophy: boolean;
   /** Zapnuté části appky, viz `ADDONS`. */
@@ -138,6 +141,7 @@ export const DEFAULT_PREFS: Prefs = {
   accent: "green",
   overview: "pulse",
   headerLogo: false,
+  avatar: null,
   folderTrophy: false,
   addons: DEFAULT_ADDONS,
   tabOrder: DEFAULT_TAB_ORDER,
@@ -203,6 +207,7 @@ export function parsePrefs(raw: unknown): Prefs {
     accent: isAccent(record.accent) ? record.accent : DEFAULT_PREFS.accent,
     overview: isOverview(record.overview) ? record.overview : DEFAULT_PREFS.overview,
     headerLogo: record.headerLogo === true,
+    avatar: isAvatar(record.avatar) ? record.avatar : null,
     folderTrophy: record.folderTrophy === true,
     addons: parseAddons(record.addons),
     tabOrder: parseTabOrder(record.tabOrder),

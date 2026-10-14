@@ -132,7 +132,9 @@ export function TimeboxGrid({
         <span className="pl-1.5">:30</span>
       </div>
 
-      <Card className="-mx-4 overflow-hidden rounded-none border-x-0 p-0 sm:mx-0 sm:rounded-xl sm:border-x">
+      {/* Uvnitř stránky, ne přes okraj displeje: stránky listu jsou posuvný
+          pás a co přečuhuje přes kraj stránky, to pás usekne (i hodiny). */}
+      <Card className="overflow-hidden p-0">
         {rows.map((row, index) => (
           <div
             key={`${row.date}-${row.hour}`}

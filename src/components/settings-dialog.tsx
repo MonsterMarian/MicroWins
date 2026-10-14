@@ -2,8 +2,10 @@
 
 import * as React from "react";
 import {
+  Camera,
   Check,
   ChevronRight,
+  Loader2,
   LogIn,
   LogOut,
   Merge,
@@ -21,6 +23,7 @@ import { useToast } from "@/components/providers/toast-provider";
 import { useAccount } from "@/components/providers/use-account";
 import { useSyncStatus } from "@/components/providers/use-sync";
 import { ReloginDialog } from "@/components/account/login-screen";
+import { avatarFromFile } from "@/lib/avatar";
 import { signOut } from "@/lib/account";
 import {
   progressLabel,
@@ -203,6 +206,7 @@ function AccountSection() {
   const sync = useSyncStatus();
   const { toast } = useToast();
   const [relogin, setRelogin] = React.useState(false);
+  const { avatar } = usePrefs();
   const signedIn = account.status === "signed-in";
   const revoked = signedIn && sync.message === SESSION_REVOKED;
 
@@ -219,19 +223,7 @@ function AccountSection() {
     >
       <div className="overflow-hidden rounded-lg border">
         <div className="flex items-center gap-3 px-3 py-2.5">
-          <span
-            className={cn(
-              "grid size-9 shrink-0 place-items-center rounded-full text-sm font-semibold",
-              signedIn ? "bg-foreground text-background" : "bg-muted text-muted-foreground",
-            )}
-            aria-hidden
-          >
-            {signedIn && account.email ? (
-              account.email.slice(0, 1).toUpperCase()
-            ) : (
-              <UserRound className="size-4" />
-            )}
-          </span>
+          <AvatarButton email={signedIn ? account.email : ""} />
           <span className="min-w-0 flex-1">
             <span className="block truncate text-sm font-medium">
               {signedIn ? account.email || "Přihlášeno" : "Účet"}
@@ -269,6 +261,16 @@ function AccountSection() {
         {/* Stejná patička jako u addonů - akce, které se nedělají každý den. */}
         {signedIn && sync.phase !== "off" && sync.phase !== "checking" ? (
           <div className="flex items-center gap-1 border-t px-1.5 py-1">
+            {avatar ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="order-last ml-auto h-7 px-2 text-muted-foreground"
+                onClick={() => setPrefs({ avatar: null })}
+              >
+                Odebrat fotku
+              </Button>
+            ) : null}
             {revoked ? (
               <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => setRelogin(true)}>
                 <LogIn className="size-3.5" /> Přihlásit
@@ -297,6 +299,70 @@ function AccountSection() {
         <ReloginDialog email={account.email} open={relogin} onOpenChange={setRelogin} />
       ) : null}
     </Section>
+  );
+}
+
+/**
+ * Kolečko účtu. Ťuknutím se nahraje profilová fotka - z galerie nebo rovnou
+ * z foťáku (systémový výběr souboru nabídne obojí). Zmenší se na malý čtverec
+ * a uloží do nastavení, takže ji uvidí každé zařízení s tímhle účtem.
+ */
+function AvatarButton({ email }: { email: string }) {
+  const { avatar } = usePrefs();
+  const { toast } = useToast();
+  const input = React.useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = React.useState(false);
+
+  const pick = async (file: File | undefined) => {
+    if (!file) return;
+    setBusy(true);
+    try {
+      setPrefs({ avatar: await avatarFromFile(file) });
+    } catch (e) {
+      toast({
+        tone: "warn",
+        title: "Fotku nejde použít",
+        description: e instanceof Error ? e.message : undefined,
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => input.current?.click()}
+        disabled={busy}
+        aria-label={avatar ? "Změnit profilovou fotku" : "Nahrát profilovou fotku"}
+        title={avatar ? "Změnit fotku" : "Nahrát fotku"}
+        className="relative size-11 shrink-0 rounded-full"
+      >
+        {avatar ? (
+          // eslint-disable-next-line @next/next/no-img-element -- data URI, statický export
+          <img src={avatar} alt="" className="size-11 rounded-full object-cover" />
+        ) : (
+          <span className="grid size-11 place-items-center rounded-full bg-foreground text-sm font-semibold text-background">
+            {email ? email.slice(0, 1).toUpperCase() : <UserRound className="size-4" />}
+          </span>
+        )}
+        <span className="absolute -bottom-0.5 -right-0.5 grid size-5 place-items-center rounded-full border bg-background text-foreground shadow">
+          {busy ? <Loader2 className="size-3 animate-spin" /> : <Camera className="size-3" />}
+        </span>
+      </button>
+      <input
+        ref={input}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = "";
+          void pick(file);
+        }}
+      />
+    </>
   );
 }
 

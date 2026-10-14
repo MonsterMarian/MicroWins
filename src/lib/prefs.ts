@@ -15,11 +15,12 @@ import { clampHour, DEFAULT_TIMEBOX_END, DEFAULT_TIMEBOX_START } from "./timebox
  * si vlastní hlas. Bílá zůstává na výběr pro toho, komu vedle jantaru microwinů
  * dvě barvy vadí.
  */
-export type Accent = "green" | "white";
+export type Accent = "green" | "white" | "orange";
 
 export const ACCENTS: { id: Accent; label: string; hint: string }[] = [
   { id: "green", label: "Zelená", hint: "postup má vlastní barvu" },
   { id: "white", label: "Bílá", hint: "postup mluví jazykem tlačítek" },
+  { id: "orange", label: "Oranžová", hint: "jako microwiny ve stromě" },
 ];
 
 /** Klíč pro skript v `layout.tsx`, který barvu nasadí ještě před prvním paintem. */
@@ -38,22 +39,6 @@ export const OVERVIEWS: { id: Overview; label: string; hint: string }[] = [
   { id: "timeline", label: "Osa", hint: "termíny a milníky v pořadí, jak přijdou" },
   { id: "pulse", label: "Tep", hint: "graf denních přírůstků a série" },
   { id: "table", label: "Tabulka", hint: "hustý výpis všech čísel pod sebou" },
-];
-
-/**
- * Podoba time boxu. Data jsou pořád tatáž (bloky v mřížce, trojka a brain
- * dump), mění se jen rozvržení - papírový list se dvěma sloupci je čitelný na
- * tabletu, na telefonu se ale mačká, takže má na výběr i jednosloupcové
- * verze. Všech pět sekcí (pás, Nestihl jsem, trojka, mřížka, brain dump) jsou
- * přitom v každé z nich - „Záložky" s brain dumpem na vlastní obrazovce
- * padly, protože v nich list vždy něčeho zbýval.
- */
-export type TimeboxLayout = "list" | "agenda" | "sheet";
-
-export const TIMEBOX_LAYOUTS: { id: TimeboxLayout; label: string; hint: string }[] = [
-  { id: "list", label: "Seznam", hint: "půlhodina na řádek přes celou šířku, brain dump až pod dnem" },
-  { id: "agenda", label: "Jen obsazené", hint: "prázdné půlhodiny se slijí do jednoho řádku volna" },
-  { id: "sheet", label: "Papír", hint: "sloupce :00 a :30 vedle sebe jako na předloze - pro tablet" },
 ];
 
 /**
@@ -134,8 +119,6 @@ export interface Prefs {
    */
   timeboxStart: number;
   timeboxEnd: number;
-  /** Rozvržení time boxu, viz `TIMEBOX_LAYOUTS`. */
-  timeboxLayout: TimeboxLayout;
   /**
    * Mají se otevřené položky ToDo ukazovat v pásu nad listem dne time boxu?
    * Kdo chce list čistý (jen vlastní hlavou napsané věci), propojení vypne -
@@ -162,10 +145,6 @@ export const DEFAULT_PREFS: Prefs = {
   todoTtlMinutes: DEFAULT_TODO_TTL_MINUTES,
   timeboxStart: DEFAULT_TIMEBOX_START,
   timeboxEnd: DEFAULT_TIMEBOX_END,
-  /* Agenda, ne seznam: na telefonu má prázdná mřížka 5:00-23:30 přes 1 600 px
-     a brain dump pod ní je o dvě obrazovky níž. Slité volno den zkrátí na pár
-     řádků a tah už agendu nerozbaluje celou (viz `agendaItems`). */
-  timeboxLayout: "agenda",
   todoInTimebox: true,
   dueRules: DEFAULT_DUE_RULES,
 };
@@ -178,10 +157,6 @@ function isAccent(value: unknown): value is Accent {
 
 function isOverview(value: unknown): value is Overview {
   return OVERVIEWS.some((o) => o.id === value);
-}
-
-function isTimeboxLayout(value: unknown): value is TimeboxLayout {
-  return TIMEBOX_LAYOUTS.some((l) => l.id === value);
 }
 
 /**
@@ -242,9 +217,6 @@ export function parsePrefs(raw: unknown): Prefs {
       typeof record.timeboxEnd === "number"
         ? clampHour(record.timeboxEnd)
         : DEFAULT_PREFS.timeboxEnd,
-    timeboxLayout: isTimeboxLayout(record.timeboxLayout)
-      ? record.timeboxLayout
-      : DEFAULT_PREFS.timeboxLayout,
     // Chybějící volba = propojené, jako to bylo dřív napevno.
     todoInTimebox: record.todoInTimebox !== false,
     dueRules: parseDueRules(record.dueRules),

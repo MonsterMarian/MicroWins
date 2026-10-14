@@ -109,23 +109,20 @@ describe("nastavení ze starší verze", () => {
   });
 });
 
-describe("rozvržení time boxu", () => {
-  it("uložená volba projde", () => {
-    expect(parsePrefs({ timeboxLayout: "agenda" }).timeboxLayout).toBe("agenda");
-    expect(parsePrefs({ timeboxLayout: "sheet" }).timeboxLayout).toBe("sheet");
+/* Rozvržení time boxu (seznam, agenda, papír) padla - list je teď jeden,
+   dvě stránky vedle sebe. Starší uložená volba se tiše zahodí. */
+describe("zrušené rozvržení time boxu", () => {
+  it("uložená volba se zahodí a nic nerozbije", () => {
+    const prefs = parsePrefs({ timeboxLayout: "sheet" });
+    expect("timeboxLayout" in prefs).toBe(false);
+    expect(prefs).toEqual(DEFAULT_PREFS);
   });
+});
 
-  it("nastavení bez volby dostane agendu se slitým volnem", () => {
-    expect(parsePrefs({}).timeboxLayout).toBe("agenda");
-    expect(parsePrefs({ timeboxLayout: "grid" }).timeboxLayout).toBe("agenda");
-    // Kdo si seznam vybral, tomu zůstane.
-    expect(parsePrefs({ timeboxLayout: "list" }).timeboxLayout).toBe("list");
-  });
-
-  /* „Záložky" padly - schovávaly brain dump na vlastní obrazovce, takže list
-     vždy něčeho zbýval. Uložená volba nesmí nikoho rozbít. */
-  it("zrušené Záložky spadnou na výchozí agendu", () => {
-    expect(parsePrefs({ timeboxLayout: "tabs" }).timeboxLayout).toBe("agenda");
+describe("barva postupu", () => {
+  it("oranžová projde, neznámá spadne na výchozí", () => {
+    expect(parsePrefs({ accent: "orange" }).accent).toBe("orange");
+    expect(parsePrefs({ accent: "purple" }).accent).toBe(DEFAULT_PREFS.accent);
   });
 });
 

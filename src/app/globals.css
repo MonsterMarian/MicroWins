@@ -92,6 +92,15 @@
   --progress-muted-foreground: oklch(0.45 0.008 286);
 }
 
+/* Oranžová je jantar microwinů ze stromu - bere jeho proměnné, takže sedí
+   ve světlém i tmavém režimu bez vlastní kopie barev. */
+[data-accent="orange"] {
+  --progress: var(--win);
+  --progress-foreground: var(--win-foreground);
+  --progress-muted: var(--win-muted);
+  --progress-muted-foreground: var(--win-muted-foreground);
+}
+
 .dark[data-accent="white"] {
   --progress: oklch(0.92 0.004 286.32);
   --progress-foreground: oklch(0.21 0.006 285.885);
@@ -290,6 +299,10 @@
 
   .dark .mw-swatch-green {
     background: #00ff00;
+  }
+
+  .mw-swatch-orange {
+    background: var(--win);
   }
 
   .mw-swatch-white {

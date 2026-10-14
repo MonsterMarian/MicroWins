@@ -39,9 +39,12 @@ import { SWIPE_THRESHOLD, useSwipeRow } from "./use-swipe-row";
  * a přetáhnout se dají prstem jinam; dlouhý text políčko neusekne, jen mu
  * naroste řádek.
  *
- * Na telefonu (seznam, agenda) má zápis navíc: ťuknutí otevře panel bloku,
- * švihnutí doprava odškrtne, doleva pošle na zítra a pilulkou s délkou se
- * blok protáhne tahem dolů.
+ * Mřížka je agenda: půlhodina na řádek přes celou šířku, prázdné půlhodiny
+ * se slijí do jednoho řádku volna. Papírový list se sloupci `:00` a `:30`
+ * a seznam všech půlhodin byly na výběr v Nastavení - padly, list je jeden.
+ *
+ * Zápis: ťuknutí otevře panel bloku, švihnutí doprava odškrtne, doleva pošle
+ * na zítra a pilulkou s délkou se blok protáhne tahem dolů.
  */
 
 /** Jak dlouho musí prst viset nad řádkem volna, než se rozbalí na půlhodiny. */
@@ -54,13 +57,6 @@ interface Editing {
   blockId: string | null;
 }
 
-/**
- * Jak se mřížka kreslí. `sheet` je papírový list se sloupci `:00` a `:30`,
- * `list` půlhodina na řádek přes celou šířku a `agenda` totéž, jen se prázdné
- * půlhodiny slijí do jednoho řádku volna.
- */
-export type GridLayout = "sheet" | "list" | "agenda";
-
 /** Tah za pilulku s délkou - co se protahuje. */
 interface ResizeSource {
   id: string;
@@ -71,7 +67,6 @@ export function TimeboxGrid({
   date,
   today,
   drag,
-  layout = "sheet",
   onOpenBlock,
   className,
 }: {
@@ -79,7 +74,6 @@ export function TimeboxGrid({
   today: ISODate;
   /** Tažení drží panel - přetahuje se i mezi trojkou hlavních věcí a mřížkou. */
   drag: TimeboxDrag;
-  layout?: GridLayout;
   /** Ťuknutí na zápis - panel bloku drží panel listu, ať je jen jeden naráz. */
   onOpenBlock: (id: string) => void;
   className?: string;
@@ -188,7 +182,7 @@ export function TimeboxGrid({
   const isEditing = (slot: SheetSlot) =>
     editing !== null && editing.date === slot.date && editing.start === slot.start;
 
-  const renderSlot = (index: number, props: { roomy?: boolean; className?: string } = {}) => {
+  const renderSlot = (index: number) => {
     const slot = slots[index];
     return (
       <Slot
@@ -204,13 +198,12 @@ export function TimeboxGrid({
         resizingId={resize.ghost?.source.id ?? null}
         highlighted={inResize(slot)}
         isNow={isNowSlot(slot, today, now)}
-        {...props}
       />
     );
   };
 
   const isToday = slots.some((slot) => isNowSlot(slot, today, now));
-  const pill = useNowPill(container, isToday && !dragging, [layout, date, now, state.timeBlocks]);
+  const pill = useNowPill(container, isToday && !dragging, [date, now, state.timeBlocks]);
 
   const nowPill =
     pill !== null ? (
@@ -240,97 +233,57 @@ export function TimeboxGrid({
 
   const hint = (
     <p className="px-1 text-xs text-muted-foreground">
-      {layout === "sheet"
-        ? "Ťukni do políčka a piš; Enter tě posune o půl hodiny dál. Ťuknutí na zápis otevře jeho čas, délku a akce; podržený se dá přetáhnout jinam, nahoru mezi hlavní věci dne, nebo do koše."
-        : "Ťukni do políčka a piš. Zápis: ťuknutí otevře čas, délku a akce, švihnutí doprava odškrtne, doleva pošle na zítra, podržením ho přetáhneš a za pilulku s délkou protáhneš dolů. Odškrtnutí platí všude, kde se ta věc ukáže."}
+      Ťukni do políčka a piš. Zápis: ťuknutí otevře čas, délku a akce, švihnutí doprava odškrtne,
+      doleva pošle na zítra, podržením ho přetáhneš a za pilulku s délkou protáhneš dolů. Odškrtnutí
+      platí všude, kde se ta věc ukáže.
     </p>
   );
 
-  if (layout !== "sheet") {
-    const occupied = slots.map((slot) => {
-      const content = slotContent(blocksByDate.get(slot.date) ?? [], slot.start);
-      return (
-        content.blocks.length > 0 ||
-        content.running !== null ||
-        isNowSlot(slot, today, now) ||
-        isEditing(slot)
-      );
-    });
-    const items: AgendaItem[] =
-      layout === "list"
-        ? slots.map((_, index) => ({ kind: "slot", index }))
-        : agendaItems(occupied, expanded);
-
+  const occupied = slots.map((slot) => {
+    const content = slotContent(blocksByDate.get(slot.date) ?? [], slot.start);
     return (
-      <section ref={container} className={cn("flex flex-col gap-1.5", className)}>
-        <Card className="-mx-4 overflow-hidden rounded-none border-x-0 p-0 sm:mx-0 sm:rounded-xl sm:border-x">
-          {items.map((item) => {
-            if (item.kind === "free") {
-              const from = slots[item.from];
-              const target = drag.target ?? resize.target;
-              return (
-                <FreeRow
-                  key={`${from.date}-${from.start}-free`}
-                  from={from}
-                  index={item.from}
-                  count={item.count}
-                  dragging={dragging}
-                  hovered={target?.kind === "free" && target.index === item.from}
-                  onEdit={() => setEditing({ ...from, blockId: null })}
-                />
-              );
-            }
-            const slot = slots[item.index];
-            return (
-              <div
-                key={`${slot.date}-${slot.start}`}
-                className={cn(
-                  "grid grid-cols-[3.25rem_minmax(0,1fr)] border-b last:border-b-0",
-                  // Půlhodina uvnitř hodiny se odděluje jen jemně, hodiny naplno.
-                  layout === "list" && slot.start % 60 === 0 && "border-border/40",
-                )}
-              >
-                <TimeLabel start={slot.start} />
-                {renderSlot(item.index, { roomy: true })}
-              </div>
-            );
-          })}
-        </Card>
-        {hint}
-        {nowPill}
-        {resizeGhost}
-      </section>
+      content.blocks.length > 0 ||
+      content.running !== null ||
+      isNowSlot(slot, today, now) ||
+      isEditing(slot)
     );
-  }
+  });
+  const items: AgendaItem[] = agendaItems(occupied, expanded);
 
   return (
     <section ref={container} className={cn("flex flex-col gap-1.5", className)}>
-      <div className="tabular grid grid-cols-[2.1rem_minmax(0,1fr)_minmax(0,1fr)] px-0.5 text-[11px] text-muted-foreground">
-        <span />
-        <span className="pl-1.5">:00</span>
-        <span className="pl-1.5">:30</span>
-      </div>
-
       <Card className="-mx-4 overflow-hidden rounded-none border-x-0 p-0 sm:mx-0 sm:rounded-xl sm:border-x">
-        {rows.map((row, index) => (
-          <div
-            key={`${row.date}-${row.hour}`}
-            className="grid grid-cols-[2.1rem_minmax(0,1fr)_minmax(0,1fr)] border-b last:border-b-0"
-          >
-            <span className="tabular grid place-items-center border-r py-1 text-[11px] text-muted-foreground">
-              {row.hour}
-            </span>
-            {[false, true].map((half) => (
-              <React.Fragment key={half ? "half" : "full"}>
-                {renderSlot(index * 2 + (half ? 1 : 0), { className: half ? "border-l" : "" })}
-              </React.Fragment>
-            ))}
-          </div>
-        ))}
+        {items.map((item) => {
+          if (item.kind === "free") {
+            const from = slots[item.from];
+            const target = drag.target ?? resize.target;
+            return (
+              <FreeRow
+                key={`${from.date}-${from.start}-free`}
+                from={from}
+                index={item.from}
+                count={item.count}
+                dragging={dragging}
+                hovered={target?.kind === "free" && target.index === item.from}
+                onEdit={() => setEditing({ ...from, blockId: null })}
+              />
+            );
+          }
+          const slot = slots[item.index];
+          return (
+            <div
+              key={`${slot.date}-${slot.start}`}
+              className="grid grid-cols-[3.25rem_minmax(0,1fr)] border-b last:border-b-0"
+            >
+              <TimeLabel start={slot.start} />
+              {renderSlot(item.index)}
+            </div>
+          );
+        })}
       </Card>
-
       {hint}
       {nowPill}
+      {resizeGhost}
     </section>
   );
 }
@@ -473,8 +426,6 @@ function Slot({
   resizingId,
   highlighted,
   isNow,
-  roomy = false,
-  className,
 }: {
   date: ISODate;
   start: number;
@@ -489,9 +440,6 @@ function Slot({
   /** Políčko v rozsahu, kam by sahal protahovaný blok. */
   highlighted: boolean;
   isNow: boolean;
-  /** Políčko přes celou šířku (seznam, agenda) - větší písmo a prsty. */
-  roomy?: boolean;
-  className?: string;
 }) {
   const { state, addBlock, updateBlock, toggleBlockDone, deleteBlock, restoreBlock } = useStore();
   const { toast } = useToast();
@@ -552,12 +500,10 @@ function Slot({
       data-slot-start={start}
       {...(isNow ? { "data-timebox-now": "" } : {})}
       className={cn(
-        "flex flex-col justify-center gap-px transition-colors",
-        roomy ? "min-h-12 px-2 py-1" : "min-h-[2rem] py-0.5 pl-1 pr-0.5",
+        "flex min-h-12 flex-col justify-center gap-px px-2 py-1 transition-colors",
         isNow && "bg-progress-muted/40",
         highlighted && "bg-progress/15",
         isTarget && "bg-progress/20 ring-1 ring-inset ring-progress",
-        className,
       )}
     >
       {/* Dvě věci v jedné půlhodině stojí vedle sebe, ne pod sebou - dějí se
@@ -565,12 +511,11 @@ function Slot({
       {content.blocks.length > 0 || writing ? (
         /* Zalamuje se: dvě věci se vejdou vedle sebe, třetí si vezme řádek pod
            nimi. Bez toho se sloupce zmáčkly na pár písmen na řádek. */
-        <div className={cn("flex min-w-0 flex-wrap items-stretch", roomy ? "gap-x-3 gap-y-1" : "gap-px")}>
+        <div className="flex min-w-0 flex-wrap items-stretch gap-x-3 gap-y-1">
           {content.blocks.map((block) =>
             editing?.blockId === block.id ? (
               <SlotInput
                 key={block.id}
-                roomy={roomy}
                 initial={block.title}
                 onCommit={(text, goNext) => commit(text, block.id, goNext)}
                 onCancel={() => onEdit(null)}
@@ -578,7 +523,6 @@ function Slot({
             ) : (
               <BlockLine
                 key={block.id}
-                roomy={roomy}
                 block={block}
                 label={blockTitle(state, block)}
                 linked={
@@ -603,7 +547,6 @@ function Slot({
           )}
           {writing ? (
             <SlotInput
-              roomy={roomy}
               initial=""
               onCommit={(text, goNext) => commit(text, null, goNext)}
               onCancel={() => onEdit(null)}
@@ -617,17 +560,11 @@ function Slot({
           type="button"
           onClick={() => onEdit({ date, start, blockId: null })}
           aria-label={`Naplánovat na ${formatMinutes(start)}`}
-          className={cn(
-            "flex w-full items-center rounded-[4px] text-left hover:bg-accent/60",
-            roomy ? "h-10" : "h-6",
-          )}
+          className="flex h-10 w-full items-center rounded-[4px] text-left hover:bg-accent/60"
         >
           {/* Delší blok tu jen pokračuje - popsaný je ve svém prvním políčku. */}
           {content.running ? (
-            <span
-              className={cn("ml-0.5 w-0.5 rounded-full bg-progress/50", roomy ? "h-8" : "h-3.5")}
-              aria-hidden
-            />
+            <span className="ml-0.5 h-8 w-0.5 rounded-full bg-progress/50" aria-hidden />
           ) : null}
         </button>
       ) : (
@@ -638,10 +575,7 @@ function Slot({
           onClick={() => onEdit({ date, start, blockId: null })}
           aria-label={`Přidat další na ${formatMinutes(start)}`}
           title="Přidat další"
-          className={cn(
-            "group flex w-full items-center justify-center rounded-[3px] border border-dashed border-transparent text-muted-foreground/50 hover:border-border hover:text-foreground",
-            roomy ? "h-5" : "h-3.5",
-          )}
+          className="group flex h-5 w-full items-center justify-center rounded-[3px] border border-dashed border-transparent text-muted-foreground/50 hover:border-border hover:text-foreground"
         >
           <Plus className="size-2.5 opacity-0 transition-opacity group-hover:opacity-100" />
         </button>
@@ -655,12 +589,10 @@ function Slot({
  * panel bloku (text, čas, délka, na zítra, smazat). Malý křížek, který tu
  * dřív visel, je pryč - na telefonu se na něj ťukalo omylem.
  *
- * Na celou šířku (seznam, agenda) navíc: švihnutí doprava odškrtne, doleva
- * pošle na zítra a pilulka s délkou se dá táhnout dolů - blok se protáhne
- * do půlhodiny, kde se prst pustí.
+ * Švihnutí doprava odškrtne, doleva pošle na zítra a pilulka s délkou se dá
+ * táhnout dolů - blok se protáhne do půlhodiny, kde se prst pustí.
  */
 function BlockLine({
-  roomy,
   block,
   label,
   linked,
@@ -672,7 +604,6 @@ function BlockLine({
   onTomorrow,
   onOpen,
 }: {
-  roomy: boolean;
   block: TimeBlock;
   label: string;
   linked: boolean;
@@ -685,7 +616,7 @@ function BlockLine({
   onOpen: () => void;
 }) {
   const done = block.doneAt !== null;
-  const swipe = useSwipeRow({ enabled: roomy, onRight: onToggle, onLeft: onTomorrow });
+  const swipe = useSwipeRow({ enabled: true, onRight: onToggle, onLeft: onTomorrow });
   const armedRight = swipe.offset >= SWIPE_THRESHOLD;
   const armedLeft = swipe.offset <= -SWIPE_THRESHOLD;
 
@@ -700,13 +631,12 @@ function BlockLine({
       onPointerCancel={swipe.handlers.onPointerCancel}
       onClickCapture={swipe.handlers.onClickCapture}
       onContextMenu={(e) => e.preventDefault()}
-      data-no-swipe={roomy ? "" : undefined}
+      data-no-swipe=""
       className={cn(
-        "group/line relative flex items-center rounded-[3px] [-webkit-touch-callout:none]",
+        "group/line relative flex min-h-10 touch-pan-y items-center gap-1 rounded-[3px] [-webkit-touch-callout:none]",
         // Při švihnutí kryje řádek to, co pod ním prosvítá; jinak je průhledný,
         // ať je vidět zvýraznění „teď“.
         swipe.offset !== 0 && "bg-card",
-        roomy ? "min-h-10 gap-1 touch-pan-y" : "min-w-[4.5rem] flex-[1_1_4.5rem] items-start gap-1",
         dragging && "opacity-40",
       )}
       style={
@@ -721,16 +651,15 @@ function BlockLine({
         onClick={onToggle}
         aria-pressed={done}
         aria-label={done ? `Vrátit zpět: ${label}` : `Hotovo: ${label}`}
-        className={cn("grid shrink-0 place-items-center", roomy ? "-my-1 -ml-2 size-11" : "mt-0.5")}
+        className="-my-1 -ml-2 grid size-11 shrink-0 place-items-center"
       >
         <span
           className={cn(
-            "grid place-items-center border transition-colors",
-            roomy ? "size-5 rounded-[4px]" : "size-3.5 rounded-[3px]",
+            "grid size-5 place-items-center rounded-[4px] border transition-colors",
             done ? "border-progress bg-progress text-progress-foreground" : "border-muted-foreground/40",
           )}
         >
-          {done ? <Check className={roomy ? "size-3.5" : "size-2.5"} /> : null}
+          {done ? <Check className="size-3.5" /> : null}
         </span>
       </button>
       <button
@@ -738,8 +667,7 @@ function BlockLine({
         onClick={onOpen}
         title={label}
         className={cn(
-          "min-w-0 flex-1 break-words text-left",
-          roomy ? "py-2 text-sm leading-5" : "text-[11px] leading-4",
+          "min-w-0 flex-1 break-words py-2 text-left text-sm leading-5",
           done && "text-muted-foreground line-through",
         )}
       >
@@ -747,34 +675,28 @@ function BlockLine({
           <span className="tabular mr-1 text-muted-foreground">{formatMinutes(block.start)}</span>
         ) : null}
         {linked ? (
-          <Link2
-            className={cn("mr-0.5 inline text-muted-foreground", roomy ? "size-3.5" : "size-2.5")}
-          />
+          <Link2 className="mr-0.5 inline size-3.5 text-muted-foreground" />
         ) : null}
         {label}
       </button>
-      {roomy ? (
-        /* Pilulka s délkou = úchyt pro protažení. Táhne hned (nic jiného
-           neumí), takže si stránka nesmí vzít ani první pohyb. */
-        <button
-          type="button"
-          onPointerDown={(e) => {
-            e.stopPropagation();
-            onResizePress(e);
-          }}
-          onContextMenu={(e) => e.preventDefault()}
-          aria-label={`Délka ${formatLength(block.duration)} - táhni dolů a protáhni`}
-          title="Táhni dolů a blok se protáhne. Ťuknutí otevře délky."
-          className="tabular flex h-9 shrink-0 cursor-ns-resize touch-none items-center gap-0.5 rounded-full border px-2 text-[11px] text-muted-foreground [-webkit-touch-callout:none]"
-        >
-          <ChevronsUpDown className="size-3" />
-          {formatLength(block.duration)}
-        </button>
-      ) : null}
+      {/* Pilulka s délkou = úchyt pro protažení. Táhne hned (nic jiného
+          neumí), takže si stránka nesmí vzít ani první pohyb. */}
+      <button
+        type="button"
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          onResizePress(e);
+        }}
+        onContextMenu={(e) => e.preventDefault()}
+        aria-label={`Délka ${formatLength(block.duration)} - táhni dolů a protáhni`}
+        title="Táhni dolů a blok se protáhne. Ťuknutí otevře délky."
+        className="tabular flex h-9 shrink-0 cursor-ns-resize touch-none items-center gap-0.5 rounded-full border px-2 text-[11px] text-muted-foreground [-webkit-touch-callout:none]"
+      >
+        <ChevronsUpDown className="size-3" />
+        {formatLength(block.duration)}
+      </button>
     </span>
   );
-
-  if (!roomy) return line;
 
   /* Pod švihaným řádkem prosvítá, co se po puštění stane - a rozsvítí se, až
      je prst za hranicí. */
@@ -802,12 +724,10 @@ function BlockLine({
 }
 
 function SlotInput({
-  roomy,
   initial,
   onCommit,
   onCancel,
 }: {
-  roomy: boolean;
   initial: string;
   onCommit: (text: string, goNext: boolean) => void;
   onCancel: () => void;
@@ -829,12 +749,7 @@ function SlotInput({
         if (e.key === "Escape") onCancel();
       }}
       aria-label="Co se v tu dobu bude dít"
-      className={cn(
-        "rounded-[4px] border bg-background",
-        roomy
-          ? "min-w-[8rem] flex-[1_1_8rem] px-2 py-2 text-sm leading-5"
-          : "min-w-[4.5rem] flex-[1_1_4.5rem] px-1 py-0.5 text-[11px] leading-4",
-      )}
+      className="min-w-[8rem] flex-[1_1_8rem] rounded-[4px] border bg-background px-2 py-2 text-sm leading-5"
     />
   );
 }

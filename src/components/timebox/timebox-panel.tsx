@@ -76,9 +76,9 @@ import { searchFrom, WhenSheet, type WhenPick, type WhenRequest } from "./when-s
  * vpravo zbylé tři. Na telefonu se mezi nimi švihá, na širší obrazovce jsou
  * vedle sebe.
  *
- * Rozvržení (Nastavení → Vzhled) mění jen podobu mřížky: papír, seznam
- * půlhodin, nebo agenda jen s obsazenými půlhodinami. Data jsou ve všech
- * stejná.
+ * Rozvrh je agenda: obsazené půlhodiny po řádcích, prázdné se slijí do
+ * jednoho řádku volna. Rozvržení na výběr (seznam, papír) padla - list je
+ * jeden.
  */
 export function TimeboxPanel() {
   const {
@@ -93,7 +93,7 @@ export function TimeboxPanel() {
     deleteBlock,
     restoreBlock,
   } = useStore();
-  const { timeboxStart, timeboxLayout, todoInTimebox } = usePrefs();
+  const { timeboxStart, todoInTimebox } = usePrefs();
   const { toast } = useToast();
   const [date, setDate] = React.useState<ISODate>(() => today);
 
@@ -414,7 +414,6 @@ export function TimeboxPanel() {
       date={date}
       today={today}
       drag={drag}
-      layout={timeboxLayout}
       onOpenBlock={setOpenBlock}
       className={className}
     />
@@ -437,7 +436,6 @@ export function TimeboxPanel() {
           <React.Fragment key={`day-${date}`}>
             <BrainDump
               date={date}
-              size="fixed"
               drag={drag}
               dumpApi={dumpApi}
               onChangeTime={changeTime}
@@ -863,15 +861,6 @@ function PriorityRow({
 
 // --- brain dump -------------------------------------------------------------
 
-/**
- * Výška brain dumpu podle rozvržení: `fill` se na širší obrazovce natáhne na
- * výšku mřížky vedle, `fixed` má pod mřížkou pevnou plochu.
- */
-const DUMP_SIZE = {
-  fill: "min-h-48 flex-1",
-  fixed: "min-h-40 sm:min-h-48",
-} as const;
-
 /** Jeden řádek brain dumpu. Id drží identitu řádku, i když jiné řádky
  *  přibývají a mizí - fokus i tažení se pak nemíchají mezi řádky. */
 interface DumpRowData {
@@ -905,14 +894,12 @@ function serializeDump(rows: DumpRowData[]): string {
 
 function BrainDump({
   date,
-  size,
   className,
   drag,
   dumpApi,
   onChangeTime,
 }: {
   date: ISODate;
-  size: keyof typeof DUMP_SIZE;
   className?: string;
   drag: TimeboxDrag;
   dumpApi: React.RefObject<DumpApi | null>;
@@ -1073,7 +1060,7 @@ function BrainDump({
   return (
     /* Na telefonu má plocha svoji spodní mez, na širší obrazovce se natáhne
        na výšku mřížky - psát se má kam, ale mřížku to nesmí odsunout dolů. */
-    <section className={cn("flex flex-col gap-1.5", DUMP_SIZE[size], className)}>
+    <section className={cn("flex min-h-40 flex-col gap-1.5 sm:min-h-48", className)}>
       <h3 className="px-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
         Brain dump
       </h3>

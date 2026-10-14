@@ -57,6 +57,7 @@ import { AutoTextarea } from "./auto-textarea";
 import { BlockSheet } from "./block-sheet";
 import { CaptureSheet } from "./capture-sheet";
 import { Queue } from "./queue";
+import { SheetPager } from "./sheet-pager";
 import { ghostPosition, TimeboxGrid } from "./timebox-grid";
 import {
   useTimeboxDrag,
@@ -70,12 +71,14 @@ import { searchFrom, WhenSheet, type WhenPick, type WhenRequest } from "./when-s
  * Time box - papírový list dne přenesený do appky.
  *
  * Vždycky obsahuje všech pět sekcí: pás rozdělané práce, Nestihl jsem,
- * trojka hlavních věcí, mřížka časových bloků a brain dump.
+ * trojka hlavních věcí, mřížka časových bloků a brain dump. Jsou rozdělené
+ * na dvě stránky vedle sebe (viz `SheetPager`): vlevo brain dump a rozvrh,
+ * vpravo zbylé tři. Na telefonu se mezi nimi švihá, na širší obrazovce jsou
+ * vedle sebe.
  *
- * Tohle je rozvržení "Papír" - na tabletu čitelné, na telefonu se ale dva
- * sloupce mačkají na pár písmen a mřížka začíná až pod brain dumpem. Proto
- * jsou na výběr (Nastavení → Vzhled) i jednosloupcové verze: seznam
- * půlhodin a agenda jen s obsazenými půlhodinami. Data jsou ve všech stejná.
+ * Rozvržení (Nastavení → Vzhled) mění jen podobu mřížky: papír, seznam
+ * půlhodin, nebo agenda jen s obsazenými půlhodinami. Data jsou ve všech
+ * stejná.
  */
 export function TimeboxPanel() {
   const {
@@ -425,72 +428,31 @@ export function TimeboxPanel() {
     <div className="flex flex-col gap-3">
       <DateBar date={date} today={today} onDate={setDate} />
 
-      {/* Vždycky všech pět sekcí: pás, Nestihl jsem, trojka, mřížka, brain
-          dump. Rozvržení mění jen to, jak se roztáhnou vedle sebe - schovávat
-          části listu podle vzhledu znamenalo hledat věc na obrazovce, na
-          které zrovna není. */}
-      {timeboxLayout === "sheet" ? (
-        <>
-          {queue}
-          {carryover}
-          <div
-            key={date}
-            className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] sm:items-stretch"
-          >
-            {/* Levý sloupec se natáhne na výšku mřížky a brain dump v něm zabere
-                všechno, co zbyde - psát se má kam, ne do řádkového pole. */}
-            <div className="flex min-w-0 flex-col gap-3">
-              <Priorities date={date} drag={drag} onChangeTime={changeTime} />
-              <BrainDump
-                date={date}
-                size="fill"
-                drag={drag}
-                dumpApi={dumpApi}
-                onChangeTime={changeTime}
-              />
-              <AiSuggestions date={date} today={today} onChangeTime={changeTime} />
-            </div>
+      {/* Vždycky všech pět sekcí, rozdělených na dvě stránky. Dřív byly
+          pod sebou a každá věc se táhla přes celý list nahoru nebo dolů -
+          teď je druhá stránka jedno švihnutí (nebo tah ke kraji) vedle.
+          `key` podle dne: nový den začíná s čistými řádky dumpu, ale stránka,
+          na které člověk stojí, zůstane. */}
+      <SheetPager labels={["Dump a rozvrh", "Hlavní věci"]} drag={drag}>
+        {[
+          <React.Fragment key={`day-${date}`}>
+            <BrainDump
+              date={date}
+              size="fixed"
+              drag={drag}
+              dumpApi={dumpApi}
+              onChangeTime={changeTime}
+            />
+            <AiSuggestions date={date} today={today} onChangeTime={changeTime} />
             {grid()}
-          </div>
-        </>
-      ) : (
-        <>
-          {queue}
-          {carryover}
-          {/* Na telefonu jde mřížka hned pod trojku a brain dump až pod ni -
-              den je to, co se tu čte nejčastěji. Levý sloupec se proto na úzké
-              obrazovce rozpustí (`contents`) a jeho části se seřadí přes
-              `order`; na širší zůstane sloupcem vedle mřížky. */}
-          <div
-            key={date}
-            className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] sm:items-start"
-          >
-            <div className="contents sm:flex sm:min-w-0 sm:flex-col sm:gap-3">
-              <Priorities
-                date={date}
-                drag={drag}
-                onChangeTime={changeTime}
-                className="order-1 sm:order-none"
-              />
-              <BrainDump
-                date={date}
-                size="fixed"
-                drag={drag}
-                dumpApi={dumpApi}
-                onChangeTime={changeTime}
-                className="order-3 sm:order-none"
-              />
-              <AiSuggestions
-                date={date}
-                today={today}
-                onChangeTime={changeTime}
-                className="order-4 sm:order-none"
-              />
-            </div>
-            {grid("order-2 sm:order-none")}
-          </div>
-        </>
-      )}
+          </React.Fragment>,
+          <React.Fragment key={`plan-${date}`}>
+            {queue}
+            {carryover}
+            <Priorities date={date} drag={drag} onChangeTime={changeTime} />
+          </React.Fragment>,
+        ]}
+      </SheetPager>
 
       {/* Koš je bublina v rohu, ne pruh přes celou spodní hranu: u spodní
           hrany se při tahu roluje, a kdo mířil dolů na pozdější hodinu, pustil

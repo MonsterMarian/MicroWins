@@ -16,13 +16,11 @@ import {
   TIMEBLOCK_MAX_TITLE,
 } from "@/lib/timeblocks";
 import {
-  agendaItems,
   resizedDuration,
   SHEET_SLOT,
   slotContent,
   timeboxRows,
   timeboxSlots,
-  type AgendaItem,
   type SheetSlot,
 } from "@/lib/timebox";
 import type { ISODate, TimeBlock } from "@/lib/types";
@@ -39,16 +37,14 @@ import { SWIPE_THRESHOLD, useSwipeRow } from "./use-swipe-row";
  * a přetáhnout se dají prstem jinam; dlouhý text políčko neusekne, jen mu
  * naroste řádek.
  *
- * Mřížka je agenda: půlhodina na řádek přes celou šířku, prázdné půlhodiny
- * se slijí do jednoho řádku volna. Papírový list se sloupci `:00` a `:30`
- * a seznam všech půlhodin byly na výběr v Nastavení - padly, list je jeden.
+ * Mřížka je rozbalená: každá půlhodina má svůj řádek přes celou šířku, i ta
+ * prázdná, takže se dá kamkoli ťuknout i pustit věc bez rozbalování. Dřív se
+ * prázdné půlhodiny slévaly do řádku „volno“ a rozbalovaly se až podržením
+ * prstu - na přání pryč. Papírový list se sloupci `:00` a `:30` padl taky.
  *
  * Zápis: ťuknutí otevře panel bloku, švihnutí doprava odškrtne, doleva pošle
  * na zítra a pilulkou s délkou se blok protáhne tahem dolů.
  */
-
-/** Jak dlouho musí prst viset nad řádkem volna, než se rozbalí na půlhodiny. */
-const SPRING = 450;
 
 /** Které políčko se zrovna píše. `blockId: null` = nový blok. */
 interface Editing {
@@ -81,7 +77,6 @@ export function TimeboxGrid({
   const { state, resizeBlock } = useStore();
   const { timeboxStart, timeboxEnd } = usePrefs();
   const [editing, setEditing] = React.useState<Editing | null>(null);
-  const [expanded, setExpanded] = React.useState<ReadonlySet<number>>(() => new Set());
   const now = useNowMinutes();
   const container = React.useRef<HTMLElement | null>(null);
 
@@ -129,37 +124,7 @@ export function TimeboxGrid({
     onHold: (source) => onOpenBlock(source.id),
   });
 
-  /* Rozbalení volna pod prstem. Celá agenda se při tahu dřív rozbalila
-     naráz a obsah pod prstem uskočil o stovky pixelů - teď se rozbalí jen
-     úsek, nad kterým prst chvíli visí, a to dolů od místa, kde visí. */
-  const hovered =
-    drag.target?.kind === "free"
-      ? drag.target.index
-      : resize.target?.kind === "free"
-        ? resize.target.index
-        : null;
-  React.useEffect(() => {
-    if (hovered === null) return;
-    const timer = window.setTimeout(() => {
-      setExpanded((prev) => new Set(prev).add(hovered));
-    }, SPRING);
-    return () => window.clearTimeout(timer);
-  }, [hovered]);
-
   const dragging = drag.ghost !== null || resize.ghost !== null;
-  React.useEffect(() => {
-    if (!dragging) setExpanded((prev) => (prev.size === 0 ? prev : new Set()));
-  }, [dragging]);
-
-  /* Pod stojícím prstem je teď jiný prvek (půlhodina místo volna) - cíl se
-     musí najít znovu, jinak by puštění šlo pořád „na volno“. */
-  const { refresh: refreshDrag } = drag;
-  const { refresh: refreshResize } = resize;
-  React.useLayoutEffect(() => {
-    refreshDrag();
-    refreshResize();
-  }, [expanded, refreshDrag, refreshResize]);
-
   /** Kam až by blok po puštění pilulky sahal - políčka se v tom rozsahu rozsvítí. */
   const resizeRange = React.useMemo(() => {
     if (!resize.ghost || !resize.target) return null;
@@ -239,47 +204,22 @@ export function TimeboxGrid({
     </p>
   );
 
-  const occupied = slots.map((slot) => {
-    const content = slotContent(blocksByDate.get(slot.date) ?? [], slot.start);
-    return (
-      content.blocks.length > 0 ||
-      content.running !== null ||
-      isNowSlot(slot, today, now) ||
-      isEditing(slot)
-    );
-  });
-  const items: AgendaItem[] = agendaItems(occupied, expanded);
-
   return (
     <section ref={container} className={cn("flex flex-col gap-1.5", className)}>
       <Card className="-mx-4 overflow-hidden rounded-none border-x-0 p-0 sm:mx-0 sm:rounded-xl sm:border-x">
-        {items.map((item) => {
-          if (item.kind === "free") {
-            const from = slots[item.from];
-            const target = drag.target ?? resize.target;
-            return (
-              <FreeRow
-                key={`${from.date}-${from.start}-free`}
-                from={from}
-                index={item.from}
-                count={item.count}
-                dragging={dragging}
-                hovered={target?.kind === "free" && target.index === item.from}
-                onEdit={() => setEditing({ ...from, blockId: null })}
-              />
-            );
-          }
-          const slot = slots[item.index];
-          return (
-            <div
-              key={`${slot.date}-${slot.start}`}
-              className="grid grid-cols-[3.25rem_minmax(0,1fr)] border-b last:border-b-0"
-            >
-              <TimeLabel start={slot.start} />
-              {renderSlot(item.index)}
-            </div>
-          );
-        })}
+        {slots.map((slot, index) => (
+          <div
+            key={`${slot.date}-${slot.start}`}
+            className={cn(
+              "grid grid-cols-[3.25rem_minmax(0,1fr)] border-b last:border-b-0",
+              // Půlhodina uvnitř hodiny se odděluje jen jemně, hodiny naplno.
+              slot.start % 60 === 0 && "border-border/40",
+            )}
+          >
+            <TimeLabel start={slot.start} />
+            {renderSlot(index)}
+          </div>
+        ))}
       </Card>
       {hint}
       {nowPill}
@@ -355,61 +295,6 @@ function TimeLabel({ start }: { start: number }) {
     >
       {formatMinutes(start)}
     </span>
-  );
-}
-
-/**
- * Slité volno v agendě. Ťuknutí začne psát do jeho první půlhodiny.
- *
- * Při tahu je to cíl: podržený prst ho po chvíli rozbalí na půlhodiny,
- * puštění rovnou na něj nechá vybrat čas jen z tohohle úseku.
- */
-function FreeRow({
-  from,
-  index,
-  count,
-  dragging,
-  hovered,
-  onEdit,
-}: {
-  from: SheetSlot;
-  index: number;
-  count: number;
-  dragging: boolean;
-  hovered: boolean;
-  onEdit: () => void;
-}) {
-  const end = from.start + count * SHEET_SLOT;
-  return (
-    <div
-      data-free=""
-      data-free-date={from.date}
-      data-free-start={from.start}
-      data-free-count={count}
-      data-free-index={index}
-      className={cn(
-        "grid grid-cols-[3.25rem_minmax(0,1fr)] border-b transition-colors last:border-b-0",
-        hovered && "bg-progress/15 ring-1 ring-inset ring-progress",
-      )}
-    >
-      <span className="tabular border-r px-1.5 py-3.5 text-right text-xs leading-4 text-muted-foreground/70">
-        {formatMinutes(from.start)}
-      </span>
-      <button
-        type="button"
-        onClick={onEdit}
-        aria-label={`Naplánovat na ${formatMinutes(from.start)}`}
-        className="flex min-h-12 items-center gap-2 px-2 text-left text-xs text-muted-foreground hover:bg-accent/60"
-      >
-        <span className="h-px flex-1 border-t border-dashed" />
-        <span className="tabular shrink-0">
-          {hovered
-            ? "podrž a rozbalí se · pusť a vybereš čas"
-            : `volno ${formatLength(count * SHEET_SLOT)} · do ${formatMinutes(end % (24 * 60))}`}
-        </span>
-        {dragging ? null : <Plus className="size-3.5 shrink-0" />}
-      </button>
-    </div>
   );
 }
 

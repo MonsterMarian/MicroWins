@@ -24,8 +24,8 @@ import { cn } from "@/lib/utils";
  * nahoře délka, pod ní nejbližší volno a pak všechny půlhodiny dne. Ťuknutí
  * na čas rovnou plánuje - druhé potvrzovací tlačítko by byla práce navíc.
  *
- * Otevírá se z toastu „Změnit“ po ťuknutí na úchyt, podržením úchytu bez
- * pohybu a puštěním na řádek volna v agendě (pak nabízí jen ten úsek).
+ * Otevírá se z toastu „Změnit“ po ťuknutí na úchyt a podržením úchytu bez
+ * pohybu.
  */
 
 export interface WhenRequest {
@@ -35,8 +35,6 @@ export interface WhenRequest {
   duration: number;
   /** Přeplánovávaný blok - jeho vlastní místo se nepočítá jako obsazené. */
   exclude?: string | null;
-  /** Úsek volna, kam se věc pustila - nabídne se jen ten (s cestou na celý den). */
-  range?: { date: ISODate; from: number; to: number } | null;
 }
 
 export interface WhenPick {
@@ -81,7 +79,7 @@ export function WhenSheet({
       {/* Klíč podle požadavku: každé otevření začíná s jeho dnem a délkou. */}
       {request ? (
         <WhenBody
-          key={`${request.title}|${request.date}|${request.exclude ?? ""}|${request.range?.from ?? ""}`}
+          key={`${request.title}|${request.date}|${request.exclude ?? ""}`}
           request={request}
           onPick={onPick}
         />
@@ -95,33 +93,16 @@ function WhenBody({ request, onPick }: { request: WhenRequest; onPick: (pick: Wh
   const { timeboxStart, timeboxEnd } = usePrefs();
   const [day, setDay] = React.useState<ISODate>(request.date);
   const [duration, setDuration] = React.useState(request.duration);
-  const [whole, setWhole] = React.useState(!request.range);
 
   const now = new Date();
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
-  // Den výběru je při puštění na volno den toho volna (panel ho tak posílá).
   const slots = timeboxSlots(timeboxRows(day, timeboxStart, timeboxEnd));
-  const all = slotChoices(slots, state.timeBlocks, { today, nowMinutes, exclude: request.exclude });
-  const asked = request.range ?? null;
-  const inRange = asked
-    ? all.filter((c) => c.date === asked.date && c.start >= asked.from && c.start < asked.to)
-    : [];
-  /* Dnešní volno, které už celé uplynulo (agenda ho ukazuje i ráno před
-     „teď“): do minulosti se neplánuje, takže se nabídne rovnou celý den. */
-  const gone = asked !== null && inRange.length === 0;
-  const range = whole || gone ? null : asked;
-  const choices = range ? inRange : all;
+  const choices = slotChoices(slots, state.timeBlocks, { today, nowMinutes, exclude: request.exclude });
 
-  /* Nejbližší volno pro zvolenou délku. V úseku volna od jeho začátku - a
-     když se tam délka nevejde, tak aspoň na jeho první nabízenou půlhodinu,
-     kam to člověk pustil. Nikdy ne do minulosti. */
+  /* Nejbližší volno pro zvolenou délku - nikdy ne do minulosti. */
   const nearest = (() => {
     const blocks = blocksOfDay(state, day).filter((b) => b.id !== request.exclude);
-    const from = Math.max(range?.from ?? 0, searchFrom(day, today, timeboxStart));
-    const start = nextFreeSlot(blocks, from, duration);
-    if (range && (start < range.from || start >= range.to)) {
-      return { date: day, start: Math.max(inRange[0].start, from) };
-    }
+    const start = nextFreeSlot(blocks, searchFrom(day, today, timeboxStart), duration);
     return { date: day, start };
   })();
 
@@ -149,35 +130,13 @@ function WhenBody({ request, onPick }: { request: WhenRequest; onPick: (pick: Wh
         {nearest.date !== request.date ? ` (${dayLabel(nearest.date, today)})` : ""}
       </button>
 
-      {gone && asked ? (
-        <p className="text-xs text-muted-foreground">
-          Volno {formatMinutes(asked.from)}–{formatMinutes(asked.to % (24 * 60))} už uplynulo, vyber
-          z celého dne.
-        </p>
-      ) : null}
-
-      {range ? (
-        <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-          <span className="tabular">
-            Volno {formatMinutes(range.from)}–{formatMinutes(range.to % (24 * 60))}
-          </span>
-          <button
-            type="button"
-            onClick={() => setWhole(true)}
-            className="h-9 rounded-md px-2 font-medium text-foreground underline underline-offset-2"
-          >
-            Celý den
-          </button>
-        </div>
-      ) : (
-        <div className="flex gap-1.5" role="group" aria-label="Den">
-          {days.map((d) => (
-            <Chip key={d} on={d === day} onClick={() => setDay(d)} className="flex-1">
-              {dayLabel(d, today)}
-            </Chip>
-          ))}
-        </div>
-      )}
+      <div className="flex gap-1.5" role="group" aria-label="Den">
+        {days.map((d) => (
+          <Chip key={d} on={d === day} onClick={() => setDay(d)} className="flex-1">
+            {dayLabel(d, today)}
+          </Chip>
+        ))}
+      </div>
 
       {choices.length === 0 ? (
         <p className="py-4 text-center text-sm text-muted-foreground">
@@ -198,7 +157,7 @@ function WhenBody({ request, onPick }: { request: WhenRequest; onPick: (pick: Wh
               )}
             >
               {formatMinutes(choice.start)}
-              {choice.date !== (range?.date ?? day) ? (
+              {choice.date !== day ? (
                 <span className="absolute right-1 top-0.5 text-[9px] text-muted-foreground">+1</span>
               ) : null}
             </button>

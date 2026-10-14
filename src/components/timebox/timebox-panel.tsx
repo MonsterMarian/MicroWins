@@ -222,17 +222,16 @@ export function TimeboxPanel() {
     planned(spot.start, source.title, block.id);
   };
 
-  /** Výběr času pro věc, která se teprve plánuje (podržení, puštění na volno). */
-  const askWhen = (source: DragSource, range?: WhenRequest["range"]) => {
+  /** Výběr času pro věc, která se teprve plánuje (podržení bez pohybu). */
+  const askWhen = (source: DragSource) => {
     const block =
       source.kind === "block" ? state.timeBlocks.find((b) => b.id === source.id) : undefined;
     setWhen({
       request: {
         title: source.title,
-        date: range?.date ?? block?.date ?? date,
+        date: block?.date ?? date,
         duration: block?.duration ?? SHEET_SLOT,
         exclude: block?.id ?? null,
-        range: range ?? null,
       },
       apply: (pick) => {
         placeOnSlot(source, pick, pick.duration);
@@ -349,14 +348,6 @@ export function TimeboxPanel() {
     (source, target) => {
       if (target.kind === "slot") {
         placeOnSlot(source, target);
-        return;
-      }
-      if (target.kind === "free") {
-        askWhen(source, {
-          date: target.date,
-          from: target.start,
-          to: target.start + target.count * SHEET_SLOT,
-        });
         return;
       }
       if (target.kind === "priority") return dropOnPriority(source, target.index);
@@ -524,8 +515,6 @@ function targetLabel(source: DragSource, target: DropTarget | null, date: ISODat
   switch (target.kind) {
     case "slot":
       return `→ ${formatMinutes(target.start)}${target.date !== date ? ` · ${formatDate(target.date)}` : ""}`;
-    case "free":
-      return `→ volno ${formatMinutes(target.start)}–${formatMinutes((target.start + target.count * SHEET_SLOT) % (24 * 60))}`;
     case "priority":
       if (source.kind !== "priority") return `→ ${target.index + 1}. hlavní věc`;
       // Nad vlastním řádkem se nic neprohodí - puštění tam tah jen zruší.

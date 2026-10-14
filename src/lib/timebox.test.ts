@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { isValidISODate } from "./date";
 import { addBlock, blockTitle, linkBlockToPriority, moveBlockToDay } from "./timeblocks";
 import {
-  agendaItems,
   hasPriorityBlockAt,
   isSheetEmpty,
   markPriorityCarried,
@@ -478,27 +477,7 @@ describe("nestihl jsem", () => {
   });
 });
 
-describe("agenda, výběr času a délka tahem", () => {
-  /* Celá agenda se při tahu rozbalovala naráz a obsah pod prstem uskočil.
-     Teď se rozbalí jen úsek, nad kterým prst podržel. */
-  it("agenda slévá volno a rozbalí jen vyžádaný úsek", () => {
-    const occupied = [false, false, true, false, false, false, true];
-    expect(agendaItems(occupied)).toEqual([
-      { kind: "free", from: 0, count: 2 },
-      { kind: "slot", index: 2 },
-      { kind: "free", from: 3, count: 3 },
-      { kind: "slot", index: 6 },
-    ]);
-    expect(agendaItems(occupied, new Set([3]))).toEqual([
-      { kind: "free", from: 0, count: 2 },
-      { kind: "slot", index: 2 },
-      { kind: "slot", index: 3 },
-      { kind: "slot", index: 4 },
-      { kind: "slot", index: 5 },
-      { kind: "slot", index: 6 },
-    ]);
-  });
-
+describe("výběr času a délka tahem", () => {
   it("půlhodiny mřížky jdou po sobě i přes půlnoc", () => {
     const slots = timeboxSlots(timeboxRows(DAY, 23, 0));
     expect(slots).toEqual([

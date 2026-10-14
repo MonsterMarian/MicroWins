@@ -101,7 +101,7 @@ export function slotContent(blocks: TimeBlock[], start: number): SlotContent {
   };
 }
 
-// --- agenda, výběr času, délka tahem ----------------------------------------
+// --- výběr času, délka tahem -----------------------------------------------
 
 /** Půlhodina mřížky: den a minuty od půlnoci. */
 export interface SheetSlot {
@@ -116,48 +116,6 @@ export function timeboxSlots(rows: TimeboxRow[]): SheetSlot[] {
   );
 }
 
-export type AgendaItem =
-  | { kind: "slot"; index: number }
-  /** Prázdné půlhodiny slité do jednoho řádku - `from` je index první z nich. */
-  | { kind: "free"; from: number; count: number };
-
-/**
- * Řádky agendy: obsazené půlhodiny zvlášť, prázdné mezi nimi slité do řádku
- * volna.
- *
- * `expanded` jsou indexy začátků volna, které se mají rozbalit na jednotlivé
- * půlhodiny. Rozbaluje se při tažení, jen ten úsek, nad kterým prst chvíli
- * podrží. Celá agenda se dřív rozbalila hned při začátku tahu a obsah pod
- * prstem poskočil o stovky pixelů, takže se netrefilo nic.
- */
-export function agendaItems(
-  occupied: readonly boolean[],
-  expanded: ReadonlySet<number> = new Set(),
-): AgendaItem[] {
-  const out: AgendaItem[] = [];
-  let run: { from: number; count: number } | null = null;
-  const flush = () => {
-    if (!run) return;
-    if (expanded.has(run.from)) {
-      for (let i = run.from; i < run.from + run.count; i++) out.push({ kind: "slot", index: i });
-    } else {
-      out.push({ kind: "free", ...run });
-    }
-    run = null;
-  };
-  occupied.forEach((busy, index) => {
-    if (busy) {
-      flush();
-      out.push({ kind: "slot", index });
-    } else if (run) {
-      run.count += 1;
-    } else {
-      run = { from: index, count: 1 };
-    }
-  });
-  flush();
-  return out;
-}
 
 /** Půlhodina nabízená ve výběru času. */
 export interface SlotChoice extends SheetSlot {

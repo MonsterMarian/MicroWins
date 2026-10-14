@@ -14,7 +14,7 @@ Archiv se otevírá v liště složky a vrátit se z něj dá jedním klepnutím
 
 Díky propracované **analýze** můžeš sledovat své "streaky" (série dnů bez přerušení), prohlížet si úspěchy v kalendáři a vidět rozložení podle kategorií.
 
-Všechna data zůstávají u tebe – aplikace funguje čistě nad `localStorage`, je plně offline a nepotřebuješ žádný účet. O svá data nepřijdeš, protože si je můžeš kdykoliv exportovat i importovat.
+Data se ukládají do tvého účtu (Supabase), takže je máš na telefonu, tabletu i počítači a nezmizí se ztraceným telefonem. Appka bez přihlášení nepustí dál, ale po prvním přihlášení jede i bez signálu – v zařízení je kopie dat a změny odejdou, až se spojí.
 
 ---
 

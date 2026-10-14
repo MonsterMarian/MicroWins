@@ -1,5 +1,10 @@
 # Databáze a uživatelské účty — návrh (30. 9. 2026)
 
+> **Změna 14. 10. 2026:** účet už není volitelný. Bez přihlášení appka ukáže
+> jen přihlášení (`components/account/login-screen.tsx`, `AuthGate`), lokální
+> zálohy (export/import) jsou pryč. Kopie dat v zařízení zůstává pro chvíle
+> bez signálu. Text níž popisuje původní návrh s volitelným účtem.
+
 Dnes appka drží všechno v `localStorage` jednoho zařízení a mezi zařízeními se
 data přenášejí jen ručně zálohou. Tenhle návrh přidává **volitelný účet**: data
 se synchronizují mezi telefonem, tabletem a počítačem a nezmizí se ztraceným

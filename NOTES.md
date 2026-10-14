@@ -59,10 +59,9 @@ Věci, které ze zadání jednoznačně nevyplývaly a musely se dořešit:
 | **Do složek se vchází, nerozbalují se** | Rozbalený strom byl s pár desítkami winů nečitelný. Vidět je vždy obsah jedné složky, cesta ven je v liště nad ní. Rozbalují se jen samotné winy - ty už další úroveň nemají. |
 | **Několik pohledů na winy místo jedné tabulky** | Pětisloupcová tabulka odpovídala na všechny otázky naráz a na žádnou pořádně. Pohledy (Stručně / Postup / Dnešek / Žebříček / Úplná tabulka) se přepínají v Nastavení, výchozí je nejstručnější. |
 | **Kalendář po celých rocích** | "Posledních 53 týdnů" začínalo uprostřed loňska a nešlo se podle toho zorientovat. Rok je pevná jednotka, mřížka se sama posune na dnešek. |
-| **Záloha i import po částech, ne všechno naráz** | Strom, projekty a každý addon žijí svým životem. Kdo si tahá projekty odjinud, nesmí tím smazat strom, co si vede měsíce, a kdo si přenáší ToDo do tabletu, nemá kvůli tomu přepsat plán. Části jsou v `lib/parts.ts` (strom, projekty a atomy, ToDo, plán, time box); ukládají se ze Zálohy v Nastavení (celé i výběr) a z řádku každého addonu, načítá se vybráním částí a režimem přidat/nahradit — a napřed se ukáže náhled se skutečnými počty "po načtení". |
+| **Lokální zálohy padly (14. 10. 2026)** | Data žijí v databázi účtu a přihlášení je povinné, takže export, import, ukládání po částech i ukládání map atomů do souboru zmizelo i s kódem (`backup.ts`, `import.ts`, `parts.ts`, `map-transfer.tsx`, `backup-dialogs.tsx`). Kopie dat v telefonu zůstává - slouží pro chvíle bez signálu, ne jako záloha. |
 | **Time box se ukládá i s bloky plánu** | Mřížka time boxu nemá vlastní data, políčka jsou bloky plánu. Bez nich by z uloženého time boxu zbyly jen priority a brain dump. Části se proto smějí překrývat a skládá se sjednocení kolekcí. Blok, jehož úkol nebo položka ToDo v souboru není, si do souboru nese dnešní popisek a odkaz po načtení drží jen tehdy, když stejné id v appce opravdu je. |
 | **Úkol s podúkoly: čísla, podúkoly, nebo obojí** | Úkol s podúkoly se dřív počítal jen z nich, takže první podúkol pod rozdělanými 50 / 250 shodil úkol na 0 % a čísla zmizela z obrazovky. Teď má úkol volbu `progressFrom` (Nastavení úkolu → Postup z): **Čísla** (podúkoly se nepočítají), **Podúkoly** (výchozí, jako dřív), **Obojí** - dva pruhy pod sebou a procenta úkolu jsou jejich průměr, ať jde z obrazovky vyčíst proč. Při prvním podúkolu pod úkolem s rozdělanými čísly se nabídne rovnou Obojí. Atomizér při rozsekání rozdělanou práci přesune do prvního dílu (`carryProgressToSubtask`) - tam je kus buď rozsekaný, nebo ne. |
-| **Mapa atomů jde uložit zvlášť** | Atomy vlastní data nemají (jsou to podúkoly), takže celé jdou s projekty. Rozsekání je ale práce sama o sobě - mapa se proto ukládá i po jedné (ikona nad mapou) a načítá se pod libovolný projekt jako nová kopie (`graftTaskTrees`). Soubor mapy je obyčejná záloha s jedním projektem, takže ho přečte i obnova v Nastavení. |
 | **Ikona jako string s předponou** | Emoji se ukládá rovnou, kreslená ikona jako `lucide:Dumbbell`. Stará data zůstala platná a nic se nemigrovalo. Komponenty se importují jmenovitě, aby v balíku neskončilo všech 1500 ikon knihovny. |
 | **Ikonu má jen složka, ne win** | Winy poznává oko podle druhu (měrák / fajfka / hvězda) a vlastní ikona by ten rozdíl zakryla. Složka bez vybrané ikony zůstává kresleným `Folder`, takže strom bez jediné ikony vypadá jako dřív a nic se nemigrovalo. |
 | **ToDo je samostatný seznam, ne třetí pohled na projekty** | Kdo si chce odškrtnout, co má koupit, nemá kvůli tomu zakládat projekt s procenty a deadlinem. Položka umí napsat, odškrtnout, přepsat a smazat; jediné nepovinné navíc je termín, a i ten se přidává až dodatečně. Žádná procenta, cíle ani jednotky - to už je úkol a ten v appce je. |
@@ -129,7 +128,7 @@ Věci, které ze zadání jednoznačně nevyplývaly a musely se dořešit:
 
 ## 4. Známá omezení
 
-- **Data jsou vázaná na prohlížeč a zařízení.** Jiný počítač = jiná data. Záloha je ruční přes export JSON.
+- **Bez účtu appka nejede.** Data jsou v databázi účtu; první přihlášení potřebuje signál, potom appka jede i offline a synchronizuje se později.
 - **Bez přihlášení a bez synchronizace.** Návrh účtů a databáze je v [DATABAZE.md](DATABAZE.md).
 - **Bez undo.** Smazání uzlu/projektu je nevratné (dialog aspoň ukáže, co všechno zmizí).
 - **Přetahovat jde jen ve vlastním pořadí** — v řazení podle názvu nebo postupu úchyty zmizí, protože puštěný řádek by okamžitě odskočil zpátky.
@@ -198,12 +197,9 @@ src/lib/
   atom-tree.ts        rozmístění stromu atomů do plátna (uzly, hrany, šířka)
   ai.ts               návrhy z brain dumpu přes Claude/Gemini (jediné volání ven)
   due-rules.ts        rychlé termíny jako pravidla (za hodinu, nejbližší sobota)
-  storage.ts          localStorage + export/import  ← jediné místo k výměně za DB
-  backup.ts           záloha celé appky (stav + nastavení), sdílení souboru
+  storage.ts          kopie dat v localStorage (pro chvíle bez signálu)
   prefs.ts            nastavení zobrazení mimo hlavní stav
   icons.ts            katalog ikon pro projekty (emoji + lucide)
-  import.ts           slučování zálohy se stavem (části + přidat/nahradit, mapy atomů)
-  parts.ts            části dat k samostatnému uložení (strom, projekty, addony)
   account.ts          účet e-mailem a heslem přes Supabase (knihovna se načítá až při použití)
   account-merge.ts    spojení dat zařízení s účtem (id se nepřerážejí, konflikty, listy dne)
   sync.ts             stav jako záznamy do databáze, rozdíly dvou stavů, propsání záznamů

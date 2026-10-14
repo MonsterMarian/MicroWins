@@ -31,7 +31,27 @@ Omezení: když se řádek smaže jen na jednom zařízení a druhé ho mezitím
 
 ---
 
-## 2. Přehled modulů
+## 2. Povinný účet, offline a konflikty (od 14. 10. 2026)
+
+- **Bez účtu appka nejede.** `AuthGate` (`components/account/login-screen.tsx`) pustí do appky jen přihlášeného. Lokální zálohy (export/import do souboru) padly - zdrojem pravdy je databáze účtu, `localStorage` je její kopie pro práci bez signálu.
+- **Offline přihlášení vydrží.** Bez sítě se prošlý token neobnoví a Supabase vrátí „bez přihlášení“, i když session v úložišti nechá. Appka proto bere uživatele z uložené session (`storedUser` v `lib/account.ts`) a odhlásí jen opravdové odhlášení nebo session, kterou zahodil server. Token se obnoví sám, až se zařízení spojí.
+- **První přihlášení na zařízení s daty** jde přes převzetí (`account-merge.ts`): data se spojí s účtem, nic se na serveru nemaže.
+
+### Jak se řeší konflikty
+
+| Situace | Výsledek |
+|---|---|
+| Dvě zařízení mění **různé** věci | Přežije obojí (záznamy jsou po jednom). |
+| Dvě zařízení mění **tutéž** věc | Vyhraje novější změna (`changed_at`), na serveru i v telefonech. |
+| Jedno věc **smaže**, druhé ji **upraví** | Taky novější vyhrává: pozdější úprava věc vrátí, pozdější smazání ji vezme i s úpravou. |
+| List time boxu téhož dne na dvou zařízeních | Slije se (`mergeDaySheet`), nic z textu se neztratí. |
+| Dlouho bez signálu | Fronta drží poslední podobu každé věci; po spojení odejde jednou (po 500 záznamech). |
+
+Všechno je otestované proti serveru v paměti se dvěma „telefony“ (`sync-engine.test.ts`).
+
+**Známé riziko: hodiny zařízení.** `changed_at` dává zařízení podle svých hodin. Telefon s hodinami napřed vyhraje i nad pozdější změnou jinde, telefon pozadu prohraje. U telefonů se síťovým časem je to vzácné. Pojistka na serveru by byla v `push_records` brát `least(changed_at, now())` - je to změna funkce, žádná data nemaže, ale nasadit ji musí vlastník projektu v Supabase.
+
+## 3. Přehled modulů
 
 - **`src/lib/storage.ts`**: Čtení a zápis stavu do `localStorage`.
 - **`src/lib/sync.ts`**: Rozklad stavu aplikace na jednotlivé záznamy a výpočet diffů (`diffStates`).
@@ -41,7 +61,7 @@ Omezení: když se řádek smaže jen na jednom zařízení a druhé ho mezitím
 
 ---
 
-## 3. Testovací sada
+## 4. Testovací sada
 
 Funkčnost offline ukládání a řešení kolizí je ověřena automatickými testy:
 - `src/lib/sync.test.ts`

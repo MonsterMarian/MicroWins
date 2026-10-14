@@ -272,6 +272,52 @@ describe("běžná synchronizace", () => {
     expect(tablet.state.todos[0].text).toBe("novější");
   });
 
+  /* Oba offline: jeden věc smaže, druhý ji upraví. Platí „novější vyhrává“
+     i pro smazání - úprava po smazání věc vrátí, smazání po úpravě ji vezme
+     i s úpravou. Obě zařízení skončí stejně. */
+  it("smazání proti úpravě - pozdější úprava věc vrátí", async () => {
+    const { phone, tablet } = await pair();
+    const id = phone.state.todos[0].id;
+    phone.change(deleteTodo(phone.state, id));
+    tablet.change(renameTodo(tablet.state, id, "upraveno potom"));
+
+    await phone.engine.sync();
+    await tablet.engine.sync();
+    await phone.engine.sync();
+
+    expect(phone.state.todos.map((t) => t.text)).toEqual(["upraveno potom"]);
+    expect(tablet.state.todos.map((t) => t.text)).toEqual(["upraveno potom"]);
+  });
+
+  it("smazání proti úpravě - pozdější smazání věc vezme", async () => {
+    const { phone, tablet } = await pair();
+    const id = phone.state.todos[0].id;
+    tablet.change(renameTodo(tablet.state, id, "upraveno dřív"));
+    phone.change(deleteTodo(phone.state, id));
+
+    await tablet.engine.sync();
+    await phone.engine.sync();
+    await tablet.engine.sync();
+
+    expect(phone.state.todos).toEqual([]);
+    expect(tablet.state.todos).toEqual([]);
+  });
+
+  /* Dlouho offline: fronta drží jen poslední podobu každé věci a po spojení
+     odejde jednou, i když se věc mezitím měnila desetkrát. */
+  it("deset úprav bez signálu odejde jako jedna", async () => {
+    const { phone, tablet } = await pair();
+    server.down = true;
+    const id = phone.state.todos[0].id;
+    for (let i = 1; i <= 10; i++) phone.change(renameTodo(phone.state, id, `verze ${i}`));
+    expect(phone.engine.pending()).toBe(1);
+
+    server.down = false;
+    await phone.engine.sync();
+    await tablet.engine.sync();
+    expect(tablet.state.todos[0].text).toBe("verze 10");
+  });
+
   it("pořadí ve stromu se přenese", async () => {
     const { phone, tablet } = await pair();
     const a = addCategory(phone.state, null, "A");

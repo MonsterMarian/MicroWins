@@ -447,9 +447,9 @@ export function TimeboxPanel() {
             {grid()}
           </React.Fragment>,
           <React.Fragment key={`plan-${date}`}>
+            <Priorities date={date} drag={drag} onChangeTime={changeTime} />
             {queue}
             {carryover}
-            <Priorities date={date} drag={drag} onChangeTime={changeTime} />
           </React.Fragment>,
         ]}
       </SheetPager>
@@ -1105,11 +1105,6 @@ function BrainDump({
           ))}
         </div>
       </div>
-      <p className="px-0.5 text-xs text-muted-foreground">
-        Čas za dvojtečkou („úkol1:14:30“) se odchodem z řádku sám posadí do mřížky. Úchyt: ťuknutí do
-        nejbližšího volna, podržení vybere čas, tah do trojky, mřížky nebo do koše. Rychle zapsat
-        jde i tlačítkem Zapsat dole.
-      </p>
     </section>
   );
 }
@@ -1553,26 +1548,23 @@ function AiSuggestions({
     setItems((prev) => prev.filter((i) => i !== item));
   };
 
+  // Bez klíče tu nic nejde udělat - sekce by byla jen odstavec textu pod
+  // dumpem. Ukáže se, až se v Nastavení → Addony zadá klíč.
+  if (!hasKey) return null;
+
   return (
     <section className={cn("flex flex-col gap-1.5", className)}>
       <div className="flex items-center gap-2 px-0.5">
         <h3 className="flex-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
           Návrhy z brain dumpu
         </h3>
-        {hasKey ? (
-          <Button size="sm" variant="outline" disabled={busy || dump === ""} onClick={run}>
-            {busy ? <Loader2 className="animate-spin" /> : <Sparkles />}
-            {busy ? "Přemýšlí…" : "Navrhnout"}
-          </Button>
-        ) : null}
+        <Button size="sm" variant="outline" disabled={busy || dump === ""} onClick={run}>
+          {busy ? <Loader2 className="animate-spin" /> : <Sparkles />}
+          {busy ? "Přemýšlí…" : "Navrhnout"}
+        </Button>
       </div>
 
-      {!hasKey ? (
-        <p className="px-0.5 text-xs text-muted-foreground">
-          Návrhy umí Claude nebo Gemini - klíč přidáš v Nastavení → Addony. Bez něj appka nikam
-          nevolá.
-        </p>
-      ) : items.length > 0 ? (
+      {items.length > 0 ? (
         <div className="flex flex-wrap gap-1.5">
           {items.map((item) => (
             <button

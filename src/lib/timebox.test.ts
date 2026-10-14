@@ -9,7 +9,6 @@ import {
   parseDumpTime,
   priorityRef,
   releaseCarriedBlock,
-  resizedDuration,
   setBrainDump,
   setPriority,
   sheetOf,
@@ -510,14 +509,4 @@ describe("výběr času a délka tahem", () => {
     expect(own.every((c) => !c.busy)).toBe(true);
   });
 
-  it("tah za spodní hranu protáhne blok na konec cílové půlhodiny", () => {
-    const { block } = addBlock(EMPTY_STATE, { date: DAY, start: 9 * 60, duration: 30 });
-    expect(resizedDuration(block, { date: DAY, start: 10 * 60 + 30 })).toBe(120);
-    expect(resizedDuration(block, { date: DAY, start: 9 * 60 })).toBe(30);
-    // Nad začátek bloku se nezkrátí pod minimum.
-    expect(resizedDuration(block, { date: DAY, start: 8 * 60 })).toBe(15);
-    // Ranní půlhodina dalšího dne v noční mřížce.
-    const late = addBlock(EMPTY_STATE, { date: DAY, start: 23 * 60, duration: 30 }).block;
-    expect(resizedDuration(late, { date: NEXT, start: 0 })).toBe(90);
-  });
 });

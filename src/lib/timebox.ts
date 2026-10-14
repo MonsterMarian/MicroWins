@@ -1,5 +1,5 @@
 import { addDays } from "./date";
-import { blockEnd, MIN_DURATION, toggleBlockDone as toggleBlock } from "./timeblocks";
+import { blockEnd, toggleBlockDone as toggleBlock } from "./timeblocks";
 import type { DaySheet, ISODate, MicroWinsState, TimeBlock } from "./types";
 
 /**
@@ -148,17 +148,6 @@ export function slotChoices(
           b.date === slot.date && b.start < slot.start + SHEET_SLOT && blockEnd(b) > slot.start,
       ),
     }));
-}
-
-/**
- * Délka bloku po tahu za spodní hranu na půlhodinu `target`: blok skončí
- * na jejím konci. Půlhodina nad začátkem bloku ho nezkrátí pod minimum a
- * mřížka přes půlnoc počítá i s ranními hodinami dalšího dne.
- */
-export function resizedDuration(block: TimeBlock, target: SheetSlot): number {
-  const nextDay = target.date > block.date ? 24 * 60 : 0;
-  const end = target.start + SHEET_SLOT + nextDay;
-  return Math.max(MIN_DURATION, end - block.start);
 }
 
 // --- propojení priority s blokem --------------------------------------------

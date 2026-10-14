@@ -377,12 +377,11 @@ export function TimeboxPanel() {
     drag.ghost?.source.kind === "carryover";
 
   const queue = (
-    /* Rozdělaná práce z ToDo a z projektů. Bez ní by se věc, která už někde
-       leží, do listu musela přepsat rukou - a v appce by pak žila dvakrát. */
+    /* Rozdělaná práce z ToDo. Bez ní by se věc, která už v ToDo leží, do
+       listu musela přepsat rukou - a v appce by pak žila dvakrát. */
     <Queue
       date={date}
       showTodos={todoInTimebox}
-      hint="Ťukni a padne do nejbližšího volna, podrž a vybereš čas, nebo ji táhni do mřížky"
       onDrop={(input) => {
         const start = nextFreeSlot(
           blocksOfDay(state, date),

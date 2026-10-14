@@ -3,22 +3,21 @@
 import * as React from "react";
 import { Check, GripVertical, Trash2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
-import { EntityIcon } from "@/components/ui/icon-picker";
 import { useStore } from "@/components/providers/store-provider";
 import { usePrefs } from "@/components/providers/use-prefs";
 import { useToast } from "@/components/providers/toast-provider";
-import { projectById, taskById } from "@/lib/projects";
-import { formatMinutes, allTodosToday, unplannedTasks, blocksOfDay, nextFreeSlot } from "@/lib/timeblocks";
+import { formatMinutes, allTodosToday, blocksOfDay, nextFreeSlot } from "@/lib/timeblocks";
 import { formatTodoDue, isTodoOverdue } from "@/lib/todos";
 import { SHEET_SLOT } from "@/lib/timebox";
-import type { ISODate, MicroWinsState, Task, Todo, TimeBlock } from "@/lib/types";
+import type { ISODate, Todo, TimeBlock } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { tapFeedback } from "@/lib/native";
 
 /**
- * Rozdělaná práce nad listem dne - dvě sekce: ToDo a Úkoly.
+ * Rozdělaná práce v listu dne - otevřené ToDo jako seznam řádků (jako
+ * Nestihl jsem). Úkoly z projektů tu dřív byly taky, jako pás chipů nad ToDo;
+ * na přání pryč, do listu dne nepatří.
  *
- * ToDo je seznam s řádky (jako Nestihl jsem), úkoly jsou pás chipů.
  * Otevřené položky ToDo se tady ukážou všechny: co už dnes v mřížce stojí,
  * jen ztlumené a s časem - sekce je jediné okno time boxu do ToDo a po
  * rozházení všeho by ztichla úplně, což vypadá jako chyba.
@@ -33,13 +32,11 @@ export function Queue({
   date,
   onDrop,
   onPress,
-  hint = "Ťukni a padne to do nejbližšího volna",
   showTodos = true,
 }: {
   date: ISODate;
   onDrop: (input: DropInput) => void;
   onPress?: (input: DropInput, event: React.PointerEvent<HTMLElement>) => void;
-  hint?: string;
   showTodos?: boolean;
 }) {
   const { state } = useStore();
@@ -47,27 +44,17 @@ export function Queue({
     () => (showTodos ? allTodosToday(state, date) : []),
     [state, date, showTodos],
   );
-  const tasks = React.useMemo(() => unplannedTasks(state, date).slice(0, 10), [state, date]);
-
-  const empty = todos.length === 0 && tasks.length === 0;
-
-  if (empty && !showTodos) return null;
 
   return (
-    <>
-      <TaskQueue tasks={tasks} hint={hint} onDrop={onDrop} onPress={onPress} />
-      <TodoQueue
-        todos={todos}
-        showTodos={showTodos}
-        date={date}
-        onDrop={onDrop}
-        onPress={onPress}
-      />
-    </>
+    <TodoQueue
+      todos={todos}
+      showTodos={showTodos}
+      date={date}
+      onDrop={onDrop}
+      onPress={onPress}
+    />
   );
 }
-
-type ChipPress = ((event: React.PointerEvent<HTMLElement>) => void) | undefined;
 
 /**
  * ToDo sekce - seznam řádků podobný jako Nestihl jsem.
@@ -310,90 +297,4 @@ function TodoRow({
       )}
     </div>
   );
-}
-
-/**
- * Úkoly z projektů - pás chipů (zůstává původní).
- */
-function TaskQueue({
-  tasks,
-  hint,
-  onDrop,
-  onPress,
-}: {
-  tasks: Task[];
-  hint: string;
-  onDrop: (input: DropInput) => void;
-  onPress?: (input: DropInput, event: React.PointerEvent<HTMLElement>) => void;
-}) {
-  if (tasks.length === 0) return null;
-
-  return (
-    <section className="flex flex-col gap-1.5">
-      <h3 className="px-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-        Úkoly
-      </h3>
-      <p className="px-1 text-xs text-muted-foreground">{hint}</p>
-      <div className="scroll-quiet -mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
-        {tasks.map((task) => {
-          const input: DropInput = { title: task.name, taskId: task.id };
-          return (
-            <TaskChip
-              key={task.id}
-              task={task}
-              onPick={() => onDrop(input)}
-              onPress={onPress ? (e) => onPress(input, e) : undefined}
-            />
-          );
-        })}
-      </div>
-    </section>
-  );
-}
-
-const CHIP =
-  "flex h-10 shrink-0 items-center gap-2 rounded-full border bg-card pl-2 pr-3.5 text-xs transition-colors hover:bg-accent active:bg-accent";
-
-function pressProps(onPress: ChipPress) {
-  if (!onPress) return {};
-  return {
-    onPointerDown: onPress,
-    onContextMenu: (e: React.MouseEvent) => e.preventDefault(),
-    className: cn(CHIP, "cursor-grab [-webkit-touch-callout:none]"),
-  };
-}
-
-function TaskChip({
-  task,
-  onPick,
-  onPress,
-}: {
-  task: Task;
-  onPick: () => void;
-  onPress?: ChipPress;
-}) {
-  const { state } = useStore();
-  const where = taskOrigin(state, task);
-
-  return (
-    <button type="button" onClick={onPick} className={CHIP} {...pressProps(onPress)}>
-      <span className="h-4 w-1 shrink-0 rounded-full bg-progress" />
-      <EntityIcon icon={task.icon} size="sm" />
-      <span className="max-w-[11rem] truncate">{task.name}</span>
-      {where ? (
-        <span className="max-w-[7rem] shrink-0 truncate text-muted-foreground">{where}</span>
-      ) : null}
-    </button>
-  );
-}
-
-/**
- * Odkud úkol je. U podúkolu se ukazuje **rodič**, ne projekt.
- */
-export function taskOrigin(state: MicroWinsState, task: Task): string {
-  if (task.parentId) {
-    const parent = taskById(state, task.parentId);
-    if (parent) return parent.name;
-  }
-  return projectById(state, task.projectId)?.name ?? "";
 }

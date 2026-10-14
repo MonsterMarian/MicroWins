@@ -41,6 +41,7 @@ import {
   plannedMinutes,
 } from "@/lib/timeblocks";
 import {
+  BRAIN_DUMP_MAX,
   dumpLineTitle,
   hasPriorityBlockAt,
   parseDumpTime,
@@ -316,6 +317,46 @@ export function TimeboxPanel() {
     });
   };
 
+  /**
+   * Puštění do brain dumpu: věc se tam připíše a na svém místě zůstane - v
+   * papíru, trojce i ToDo. Je to pořád jedna věc, obě místa mají odkaz.
+   * Věc, která už v dumpu je, se nezdvojuje. Nestihnutá věc z dřívějšího dne
+   * se na svém dni označí za přenesenou, ať se neozývá dvakrát.
+   */
+  const dropOnDump = (source: DragSource) => {
+    // Řádek dumpu zpátky do dumpu - pořadí se tažením nemění.
+    if (source.kind === "dump") return;
+    const api = dumpApi.current;
+    if (!api || api.date !== date) return;
+    if (placesOf(latest.current, date, source.title).dumpLines.length > 0) {
+      toast({ tone: "info", title: "Už je v brain dumpu", description: source.title });
+      return;
+    }
+    const added = api.append(source.title);
+    if (added === "full") {
+      toast({
+        tone: "warn",
+        title: "Brain dump je plný",
+        description: "Něco z něj vyhoď nebo naplánuj, ať se tam věc vejde.",
+      });
+      return;
+    }
+    if (source.kind === "carryover") markPriorityCarried(source.date, source.index, date);
+    void tapFeedback();
+    toast({
+      tone: "info",
+      title: "V brain dumpu",
+      description: source.title,
+      action: {
+        label: "Vrátit",
+        onClick: () => {
+          dumpApi.current?.remove(added.rowId);
+          if (source.kind === "carryover") markPriorityCarried(source.date, source.index, null);
+        },
+      },
+    });
+  };
+
   /** Puštění do koše - z listu to sundá, ale dá se to vrátit. */
   const dropOnTrash = (source: DragSource) => {
     if (source.kind === "block") {
@@ -384,6 +425,7 @@ export function TimeboxPanel() {
         return;
       }
       if (target.kind === "priority") return dropOnPriority(source, target.index);
+      if (target.kind === "dump") return dropOnDump(source);
       return dropOnTrash(source);
     },
     (source) => {
@@ -553,6 +595,8 @@ function targetLabel(source: DragSource, target: DropTarget | null, date: ISODat
       if (source.kind !== "priority") return `→ ${target.index + 1}. hlavní věc`;
       // Nad vlastním řádkem se nic neprohodí - puštění tam tah jen zruší.
       return source.index === target.index ? null : `↔ prohodit s ${target.index + 1}.`;
+    case "dump":
+      return source.kind === "dump" ? null : "→ brain dump";
     case "trash":
       return "→ pryč z listu";
   }
@@ -946,6 +990,8 @@ type DumpApi = {
   restore: (row: DumpRowData, index: number) => void;
   /** Řádek zkopírovaný do papíru či trojky: zůstane, jen bez času na konci. */
   settle: (rowId: number, title: string) => void;
+  /** Připíše řádek na konec - věc přetažená do dumpu odjinud. */
+  append: (text: string) => { rowId: number } | "full";
 };
 
 /** Text dumpu na řádky; prázdný dump má jeden prázdný řádek, ať se má kam psát. */
@@ -988,6 +1034,8 @@ function BrainDump({
   const [focusId, setFocusId] = React.useState<number | null>(null);
   const ref = React.useRef({ rows, value, state });
   ref.current = { rows, value, state };
+  /** Nad dumpem visí věc odjinud - puštěním se do něj připíše. */
+  const dropping = drag.target?.kind === "dump" && drag.ghost?.source.kind !== "dump";
   /** Řádek, u kterého je otevřený panel „kde všude to je“. */
   const [linkRow, setLinkRow] = React.useState<DumpRowData | null>(null);
   /**
@@ -1189,6 +1237,18 @@ function BrainDump({
       if (!current.some((r) => r.id === rowId && r.text !== title)) return;
       persist(current.map((r) => (r.id === rowId ? { ...r, text: title } : r)));
     },
+    append: (text) => {
+      const current = ref.current.rows;
+      const rowId = Math.max(0, ...current.map((r) => r.id)) + 1;
+      // Prázdné řádky na konci (třeba ten jediný v prázdném dumpu) se
+      // nahradí - věc nemá viset pod mezerou.
+      const filled = [...current];
+      while (filled.length > 0 && filled[filled.length - 1].text.trim() === "") filled.pop();
+      const next = [...filled, { id: rowId, text: text.trim() }];
+      if (serializeDump(next).length > BRAIN_DUMP_MAX) return "full";
+      persist(next);
+      return { rowId };
+    },
   };
 
   /** Smazání řádku jen z dumpu - papír a trojka zůstanou, jak jsou. */
@@ -1208,7 +1268,14 @@ function BrainDump({
   return (
     /* Na telefonu má plocha svoji spodní mez, na širší obrazovce se natáhne
        na výšku mřížky - psát se má kam, ale mřížku to nesmí odsunout dolů. */
-    <section className={cn("flex min-h-40 flex-col gap-1.5 sm:min-h-48", className)}>
+    <section
+      data-dump=""
+      className={cn(
+        "flex min-h-40 flex-col gap-1.5 rounded-xl transition-colors sm:min-h-48",
+        dropping && "bg-progress/10 ring-1 ring-progress",
+        className,
+      )}
+    >
       <h3 className="px-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
         Brain dump
       </h3>

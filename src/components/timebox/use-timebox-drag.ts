@@ -8,7 +8,8 @@ import type { ISODate } from "@/lib/types";
  *
  * Samotné držení a hledání cíle pod prstem řeší `useHoldDrag`; tady se jen
  * pojmenují místa listu. Políčka mřížky se hlásí atributem `data-slot`,
- * hlavní věci dne `data-priority-index`, koš `data-trash`.
+ * hlavní věci dne `data-priority-index`, brain dump `data-dump`, koš
+ * `data-trash`.
  */
 
 export type DragSource =
@@ -29,6 +30,8 @@ export type SheetTarget = { kind: "slot"; date: ISODate; start: number };
 export type DropTarget =
   | SheetTarget
   | { kind: "priority"; index: number }
+  /** Brain dump - věc se do něj připíše a na původním místě zůstane. */
+  | { kind: "dump" }
   /** Bublina, která se ukáže jen při tažení - puštění tam věc z listu sundá. */
   | { kind: "trash" };
 
@@ -60,6 +63,8 @@ function findTarget(x: number, y: number): DropTarget | null {
     const index = Number(priority.dataset.priorityIndex);
     if (Number.isInteger(index)) return { kind: "priority", index };
   }
+
+  if (el.closest("[data-dump]")) return { kind: "dump" };
   return null;
 }
 

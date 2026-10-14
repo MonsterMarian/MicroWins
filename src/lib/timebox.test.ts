@@ -2,13 +2,18 @@ import { describe, expect, it } from "vitest";
 import { isValidISODate } from "./date";
 import { addBlock, blockTitle, linkBlockToPriority, moveBlockToDay } from "./timeblocks";
 import {
+  deleteEverywhere,
   hasPriorityBlockAt,
   isSheetEmpty,
   markPriorityCarried,
   normalizeSheet,
   parseDumpTime,
+  placeCount,
+  placesOf,
   priorityRef,
   releaseCarriedBlock,
+  renameEverywhere,
+  restoreEverywhere,
   setBrainDump,
   setPriority,
   sheetOf,
@@ -509,4 +514,60 @@ describe("výběr času a délka tahem", () => {
     expect(own.every((c) => !c.busy)).toBe(true);
   });
 
+});
+
+describe("jedna věc na více místech listu", () => {
+  const base = () => {
+    let s = setBrainDump(EMPTY_STATE, DAY, "Běh\nNákup:18:00\nčíst");
+    s = setPriority(s, DAY, 0, "Běh");
+    s = addBlock(s, { date: DAY, start: 6 * 60, duration: 30, title: "běh" }).state;
+    s = addBlock(s, { date: DAY, start: 18 * 60, duration: 30, title: "Nákup" }).state;
+    return s;
+  };
+
+  it("pozná táž věc podle textu - bez velikosti písmen a času v dumpu", () => {
+    const places = placesOf(base(), DAY, "  BĚH ");
+    expect(places.dumpLines).toEqual([0]);
+    expect(places.priority).toBe(0);
+    expect(places.blocks.map((b) => b.start)).toEqual([360]);
+    expect(placeCount(places)).toBe(3);
+    expect(placesOf(base(), DAY, "Nákup").dumpLines).toEqual([1]);
+    expect(placeCount(placesOf(base(), DAY, "číst"))).toBe(1);
+  });
+
+  it("smazat všude sundá věc z dumpu, trojky i papíru - a jde vrátit", () => {
+    const before = base();
+    const { state, removed } = deleteEverywhere(before, DAY, "Běh");
+    expect(sheetOf(state, DAY).brainDump).toBe("Nákup:18:00\nčíst");
+    expect(sheetOf(state, DAY).priorities[0].text).toBe("");
+    expect(state.timeBlocks.map((b) => b.title)).toEqual(["Nákup"]);
+    // Ostatní věci zůstaly, kde byly.
+    expect(placeCount(placesOf(state, DAY, "Nákup"))).toBe(2);
+
+    const back = restoreEverywhere(state, removed!);
+    expect(sheetOf(back, DAY)).toEqual(sheetOf(before, DAY));
+    expect(back.timeBlocks.map((b) => b.title).sort()).toEqual(["Nákup", "běh"]);
+  });
+
+  it("smazat všude bere i blok hlavní věci, který si text drží z trojky", () => {
+    let s = setPriority(EMPTY_STATE, DAY, 1, "Projekt");
+    s = addBlock(s, { date: DAY, start: 600, duration: 30, title: "Projekt", priorityId: priorityRef(DAY, 1) }).state;
+    const { state } = deleteEverywhere(s, DAY, "projekt");
+    expect(state.timeBlocks).toEqual([]);
+    expect(sheetOf(state, DAY).priorities[1].text).toBe("");
+  });
+
+  it("přejmenování přepíše věc všude a čas v dumpu nechá", () => {
+    const s = renameEverywhere(base(), DAY, "Nákup", "Velký nákup");
+    expect(sheetOf(s, DAY).brainDump).toBe("Běh\nVelký nákup:18:00\nčíst");
+    expect(s.timeBlocks.find((b) => b.start === 18 * 60)?.title).toBe("Velký nákup");
+    const r = renameEverywhere(base(), DAY, "Běh", "Ranní běh");
+    expect(sheetOf(r, DAY).priorities[0].text).toBe("Ranní běh");
+    expect(sheetOf(r, DAY).brainDump.split("\n")[0]).toBe("Ranní běh");
+  });
+
+  it("přejmenování na text, který už jinde je, nic neslévá", () => {
+    const s = base();
+    expect(renameEverywhere(s, DAY, "číst", "Běh")).toBe(s);
+  });
 });

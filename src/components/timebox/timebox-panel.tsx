@@ -8,6 +8,7 @@ import {
   ChevronRight,
   CornerUpRight,
   GripVertical,
+  Link2,
   Loader2,
   PenLine,
   Sparkles,
@@ -40,8 +41,12 @@ import {
   plannedMinutes,
 } from "@/lib/timeblocks";
 import {
+  dumpLineTitle,
   hasPriorityBlockAt,
   parseDumpTime,
+  placeCount,
+  placesOf,
+  thingKey,
   PRIORITY_COUNT,
   PRIORITY_MAX,
   priorityRef,
@@ -56,6 +61,7 @@ import { cn, plural } from "@/lib/utils";
 import { AutoTextarea } from "./auto-textarea";
 import { BlockSheet } from "./block-sheet";
 import { CaptureSheet } from "./capture-sheet";
+import { LinkSheet } from "./link-sheet";
 import { Queue } from "./queue";
 import { SheetPager } from "./sheet-pager";
 import { ghostPosition, TimeboxGrid } from "./timebox-grid";
@@ -181,11 +187,18 @@ export function TimeboxPanel() {
       return;
     }
 
-    // Řádek brain dumpu: padne kam ho člověk pustil a z dumpu zmizí - věc
-    // nesmí zůstat ležet dvakrát (jednou tady, jednou v mřížce).
+    // Řádek brain dumpu se do papíru kopíruje: v dumpu zůstane (bez času na
+    // konci) s ikonou odkazu - je to pořád jedna věc. Když už v papíru je,
+    // jen se přesune; dva bloky téže věci by se odškrtávaly každý zvlášť.
     if (source.kind === "dump") {
+      dumpApi.current?.settle(source.rowId, source.title);
+      const existing = paperBlock(source.title, spot.date);
+      if (existing) {
+        updateBlock(existing.id, spot);
+        planned(spot.start, source.title, existing.id);
+        return;
+      }
       const block = addBlock({ ...spot, duration: length, title: source.title });
-      dumpApi.current?.remove(source.rowId);
       planned(spot.start, source.title, block.id);
       return;
     }
@@ -218,9 +231,25 @@ export function TimeboxPanel() {
       });
       return;
     }
+    // Táž věc už v papíru stojí z brain dumpu - nový blok by ji zdvojil.
+    // Ten stávající se přesune a naváže na hlavní věc (odškrtnutí pak platí
+    // na obou stranách).
+    const fromDump = placesOf(latest.current, spot.date, source.title).blocks.find(
+      (b) => b.date === spot.date && !b.priorityId && !b.todoId && !b.taskId,
+    );
+    if (fromDump) {
+      updateBlock(fromDump.id, spot);
+      linkBlockToPriority(fromDump.id, ref);
+      planned(spot.start, source.title, fromDump.id);
+      return;
+    }
     const block = addBlock({ ...spot, duration: length, title: source.title, priorityId: ref });
     planned(spot.start, source.title, block.id);
   };
+
+  /** Blok téže věci v papíru daného dne - při dalším tahu se jen přesouvá. */
+  const paperBlock = (title: string, day: ISODate) =>
+    placesOf(latest.current, day, title).blocks.find((b) => b.date === day) ?? null;
 
   /** Výběr času pro věc, která se teprve plánuje (podržení bez pohybu). */
   const askWhen = (source: DragSource) => {
@@ -250,10 +279,16 @@ export function TimeboxPanel() {
       return;
     }
 
-    // Řádek brain dumpu se do trojky napíše a z dumpu zmizí; věc z
-    // dřívějšího dne se naopak na svém dni označí za přenesenou. Obojí se
-    // drží u Vrátit, ať cesta zpátky vrátí celý přesun, ne jen text.
-    const removed = source.kind === "dump" ? (dumpApi.current?.remove(source.rowId) ?? null) : null;
+    // Táž věc nemá být v trojce dvakrát - na jiném místě už stojí.
+    const already = placesOf(latest.current, date, source.title).priority;
+    if (already !== null && already !== index) {
+      toast({ tone: "info", title: `Už je ${already + 1}. hlavní věcí`, description: source.title });
+      return;
+    }
+    // Řádek brain dumpu se do trojky kopíruje - v dumpu zůstane s odkazem.
+    // Věc z dřívějšího dne se na svém dni označí za přenesenou; to drží
+    // Vrátit, ať cesta zpátky vrátí celý přenos, ne jen text.
+    if (source.kind === "dump") dumpApi.current?.settle(source.rowId, source.title);
     if (source.kind === "carryover") markPriorityCarried(source.date, source.index, date);
 
     const previous = sheetOf(state, date).priorities[index]?.text ?? "";
@@ -264,15 +299,13 @@ export function TimeboxPanel() {
       tone: "info",
       title: `${index + 1}. hlavní věc dne`,
       description: source.title,
-      // Obsazenou prioritu to přepíše - Vrátit vrátí text, řádek dumpu
-      // i přenos z dřívějšího dne, ať nic nepropadne.
-      ...(previous || removed || source.kind === "carryover"
+      // Obsazenou prioritu to přepíše - Vrátit vrátí text i přenos
+      // z dřívějšího dne, ať nic nepropadne.
+      ...(previous || source.kind === "carryover"
         ? {
             action: {
               label: "Vrátit",
               onClick: () => {
-                if (removed && dumpApi.current?.date === date)
-                  dumpApi.current.restore(removed.row, removed.index);
                 if (source.kind === "carryover")
                   markPriorityCarried(source.date, source.index, null);
                 setPriority(date, index, previous);
@@ -430,6 +463,7 @@ export function TimeboxPanel() {
               drag={drag}
               dumpApi={dumpApi}
               onChangeTime={changeTime}
+              onOpenBlock={setOpenBlock}
             />
             <AiSuggestions date={date} today={today} onChangeTime={changeTime} />
             {grid()}
@@ -676,8 +710,22 @@ function Priorities({
   onChangeTime: (blockId: string) => void;
   className?: string;
 }) {
-  const { state, setPriority, togglePriority } = useStore();
+  const { state, setPriority, togglePriority, renameEverywhere } = useStore();
   const sheet = sheetOf(state, date);
+
+  /** Přepsaná hlavní věc, která je i v dumpu či papíru: text se přepíše všude. */
+  const commitPriority = (index: number, text: string) => {
+    const before = sheet.priorities[index]?.text ?? "";
+    if (
+      thingKey(before) &&
+      thingKey(text) &&
+      thingKey(before) !== thingKey(text) &&
+      placeCount(placesOf(state, date, before)) > 1
+    ) {
+      renameEverywhere(date, before, text);
+    }
+    setPriority(date, index, text);
+  };
 
   return (
     <section className={cn("flex flex-col gap-1.5", className)}>
@@ -695,7 +743,7 @@ function Priorities({
             carriedTo={sheet.priorities[i]?.carriedTo ?? null}
             drag={drag}
             onChangeTime={onChangeTime}
-            onCommit={(text) => setPriority(date, i, text)}
+            onCommit={(text) => commitPriority(i, text)}
             onToggle={() => togglePriority(date, i)}
           />
         ))}
@@ -729,10 +777,12 @@ function PriorityRow({
   onCommit: (text: string) => void;
   onToggle: () => void;
 }) {
-  const { state, today, addBlock } = useStore();
+  const { state, today, addBlock, setPriority } = useStore();
   const { timeboxStart } = usePrefs();
   const { toast } = useToast();
   const [draft, setDraft, flush] = useDraft(value, onCommit);
+  const [linkOpen, setLinkOpen] = React.useState(false);
+  const linked = value.trim() !== "" && placeCount(placesOf(state, date, value)) > 1;
   const empty = draft.trim() === "";
   /* Vlastní řádek cíl není - puštění na sebe by nic neprohodilo, takže se ani
      nesmí rozsvítit, jen zesvětlá jako každá tažená věc. */
@@ -745,8 +795,8 @@ function PriorityRow({
      věc se nerozdvojuje - kdo chce jiný čas, táhne. */
   const planNearest = () => {
     const ref = priorityRef(date, index);
-    if (state.timeBlocks.some((b) => b.priorityId === ref)) {
-      toast({ tone: "info", title: "Už je v mřížce", description: draft });
+    if (placesOf(state, date, draft).blocks.length > 0) {
+      toast({ tone: "info", title: "Už je v papíru", description: draft });
       return;
     }
     const start = nextFreeSlot(
@@ -828,6 +878,36 @@ function PriorityRow({
         </span>
       ) : null}
 
+      {/* Věc je i v dumpu či papíru - ťuknutí ukáže kde a nabídne smazání
+          jen odsud, nebo všude. */}
+      {linked ? (
+        <button
+          type="button"
+          onClick={() => setLinkOpen(true)}
+          aria-label={`Propojeno: ${value}`}
+          title="Propojeno - kde všude to je"
+          className="-my-1.5 grid size-9 shrink-0 place-items-center rounded text-muted-foreground hover:text-foreground"
+        >
+          <Link2 className="size-4" />
+        </button>
+      ) : null}
+      <LinkSheet
+        date={date}
+        text={linkOpen ? value : null}
+        origin="priority"
+        onClose={() => setLinkOpen(false)}
+        onRemoveHere={() => {
+          const before = value;
+          setPriority(date, index, "");
+          toast({
+            tone: "info",
+            title: `${index + 1}. hlavní věc dne je pryč`,
+            description: before,
+            action: { label: "Vrátit", onClick: () => setPriority(date, index, before) },
+          });
+        }}
+      />
+
       {/* Úchyt na tažení do mřížky. Psát a táhnout jedním místem nejde -
           v textovém poli patří tah výběru textu. Ťuknutí (bez tažení) věc
           naplánuje do nejbližšího volna - cesta pro telefony. */}
@@ -864,6 +944,8 @@ type DumpApi = {
   date: ISODate;
   remove: (rowId: number) => { row: DumpRowData; index: number } | null;
   restore: (row: DumpRowData, index: number) => void;
+  /** Řádek zkopírovaný do papíru či trojky: zůstane, jen bez času na konci. */
+  settle: (rowId: number, title: string) => void;
 };
 
 /** Text dumpu na řádky; prázdný dump má jeden prázdný řádek, ať se má kam psát. */
@@ -887,22 +969,40 @@ function BrainDump({
   drag,
   dumpApi,
   onChangeTime,
+  onOpenBlock,
 }: {
   date: ISODate;
   className?: string;
   drag: TimeboxDrag;
   dumpApi: React.RefObject<DumpApi | null>;
   onChangeTime: (blockId: string) => void;
+  /** Věc, která už v papíru je, otevře ťuknutím na úchyt svůj blok. */
+  onOpenBlock: (blockId: string) => void;
 }) {
-  const { state, today, addBlock, setBrainDump } = useStore();
+  const { state, today, addBlock, updateBlock, setBrainDump, renameEverywhere } = useStore();
   const { timeboxStart } = usePrefs();
   const { toast } = useToast();
   const value = sheetOf(state, date).brainDump;
 
   const [rows, setRows] = React.useState<DumpRowData[]>(() => parseDumpRows(value));
   const [focusId, setFocusId] = React.useState<number | null>(null);
-  const ref = React.useRef({ rows, value });
-  ref.current = { rows, value };
+  const ref = React.useRef({ rows, value, state });
+  ref.current = { rows, value, state };
+  /** Řádek, u kterého je otevřený panel „kde všude to je“. */
+  const [linkRow, setLinkRow] = React.useState<DumpRowData | null>(null);
+  /**
+   * Texty řádků, jak naposledy ležely v datech. Podle nich se při uložení
+   * pozná přepsaný řádek - a jeho text se přepíše i v papíru a trojce.
+   */
+  const baseline = React.useRef<Map<number, string> | null>(null);
+  if (baseline.current === null) baseline.current = new Map(rows.map((r) => [r.id, r.text]));
+  const remember = (next: DumpRowData[]) => {
+    baseline.current = new Map(next.map((r) => [r.id, r.text]));
+  };
+
+  /** Blok téže věci v papíru tohoto dne - ten se přesouvá, nový nevzniká. */
+  const paperBlock = (title: string) =>
+    placesOf(ref.current.state, date, title).blocks.find((b) => b.date === date) ?? null;
 
   /* Podržený úchyt patří řádku, který se táhne - ťuknutí na úchyt nejprve
      odbluruje pole (a spustí by commit), ale o osudu právě stisknutého řádku
@@ -930,7 +1030,11 @@ function BrainDump({
   /* Externí změna (synchronizace, import) řádky přepíše. Vlastní uložení
      nastaví hodnotu shodnou s řádky, takže se tudy při psaní nic neděje. */
   React.useEffect(() => {
-    if (value !== serializeDump(ref.current.rows)) setRows(parseDumpRows(value));
+    if (value !== serializeDump(ref.current.rows)) {
+      const next = parseDumpRows(value);
+      remember(next);
+      setRows(next);
+    }
   }, [value]);
 
   /** Řádky do stavu. Volá se při odchodu z pole, při zániku komponenty i po
@@ -940,26 +1044,48 @@ function BrainDump({
     // Poslední řádek odešel do mřížky či trojky - prázdný dump musí mít
     // aspoň jeden řádek, jinak by do něj nebylo kam psát.
     if (next.length === 0) next = [{ id: Math.max(0, ...ref.current.rows.map((r) => r.id)) + 1, text: "" }];
+    remember(next);
     setRows(next);
     const text = serializeDump(next);
     if (text !== ref.current.value) setBrainDump(date, text);
   };
 
-  /** Uložení s tím, že řádky s časem dopředu se stanou bloky. Řádek z dumpu
-      mizí, ať věc nezůstane ležet dvakrát - jednou tady, jednou v mřížce. */
+  /**
+   * Uložení. Řádek s časem na konci („úkol:20:20“) se stane blokem papíru
+   * a v dumpu zůstane bez času s ikonou odkazu - je to jedna věc na dvou
+   * místech. Věc, která už v papíru je, se jen přesune na nový čas.
+   *
+   * Přepsaný řádek, který je i v papíru či trojce, přepíše text i tam -
+   * jinak by se odkaz tiše rozpadl.
+   */
   const commit = (snapshot: DumpRowData[]) => {
+    for (const row of snapshot) {
+      const before = baseline.current?.get(row.id);
+      if (before === undefined) continue;
+      const from = dumpLineTitle(before);
+      const to = dumpLineTitle(row.text);
+      if (!thingKey(from) || !thingKey(to) || thingKey(from) === thingKey(to)) continue;
+      if (placeCount(placesOf(ref.current.state, date, from)) > 1) renameEverywhere(date, from, to);
+    }
+
     const keep: DumpRowData[] = [];
     const scheduled: DumpSchedule[] = [];
     for (const row of snapshot) {
       const hit = parseDumpTime(row.text);
       // Právě stisknutý řádek se plánovat nesmí - čeká na puštění tažení.
-      if (hit && row.id !== pressingId.current) scheduled.push(hit);
-      else keep.push(row);
+      if (hit && row.id !== pressingId.current) {
+        scheduled.push(hit);
+        keep.push({ ...row, text: hit.title });
+      } else {
+        keep.push(row);
+      }
     }
     persist(keep);
     if (scheduled.length === 0) return;
     for (const item of scheduled) {
-      addBlock({ date, start: item.start, duration: SHEET_SLOT, title: item.title });
+      const existing = paperBlock(item.title);
+      if (existing) updateBlock(existing.id, { date, start: item.start });
+      else addBlock({ date, start: item.start, duration: SHEET_SLOT, title: item.title });
     }
     toast({
       tone: "info",
@@ -1009,15 +1135,29 @@ function BrainDump({
 
   /** Ťuknutí na úchyt: řádek s časem padne na svůj čas, jiný do nejbližšího
       volna. Na telefonu je to jediný spolehlivý způsob, jak věc z dumpu
-      dostat do mřížky bez dlouhého tažení. */
+      dostat do mřížky bez dlouhého tažení. Věc, která už v papíru je, otevře
+      svůj blok - druhý blok téže věci by se odškrtával zvlášť. */
   const planRow = (row: DumpRowData) => {
     const timed = parseDumpTime(row.text);
-    const title = timed ? timed.title : row.text.trim();
+    const title = dumpLineTitle(row.text);
+    const existing = paperBlock(title);
+    if (existing && !timed) {
+      onOpenBlock(existing.id);
+      return;
+    }
     const start = timed
       ? timed.start
       : nextFreeSlot(blocksOfDay(state, date), searchFrom(date, today, timeboxStart), SHEET_SLOT);
-    const block = addBlock({ date, start, duration: SHEET_SLOT, title });
-    persist(ref.current.rows.filter((r) => r.id !== row.id));
+    let blockId: string;
+    if (existing) {
+      updateBlock(existing.id, { date, start });
+      blockId = existing.id;
+    } else {
+      blockId = addBlock({ date, start, duration: SHEET_SLOT, title }).id;
+    }
+    const block = { id: blockId };
+    // V dumpu zůstane - bez času na konci, s ikonou odkazu.
+    persist(ref.current.rows.map((r) => (r.id === row.id ? { ...r, text: title } : r)));
     void tapFeedback();
     toast({
       tone: "info",
@@ -1044,6 +1184,25 @@ function BrainDump({
       next.splice(Math.min(index, next.length), 0, row);
       persist(next);
     },
+    settle: (rowId, title) => {
+      const current = ref.current.rows;
+      if (!current.some((r) => r.id === rowId && r.text !== title)) return;
+      persist(current.map((r) => (r.id === rowId ? { ...r, text: title } : r)));
+    },
+  };
+
+  /** Smazání řádku jen z dumpu - papír a trojka zůstanou, jak jsou. */
+  const removeRowHere = (row: DumpRowData) => {
+    const current = ref.current.rows;
+    const index = current.findIndex((r) => r.id === row.id);
+    if (index === -1) return;
+    persist(current.filter((r) => r.id !== row.id));
+    toast({
+      tone: "info",
+      title: "Vyhozeno z brain dumpu",
+      description: dumpLineTitle(row.text),
+      action: { label: "Vrátit", onClick: () => dumpApi.current?.restore(row, index) },
+    });
   };
 
   return (
@@ -1076,10 +1235,24 @@ function BrainDump({
               onCommit={() => commit(ref.current.rows)}
               onPlan={() => planRow(row)}
               onPress={(event) => pressRow(row, event)}
+              linked={
+                row.text.trim() !== "" &&
+                placeCount(placesOf(state, date, dumpLineTitle(row.text))) > 1
+              }
+              onLink={() => setLinkRow(row)}
             />
           ))}
         </div>
       </div>
+      <LinkSheet
+        date={date}
+        text={linkRow ? dumpLineTitle(linkRow.text) : null}
+        origin="dump"
+        onClose={() => setLinkRow(null)}
+        onRemoveHere={() => {
+          if (linkRow) removeRowHere(linkRow);
+        }}
+      />
     </section>
   );
 }
@@ -1097,6 +1270,8 @@ function DumpInput({
   onCommit,
   onPlan,
   onPress,
+  linked,
+  onLink,
 }: {
   row: DumpRowData;
   index: number;
@@ -1109,6 +1284,9 @@ function DumpInput({
   onCommit: () => void;
   onPlan: () => void;
   onPress: (event: React.PointerEvent<HTMLElement>) => void;
+  /** Věc je i v papíru či trojce - řádek má ikonu odkazu. */
+  linked: boolean;
+  onLink: () => void;
 }) {
   const input = React.useRef<HTMLTextAreaElement | null>(null);
   React.useEffect(() => {
@@ -1150,6 +1328,17 @@ function DumpInput({
         placeholder={index === 0 ? "Co se honí hlavou a nemá to čas ani pořadí" : ""}
         className="min-h-6 flex-1 py-0.5 text-sm leading-6"
       />
+      {linked ? (
+        <button
+          type="button"
+          onClick={onLink}
+          aria-label={`Propojeno: ${row.text.trim()}`}
+          title="Propojeno - kde všude to je"
+          className="-my-1.5 grid size-9 shrink-0 place-items-center rounded text-muted-foreground hover:text-foreground"
+        >
+          <Link2 className="size-4" />
+        </button>
+      ) : null}
       {empty ? null : (
         <button
           type="button"

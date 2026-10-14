@@ -6,6 +6,7 @@ import { BottomSheet } from "@/components/ui/bottom-sheet";
 import { useStore } from "@/components/providers/store-provider";
 import { useToast } from "@/components/providers/toast-provider";
 import { addDays, formatDate } from "@/lib/date";
+import { placeCount, placesOf, thingKey } from "@/lib/timebox";
 import { tapFeedback, winFeedback } from "@/lib/native";
 import {
   blockEnd,
@@ -75,21 +76,29 @@ function BlockBody({
   onClose: () => void;
   onReschedule: (block: TimeBlock) => void;
 }) {
-  const { state, updateBlock, toggleBlockDone, deleteBlock, restoreBlock } = useStore();
+  const { state, updateBlock, toggleBlockDone, deleteBlock, restoreBlock, deleteEverywhere, restoreEverywhere, renameEverywhere } =
+    useStore();
   const { toast } = useToast();
   const linked = linkLabel(block);
+  /* Věc je i v brain dumpu či trojce - mazání má pak dvě podoby: jen
+     z papíru (ostatní zůstanou), nebo všude. */
+  const title = blockTitle(state, block);
+  const elsewhere = placeCount(placesOf(state, block.date, title)) > 1;
   const done = block.doneAt !== null;
   const [draft, setDraft] = React.useState(block.title);
-  const latest = React.useRef({ draft, block });
-  latest.current = { draft, block };
+  const latest = React.useRef({ draft, block, title, elsewhere });
+  latest.current = { draft, block, title, elsewhere };
 
   /** Text se zapíše při odchodu z pole i při zavření panelu. Prázdný se nebere -
       vygumovat zápis je tady Smazat, ne prázdný řádek. */
   const commitTitle = React.useCallback(() => {
-    const { draft: text, block: current } = latest.current;
+    const { draft: text, block: current, title: before, elsewhere: shared } = latest.current;
     const value = text.trim();
-    if (value && value !== current.title) updateBlock(current.id, { title: value });
-  }, [updateBlock]);
+    if (!value || value === current.title) return;
+    // Přepsaný text propojené věci platí všude - jinak by se odkaz rozpadl.
+    if (shared && thingKey(before) !== thingKey(value)) renameEverywhere(current.date, before, value);
+    updateBlock(current.id, { title: value });
+  }, [updateBlock, renameEverywhere]);
 
   React.useEffect(() => () => commitTitle(), [commitTitle]);
 
@@ -123,6 +132,20 @@ function BlockBody({
       title: "Odebráno",
       description: `${formatMinutes(removed.start)} ${blockTitle(state, removed)}`,
       action: { label: "Vrátit", onClick: () => restoreBlock(removed) },
+    });
+  };
+
+  /** Smazat všude: z papíru, dumpu i trojky naráz - a jde to vrátit. */
+  const removeEverywhere = () => {
+    const removed = deleteEverywhere(block.date, title);
+    onClose();
+    if (!removed) return;
+    void tapFeedback();
+    toast({
+      tone: "info",
+      title: "Smazáno všude",
+      description: title,
+      action: { label: "Vrátit", onClick: () => restoreEverywhere(removed) },
     });
   };
 
@@ -220,9 +243,16 @@ function BlockBody({
         </Action>
         <Action onClick={remove} className="text-destructive">
           <Trash2 />
-          Smazat
+          {elsewhere ? "Z papíru" : "Smazat"}
         </Action>
       </div>
+
+      {elsewhere ? (
+        <Action onClick={removeEverywhere} className="border-destructive/50 text-destructive">
+          <Trash2 />
+          Smazat všude - i z dumpu a hlavních věcí
+        </Action>
+      ) : null}
     </div>
   );
 }

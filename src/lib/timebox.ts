@@ -1,5 +1,12 @@
 import { addDays } from "./date";
-import { blockEnd, toggleBlockDone as toggleBlock } from "./timeblocks";
+import {
+  blockEnd,
+  blockTitle,
+  deleteBlock,
+  restoreBlock,
+  toggleBlockDone as toggleBlock,
+  updateBlock,
+} from "./timeblocks";
 import type { DaySheet, ISODate, MicroWinsState, TimeBlock } from "./types";
 
 /**
@@ -579,4 +586,147 @@ export function normalizeSheet(raw: unknown, isDate: (value: string) => boolean)
       typeof record.brainDump === "string" ? record.brainDump.slice(0, BRAIN_DUMP_MAX) : "",
   };
   return isSheetEmpty(sheet) ? null : sheet;
+}
+
+// --- jedna věc na více místech listu ----------------------------------------
+
+/*
+ * Věc z brain dumpu se přetažením (nebo zápisem „úkol:20:20") do papíru či
+ * trojky **zkopíruje, ne přesune**: v dumpu zůstane s ikonou odkazu. Je to
+ * pořád jedna věc viděná z více míst - stejně jako hlavní věc dne a její blok.
+ *
+ * Táž věc = stejný text ve stejném dni (bez ohledu na velikost písmen a
+ * zdvojené mezery). Odkaz se tak nemusí nikde ukládat a přežije synchronizaci
+ * i starší verzi appky na druhém zařízení. Aby se při přepsání textu
+ * nerozpadl, přepíše se text na všech místech naráz (`renameEverywhere`).
+ *
+ * Mazání má dvě podoby: z jednoho místa (koš, „Odebrat odsud") ostatní místa
+ * nechá být, „Smazat všude" věc sundá z dumpu, papíru i trojky a jde vrátit.
+ */
+
+/** Klíč věci - stejný text = táž věc. Prázdný text žádná věc není. */
+export function thingKey(text: string): string {
+  return text.trim().replace(/\s+/g, " ").toLocaleLowerCase("cs");
+}
+
+/** Text řádku dumpu bez času na konci („úkol:20:20" → „úkol"). */
+export function dumpLineTitle(line: string): string {
+  return parseDumpTime(line)?.title ?? line.trim();
+}
+
+export interface ThingPlaces {
+  /** Řádky dumpu (indexy), které tu věc nesou. */
+  dumpLines: number[];
+  /** Index v trojce, nebo null. */
+  priority: number | null;
+  /** Bloky papíru s tou věcí - vlastní text i blok hlavní věci. */
+  blocks: TimeBlock[];
+}
+
+const NO_PLACES: ThingPlaces = { dumpLines: [], priority: null, blocks: [] };
+
+/** Kde všude věc s tímhle textem v listu dne je. */
+export function placesOf(state: MicroWinsState, date: ISODate, text: string): ThingPlaces {
+  const key = thingKey(text);
+  if (!key) return NO_PLACES;
+  const sheet = sheetOf(state, date);
+  const dumpLines: number[] = [];
+  sheet.brainDump.split("\n").forEach((line, index) => {
+    if (thingKey(dumpLineTitle(line)) === key) dumpLines.push(index);
+  });
+  const found = sheet.priorities.findIndex((p) => thingKey(p.text) === key);
+  const priority = found === -1 ? null : found;
+  const ref = priority === null ? null : priorityRef(date, priority);
+  const blocks = state.timeBlocks.filter(
+    (b) =>
+      (ref !== null && b.priorityId === ref) ||
+      (b.date === date && thingKey(blockTitle(state, b)) === key),
+  );
+  return { dumpLines, priority, blocks };
+}
+
+/** Na kolika místech věc je - od dvou výš má ikonu odkazu. */
+export function placeCount(places: ThingPlaces): number {
+  return (
+    (places.dumpLines.length > 0 ? 1 : 0) + (places.priority !== null ? 1 : 0) + places.blocks.length
+  );
+}
+
+/** Co „Smazat všude" sundalo - tím se to i vrátí. */
+export interface RemovedEverywhere {
+  sheet: DaySheet;
+  blocks: TimeBlock[];
+}
+
+/** Sundá věc z dumpu, trojky i papíru. Vrací nový stav a co zmizelo. */
+export function deleteEverywhere(
+  state: MicroWinsState,
+  date: ISODate,
+  text: string,
+): { state: MicroWinsState; removed: RemovedEverywhere | null } {
+  const places = placesOf(state, date, text);
+  if (placeCount(places) === 0) return { state, removed: null };
+  const sheet = sheetOf(state, date);
+  let next = state;
+  for (const block of places.blocks) {
+    next = releaseCarriedBlock(next, block);
+    next = deleteBlock(next, block.id);
+  }
+  const drop = new Set(places.dumpLines);
+  const current = sheetOf(next, date);
+  const brainDump = current.brainDump
+    .split("\n")
+    .filter((_, i) => !drop.has(i))
+    .join("\n");
+  const priorities = current.priorities.map((p, i) =>
+    i === places.priority ? { ...p, text: "", done: false } : p,
+  );
+  next = putSheet(next, { ...current, brainDump, priorities });
+  return { state: next, removed: { sheet, blocks: places.blocks } };
+}
+
+/** Vrátí, co sundalo „Smazat všude" - list dne i bloky. */
+export function restoreEverywhere(state: MicroWinsState, removed: RemovedEverywhere): MicroWinsState {
+  let next = putSheet(state, removed.sheet);
+  for (const block of removed.blocks) next = restoreBlock(next, block);
+  return next;
+}
+
+/**
+ * Přepsání textu věci na jednom místě přepíše i ostatní - jinak by odkaz
+ * mezi dumpem, trojkou a papírem tiše zmizel. Bloky hlavní věci, ToDo či
+ * úkolu si text berou odjinud, ty se nepřepisují. Když nový text už jinde
+ * v listu je, přejmenování se vzdá - dvě různé věci by se slily v jednu.
+ */
+export function renameEverywhere(
+  state: MicroWinsState,
+  date: ISODate,
+  from: string,
+  to: string,
+): MicroWinsState {
+  const value = to.trim();
+  if (!value || !thingKey(from) || thingKey(from) === thingKey(value)) return state;
+  const places = placesOf(state, date, from);
+  if (placeCount(places) === 0) return state;
+  if (placeCount(placesOf(state, date, value)) > 0) return state;
+  let next = state;
+  for (const block of places.blocks) {
+    if (block.priorityId || block.todoId || block.taskId) continue;
+    next = updateBlock(next, block.id, { title: value });
+  }
+  const sheet = sheetOf(next, date);
+  const lines = sheet.brainDump.split("\n");
+  for (const i of places.dumpLines) {
+    // Čas na konci řádku zůstane - přepisuje se jen název.
+    const timed = parseDumpTime(lines[i]);
+    lines[i] = timed ? lines[i].replace(timed.title, value) : value;
+  }
+  const priorities = sheet.priorities.map((p, i) =>
+    i === places.priority ? { ...p, text: value.slice(0, PRIORITY_MAX) } : p,
+  );
+  return putSheet(next, {
+    ...sheet,
+    brainDump: lines.join("\n").slice(0, BRAIN_DUMP_MAX),
+    priorities,
+  });
 }

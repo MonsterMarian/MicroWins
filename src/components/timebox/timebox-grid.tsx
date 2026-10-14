@@ -8,7 +8,16 @@ import { usePrefs } from "@/components/providers/use-prefs";
 import { useToast } from "@/components/providers/toast-provider";
 import { tapFeedback, winFeedback } from "@/lib/native";
 import { blockTitle, formatMinutes, TIMEBLOCK_MAX_TITLE } from "@/lib/timeblocks";
-import { SHEET_SLOT, slotContent, timeboxRows, timeboxSlots, type SheetSlot } from "@/lib/timebox";
+import {
+  placeCount,
+  placesOf,
+  SHEET_SLOT,
+  slotContent,
+  thingKey,
+  timeboxRows,
+  timeboxSlots,
+  type SheetSlot,
+} from "@/lib/timebox";
 import type { ISODate, TimeBlock } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { AutoTextarea } from "./auto-textarea";
@@ -236,7 +245,8 @@ function Slot({
   isNow: boolean;
   className?: string;
 }) {
-  const { state, addBlock, updateBlock, toggleBlockDone, deleteBlock, restoreBlock } = useStore();
+  const { state, addBlock, updateBlock, toggleBlockDone, deleteBlock, restoreBlock, renameEverywhere } =
+    useStore();
   const { toast } = useToast();
   const content = slotContent(blocks, start);
   const isTarget =
@@ -257,6 +267,20 @@ function Slot({
     if (blockId === null) {
       if (value) addBlock({ date, start, duration: SHEET_SLOT, title: value });
     } else if (value) {
+      // Věc je i v dumpu či trojce - přepsaný text platí všude, jinak by se
+      // odkaz rozpadl. Bloky ToDo, úkolu a hlavní věci si text berou odjinud.
+      const block = blocks.find((b) => b.id === blockId);
+      const before = block ? blockTitle(state, block) : "";
+      if (
+        block &&
+        !block.priorityId &&
+        !block.todoId &&
+        !block.taskId &&
+        thingKey(before) !== thingKey(value) &&
+        placeCount(placesOf(state, block.date, before)) > 1
+      ) {
+        renameEverywhere(block.date, before, value);
+      }
       updateBlock(blockId, { title: value });
     } else {
       const removed = deleteBlock(blockId);
@@ -308,7 +332,10 @@ function Slot({
                 block={block}
                 label={blockTitle(state, block)}
                 linked={
-                  block.todoId !== null || block.taskId !== null || block.priorityId !== null
+                  block.todoId !== null ||
+                  block.taskId !== null ||
+                  block.priorityId !== null ||
+                  placeCount(placesOf(state, block.date, blockTitle(state, block))) > 1
                 }
                 offset={block.start !== start}
                 dragging={drag.ghost?.source.kind === "block" && drag.ghost.source.id === block.id}

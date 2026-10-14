@@ -116,6 +116,14 @@ export interface StoreApi {
   /** Prohodí dvě hlavní věci dne i s odkazy bloků, které z nich vznikly. */
   swapPriorities: (date: ISODate, a: number, b: number) => void;
   setBrainDump: (date: ISODate, text: string) => void;
+  /**
+   * Věc, která je v listu dne na více místech (dump, trojka, papír): sundá ji
+   * ze všech naráz. Vrací, co zmizelo - pro Vrátit.
+   */
+  deleteEverywhere: (date: ISODate, text: string) => sheetActions.RemovedEverywhere | null;
+  restoreEverywhere: (removed: sheetActions.RemovedEverywhere) => void;
+  /** Přepsání textu věci na jednom místě přepíše i ostatní místa listu. */
+  renameEverywhere: (date: ISODate, from: string, to: string) => void;
   /** Označí hlavní věc za přenesenou na jiný den (sekce „Nestihl jsem“). */
   markPriorityCarried: (date: ISODate, index: number, carriedTo: ISODate | null) => void;
   /**
@@ -341,6 +349,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       swapPriorities: (date, a, b) =>
         commit(sheetActions.swapPriorities(ref.current, date, a, b)),
       setBrainDump: (date, text) => commit(sheetActions.setBrainDump(ref.current, date, text)),
+      deleteEverywhere: (date, text) => {
+        const res = sheetActions.deleteEverywhere(ref.current, date, text);
+        if (res.removed) commit(res.state);
+        return res.removed;
+      },
+      restoreEverywhere: (removed) => commit(sheetActions.restoreEverywhere(ref.current, removed)),
+      renameEverywhere: (date, from, to) =>
+        commit(sheetActions.renameEverywhere(ref.current, date, from, to)),
       markPriorityCarried: (date, index, carriedTo) =>
         commit(sheetActions.markPriorityCarried(ref.current, date, index, carriedTo)),
 

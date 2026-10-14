@@ -34,7 +34,7 @@ Omezení: když se řádek smaže jen na jednom zařízení a druhé ho mezitím
 ## 2. Povinný účet, offline a konflikty (od 14. 10. 2026)
 
 - **Bez účtu appka nejede.** `AuthGate` (`components/account/login-screen.tsx`) pustí do appky jen přihlášeného. Lokální zálohy (export/import do souboru) padly - zdrojem pravdy je databáze účtu, `localStorage` je její kopie pro práci bez signálu.
-- **Offline přihlášení vydrží.** Bez sítě se prošlý token neobnoví a Supabase vrátí „bez přihlášení“, i když session v úložišti nechá. Appka proto bere uživatele z uložené session (`storedUser` v `lib/account.ts`) a odhlásí jen opravdové odhlášení nebo session, kterou zahodil server. Token se obnoví sám, až se zařízení spojí.
+- **Appka nikoho sama neodhlásí - ani po letech offline.** Kdo je přihlášený, si drží sama (`microwins:account`, `lib/account.ts`), nezávisle na tokenech Supabase; smaže to jen tlačítko Odhlásit. Prošlý token bez sítě nevadí (obnoví se po spojení). Když databáze přihlášení opravdu zruší (změna hesla, zneplatněný token), appka jede dál, změny čekají v telefonu a Nastavení → Účet nabídne „Přihlásit znovu“; synchronizace se po něm rozjede sama.
 - **První přihlášení na zařízení s daty** jde přes převzetí (`account-merge.ts`): data se spojí s účtem, nic se na serveru nemaže.
 
 ### Jak se řeší konflikty

@@ -339,6 +339,15 @@ function signedInUser(): string | null {
   return account.status === "signed-in" ? account.userId : null;
 }
 
+/** Databáze přihlášení zrušila - appka jede dál, synchronizace čeká. */
+function loginExpired(): boolean {
+  const account = getAccount();
+  return account.status === "signed-in" && account.expired;
+}
+
+export const LOGIN_EXPIRED =
+  "Přihlášení k databázi vypršelo - přihlas se znovu. Změny zatím čekají v telefonu.";
+
 let running = false;
 let again = false;
 let timer: number | null = null;
@@ -347,6 +356,10 @@ let timer: number | null = null;
 export async function syncNow(): Promise<void> {
   const user = signedInUser();
   if (!bridge || !user) return;
+  if (loginExpired()) {
+    publish({ phase: "error", message: LOGIN_EXPIRED });
+    return;
+  }
   if (engine.owner() !== user) {
     /* Data ještě nepatří účtu. Když se kontrola po přihlášení nepovedla
        (bez signálu), zkusí se znovu - jinak by appka čekala do restartu.
@@ -423,7 +436,7 @@ function watchSettings(): void {
 
 /** Po přihlášení: synchronizace, nebo nejdřív převzetí dat do účtu. */
 async function onSignedIn(userId: string): Promise<void> {
-  if (engine.owner() === userId) return syncNow();
+  if (engine.owner() === userId || loginExpired()) return syncNow();
   publish({ phase: "checking", message: undefined });
   try {
     const plan = await engine.planAdoption(userId);
@@ -495,9 +508,18 @@ function watch(): void {
   watchSettings();
 
   let lastUser: string | null = null;
+  let lastExpired = false;
   const onAccount = () => {
     const user = signedInUser();
-    if (user === lastUser) return;
+    const expired = loginExpired();
+    const changed = expired !== lastExpired;
+    lastExpired = expired;
+    if (user === lastUser) {
+      // Tentýž člověk: buď mu databáze zrušila přihlášení (synchronizace to
+      // ohlásí), nebo se přihlásil znovu a čekající změny můžou odejít.
+      if (user && changed) void syncNow();
+      return;
+    }
     lastUser = user;
     if (user) void onSignedIn(user);
     else publish({ phase: "off", plan: undefined, asking: false, message: undefined });

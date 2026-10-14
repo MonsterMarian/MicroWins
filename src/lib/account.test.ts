@@ -5,6 +5,7 @@ import {
   isValidEmail,
   isValidPassword,
   normalizeEmail,
+  parseIdentity,
   storedUser,
   WRONG_PASSWORD,
 } from "./account";
@@ -118,5 +119,24 @@ describe("uložené přihlášení bez sítě", () => {
     expect(storedUser()).toBeNull();
     withStorage(JSON.stringify({ user: { email: "a@b.cz" } }));
     expect(storedUser()).toBeNull();
+  });
+});
+
+describe("zapamatované přihlášení", () => {
+  /* Appka nikoho sama neodhlásí - kdo je přihlášený, drží si sama a smaže
+     to jen Odhlásit. Poškozený záznam ale nesmí pustit dovnitř „nikoho“. */
+  it("přečte, kdo je přihlášený", () => {
+    expect(parseIdentity(JSON.stringify({ id: "u1", email: "a@b.cz" }))).toEqual({
+      id: "u1",
+      email: "a@b.cz",
+    });
+    expect(parseIdentity(JSON.stringify({ id: "u1" }))).toEqual({ id: "u1", email: "" });
+  });
+
+  it("bez záznamu nebo s poškozeným nikdo", () => {
+    expect(parseIdentity(null)).toBeNull();
+    expect(parseIdentity("{nesmysl")).toBeNull();
+    expect(parseIdentity(JSON.stringify({ id: "" }))).toBeNull();
+    expect(parseIdentity(JSON.stringify({ email: "a@b.cz" }))).toBeNull();
   });
 });

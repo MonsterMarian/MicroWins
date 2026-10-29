@@ -402,8 +402,17 @@ function Slot({
         /* Zalamuje se: dvě věci se vejdou vedle sebe, třetí si vezme řádek pod
            nimi. Bez toho se sloupce zmáčkly na pár písmen na řádek. */
         <div className="flex min-w-0 flex-wrap items-stretch gap-px">
+          {/* Blok, který tu jen pokračuje, nezmizí kvůli schůzce v tomhle políčku. */}
+          {content.running && content.blocks.length === 0 && ownEvents.length > 0 ? (
+            <span className="ml-0.5 h-3.5 w-0.5 self-center rounded-full bg-progress/50" aria-hidden />
+          ) : null}
           {ownEvents.map((event) => (
-            <EventLine key={event.id} event={event} offset={event.start !== start} />
+            <EventLine
+              key={event.id}
+              event={event}
+              offset={event.start !== start}
+              onPress={() => onEdit({ date, start, blockId: null })}
+            />
           ))}
           {content.blocks.map((block) =>
             editing?.blockId === block.id ? (
@@ -459,7 +468,9 @@ function Slot({
             <span className="ml-0.5 h-3.5 w-0.5 rounded-full bg-muted-foreground/40" aria-hidden />
           ) : null}
         </button>
-      ) : (
+      ) : content.blocks.length === 0 ? null : (
+        /* Políčko jen se schůzkou má za cíl ťuknutí schůzku samotnou (viz
+           EventLine) - proužek by byl na prst moc tenký. */
         /* Do jedné půlhodiny se vejde víc věcí - tenký proužek pod zápisy je
            říká nahlas, jinak by to nikoho nenapadlo zkusit. */
         <button
@@ -548,18 +559,31 @@ function BlockLine({
 }
 
 /** Událost z kalendáře telefonu - ztlumená, bez zaškrtávátka, nedá se tahat. */
-function EventLine({ event, offset }: { event: DayEvent; offset: boolean }) {
+function EventLine({
+  event,
+  offset,
+  onPress,
+}: {
+  event: DayEvent;
+  offset: boolean;
+  /** Ťuknutí píše do políčka - schůzka je jen vidět, upravuje se v kalendáři. */
+  onPress: () => void;
+}) {
   return (
-    <span
+    <button
+      type="button"
+      data-calendar-event=""
+      onClick={onPress}
       title={event.title}
-      className="flex min-w-[4.5rem] flex-[1_1_4.5rem] items-start gap-1 text-[11px] leading-4 text-muted-foreground"
+      aria-label={`Naplánovat na ${formatMinutes(event.start)} - v kalendáři: ${event.title}`}
+      className="flex min-w-[4.5rem] flex-[1_1_4.5rem] items-start gap-1 rounded-[3px] text-left text-[11px] leading-4 text-muted-foreground hover:bg-accent/60"
     >
-      <CalendarDays className="mt-0.5 size-3.5 shrink-0" aria-label="Z kalendáře" />
+      <CalendarDays className="mt-0.5 size-3.5 shrink-0" aria-hidden />
       <span className="min-w-0 flex-1 break-words">
         {offset ? <span className="tabular mr-1">{formatMinutes(event.start)}</span> : null}
         {event.title}
       </span>
-    </span>
+    </button>
   );
 }
 

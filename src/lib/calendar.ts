@@ -1,4 +1,4 @@
-import { registerPlugin, type PluginListenerHandle } from "@capacitor/core";
+import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 import { CapacitorCalendar, type CalendarEvent } from "@ebarooni/capacitor-calendar";
 import { addDays, fromISODate } from "./date";
 import { isNative } from "./native";
@@ -136,7 +136,9 @@ export function dayEvents(events: CalendarEvent[], date: ISODate): DayEvent[] {
 // --- zápis: bloky do kalendáře -----------------------------------------------
 
 const MARKER = "microwins:";
-const MARKER_RE = /(?:^|\s)microwins:([A-Za-z0-9_-]+)/;
+// Bez nároku na mezeru před značkou: popis upravený na webu vrátí Google jako
+// HTML (`<br>microwins:…`) a ztracená značka by znamenala duplikát navždy.
+const MARKER_RE = /microwins:([A-Za-z0-9_-]+)/;
 
 /** Id bloku ze značky v popisu události; null = událost appce nepatří. */
 export function markerOf(description: string | null): string | null {
@@ -230,9 +232,28 @@ interface CalendarSyncPlugin {
 
 const CalendarSync = registerPlugin<CalendarSyncPlugin>("CalendarSync");
 
-/** Stáhne z Googlu novinky do viditelných kalendářů telefonu. */
+/**
+ * Umí tahle instalace kalendář? Web dorazí přes OTA i do starších APK, ale
+ * nativní pluginy přináší jen nové APK - bez nich by sekce jen hlásila chybu.
+ */
+export function calendarAvailable(): boolean {
+  return (
+    isNative() &&
+    Capacitor.isPluginAvailable("CapacitorCalendar") &&
+    Capacitor.isPluginAvailable("CalendarSync")
+  );
+}
+
+let lastSync = 0;
+
+/**
+ * Stáhne z Googlu novinky do kalendářů telefonu. Nejvýš jednou za minutu -
+ * mřížka se ptá při každém otevření a přepnutí dne.
+ */
 export async function syncPhoneCalendars(): Promise<void> {
-  if (!isNative() || !getCalendarSettings().read) return;
+  if (!calendarAvailable() || !getCalendarSettings().read) return;
+  if (Date.now() - lastSync < 60_000) return;
+  lastSync = Date.now();
   try {
     await CalendarSync.requestSync({ upload: false });
   } catch {
@@ -242,7 +263,7 @@ export async function syncPhoneCalendars(): Promise<void> {
 
 /** Zavolá `fn` při každé změně kalendáře v telefonu (i po synchronizaci). */
 export function onCalendarChange(fn: () => void): () => void {
-  if (!isNative()) return () => {};
+  if (!calendarAvailable()) return () => {};
   let handle: PluginListenerHandle | null = null;
   let stopped = false;
   void CalendarSync.watch()
@@ -262,13 +283,12 @@ export interface PhoneCalendar {
   id: string;
   title: string;
   account: string;
-  color: string | null;
   writable: boolean;
 }
 
 /** Zeptá se na přístup ke kalendáři. Odmítnutí = false, nic nespadne. */
 export async function requestCalendarAccess(): Promise<boolean> {
-  if (!isNative()) return false;
+  if (!calendarAvailable()) return false;
   try {
     const { result } = await CapacitorCalendar.requestFullCalendarAccess();
     return result === "granted";
@@ -279,17 +299,20 @@ export async function requestCalendarAccess(): Promise<boolean> {
 
 /** Viditelné kalendáře telefonu. */
 export async function listPhoneCalendars(): Promise<PhoneCalendar[]> {
-  if (!isNative()) return [];
+  if (!calendarAvailable()) return [];
   const { result } = await CapacitorCalendar.listCalendars();
   return result
     .filter((c) => c.visible !== false)
-    .map((c) => ({
-      id: c.id,
-      title: c.title ?? "Kalendář",
-      account: c.accountName ?? "",
-      color: c.color,
-      writable: c.allowsContentModifications === true,
-    }));
+    .map((c) => {
+      // MIUI svůj kalendář jen v telefonu nepojmenuje, ukáže holý klíč překladu.
+      const local = c.title?.startsWith("calendar_displayname") === true;
+      return {
+        id: c.id,
+        title: local ? "Jen v telefonu (bez Googlu)" : (c.title ?? "Kalendář"),
+        account: local ? "" : (c.accountName ?? ""),
+        writable: c.allowsContentModifications === true,
+      };
+    });
 }
 
 async function eventsInRange(from: ISODate, to: ISODate): Promise<CalendarEvent[]> {
@@ -301,26 +324,36 @@ async function eventsInRange(from: ISODate, to: ISODate): Promise<CalendarEvent[
 }
 
 /**
- * Události k zobrazení v mřížce: všechny viditelné kalendáře kromě toho, kam
- * appka zapisuje - jinak by se vlastní bloky ukázaly dvakrát.
+ * Události k zobrazení v mřížce: všechny viditelné kalendáře, jen bez bloků,
+ * které do nich zapsala appka (značka v popisu) - ty by se ukázaly dvakrát.
+ * Celý cílový kalendář se schválně nevynechává: může to být ten hlavní se
+ * schůzkami a bloky z dřív vybraného kalendáře by se jinak vrátily jako cizí.
  */
 export async function readEvents(from: ISODate, to: ISODate): Promise<CalendarEvent[]> {
-  const { read, writeTo } = getCalendarSettings();
-  if (!isNative() || !read) return [];
+  if (!calendarAvailable() || !getCalendarSettings().read) return [];
   try {
     const shown = new Set((await listPhoneCalendars()).map((c) => c.id));
-    shown.delete(writeTo ?? "");
-    return (await eventsInRange(from, to)).filter((e) => e.calendarId && shown.has(e.calendarId));
+    return (await eventsInRange(from, to)).filter(
+      (e) => e.calendarId && shown.has(e.calendarId) && !markerOf(e.description),
+    );
   } catch {
     // přístup odebraný v systému - mřížka prostě bude bez událostí
     return [];
   }
 }
 
-/** Zrcadlí bloky z okna `syncWindow` do vybraného kalendáře. */
-export async function writeBlocks(state: MicroWinsState, today: ISODate): Promise<void> {
+/**
+ * Zrcadlí bloky z okna `syncWindow` do vybraného kalendáře a řekne si o
+ * odeslání do Googlu - po změně, nebo vždy (`syncAlways`, start a návrat do
+ * appky), aby odešlo i to, co minule nestihlo.
+ */
+export async function writeBlocks(
+  state: MicroWinsState,
+  today: ISODate,
+  syncAlways = false,
+): Promise<void> {
   const { writeTo } = getCalendarSettings();
-  if (!isNative() || !writeTo) return;
+  if (!calendarAvailable() || !writeTo) return;
   const { from, to } = syncWindow(today);
   const desired = state.timeBlocks
     .filter((b) => b.date >= from && b.date <= to)
@@ -343,10 +376,27 @@ export async function writeBlocks(state: MicroWinsState, today: ISODate): Promis
       title: e.title,
       startDate: e.startDate,
       endDate: e.endDate,
+      // Popis přepsaný v Googlu se vrátí - drží značku, podle které se páruje.
+      description: describeBlock(e.blockId),
     });
   }
   if (plan.remove.length > 0) await CapacitorCalendar.deleteEventsById({ ids: plan.remove });
-  if (plan.create.length + plan.update.length + plan.remove.length > 0) {
+  if (syncAlways || plan.create.length + plan.update.length + plan.remove.length > 0) {
     await CalendarSync.requestSync({ upload: true });
   }
+}
+
+/**
+ * Smaže bloky zapsané do kalendáře, do kterého se přestává zapisovat (v okně
+ * `syncWindow`, starší zůstanou jako historie). Bez toho by tam zůstaly navždy.
+ */
+export async function clearMirror(calendarId: string, today: ISODate): Promise<void> {
+  if (!calendarAvailable()) return;
+  const { from, to } = syncWindow(today);
+  const ids = (await eventsInRange(from, to))
+    .filter((e) => e.calendarId === calendarId && markerOf(e.description))
+    .map((e) => e.id);
+  if (ids.length === 0) return;
+  await CapacitorCalendar.deleteEventsById({ ids });
+  await CalendarSync.requestSync({ upload: true });
 }

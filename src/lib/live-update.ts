@@ -95,6 +95,15 @@ export function currentBundleVersion(): string | null {
   return read(CURRENT_KEY) ?? process.env.NEXT_PUBLIC_BUNDLE_VERSION ?? null;
 }
 
+/**
+ * Je balík `version` starší než `than`? Verze jsou časy UTC
+ * `YYYY.MM.DD.HH.MM` s nulami (scripts/release.mjs), takže stačí porovnat text.
+ * Bez `than` (vývojový build bez verze) nic starší není.
+ */
+export function isOlderBundle(version: string, than: string | null | undefined): boolean {
+  return !!than && version < than;
+}
+
 export function pendingBundleVersion(): string | null {
   const raw = read(PENDING_KEY);
   if (!raw) return null;
@@ -187,10 +196,8 @@ export async function applyPendingUpdate(): Promise<ApplyResult> {
     if (!target) return { applied: null };
 
     // Nové APK nese novější web než dřív stažený balík - ten by ho hned po
-    // instalaci přebil a appka by spadla o verzi zpátky. Verze jsou časy
-    // `YYYY.MM.DD.HH.MM` (release.mjs), takže stačí porovnat text.
-    const builtIn = process.env.NEXT_PUBLIC_BUNDLE_VERSION;
-    if (builtIn && target < builtIn) {
+    // instalaci přebil a appka by spadla o verzi zpátky.
+    if (isOlderBundle(target, process.env.NEXT_PUBLIC_BUNDLE_VERSION)) {
       write(CURRENT_KEY, null);
       write(PENDING_KEY, null);
       return { applied: null };
@@ -307,7 +314,7 @@ export async function checkForUpdate(): Promise<UpdateCheck> {
       manifest.version === current ||
       manifest.version === pendingBundleVersion() ||
       // Starší manifest, než co běží (APK novější než poslední push) - nestahovat.
-      (current !== null && manifest.version < current)
+      isOlderBundle(manifest.version, current)
     ) {
       return { kind: "up-to-date", version: current };
     }

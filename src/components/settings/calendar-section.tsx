@@ -3,9 +3,12 @@
 import * as React from "react";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/input";
+import { SwitchPill } from "@/components/ui/switch-pill";
 import { usePrefs } from "@/components/providers/use-prefs";
 import { useToast } from "@/components/providers/toast-provider";
 import {
+  calendarAvailable,
+  clearMirror,
   getCalendarSettings,
   getDefaultCalendarSettings,
   listPhoneCalendars,
@@ -14,13 +17,13 @@ import {
   subscribeCalendarSettings,
   type PhoneCalendar,
 } from "@/lib/calendar";
-import { isNative } from "@/lib/native";
+import { todayISO } from "@/lib/date";
 import { cn } from "@/lib/utils";
 
 /**
  * Napojení time boxu na kalendář telefonu (a přes něj na Google Kalendář).
- * Jen v Android appce a jen pro tohle zařízení - viz `lib/calendar.ts`.
- * O přístup ke kalendáři se appka ptá až tady, při zapnutí.
+ * Jen v Android appce s kalendářovými pluginy (nové APK) a jen pro tohle
+ * zařízení - viz `lib/calendar.ts`. O přístup se appka ptá až tady.
  */
 export function CalendarSection() {
   const { addons } = usePrefs();
@@ -42,10 +45,17 @@ export function CalendarSection() {
   }, []);
 
   React.useEffect(() => {
-    if (isNative()) void load();
+    if (calendarAvailable()) void load();
   }, [load]);
 
-  if (!addons.timebox || !isNative()) return null;
+  if (!addons.timebox || !calendarAvailable()) return null;
+
+  /** Bloky ve starém kalendáři by tam zůstaly navždy - smažou se. */
+  const changeTarget = (next: string | null) => {
+    const previous = writeTo;
+    setCalendarSettings({ writeTo: next });
+    if (previous && previous !== next) void clearMirror(previous, todayISO()).catch(() => {});
+  };
 
   const allow = async () => {
     if (await requestCalendarAccess()) {
@@ -100,26 +110,14 @@ export function CalendarSection() {
               : "Mřížka ukazuje jen tvoje bloky."}
           </span>
         </span>
-        <span
-          className={cn(
-            "relative h-6 w-11 shrink-0 rounded-full transition-colors",
-            read ? "bg-progress" : "bg-muted-foreground/30",
-          )}
-        >
-          <span
-            className={cn(
-              "absolute top-1 size-4 rounded-full bg-card shadow transition-[left] duration-200",
-              read ? "left-6" : "left-1",
-            )}
-          />
-        </span>
+        <SwitchPill on={read} />
       </button>
 
       <label className="flex flex-wrap items-center gap-2 text-sm">
         <span className="text-muted-foreground">Bloky zapisovat do</span>
         <Select
           value={writeTo ?? ""}
-          onChange={(e) => setCalendarSettings({ writeTo: e.target.value || null })}
+          onChange={(e) => changeTarget(e.target.value || null)}
           aria-label="Kalendář pro zápis bloků"
           className="h-8 w-auto max-w-full text-xs"
         >
@@ -139,7 +137,8 @@ export function CalendarSection() {
       <p className="px-1 text-xs text-muted-foreground">
         Platí jen pro tenhle telefon. Bloky od včerejška na dva týdny dopředu se zrcadlí do
         vybraného kalendáře - nejlíp si na to v Google kalendáři založ vlastní, třeba MicroWins.
-        Upravuj je tady, změny udělané v Googlu appka přepíše.
+        Upravuj je tady, změny udělané v Googlu appka přepíše. Po přepnutí jinam se bloky ze
+        starého kalendáře smažou.
       </p>
     </section>
   );

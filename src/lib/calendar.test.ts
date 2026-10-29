@@ -80,6 +80,10 @@ describe("značka v popisu", () => {
     expect(markerOf("Schůzka s microwins týmem")).toBeNull();
     expect(markerOf(null)).toBeNull();
   });
+
+  it("značku najde i v popisu, který Google vrátil jako HTML", () => {
+    expect(markerOf("Z MicroWins<br>microwins:blk_x1_ab</p>")).toBe("blk_x1_ab");
+  });
 });
 
 describe("desiredEvent", () => {

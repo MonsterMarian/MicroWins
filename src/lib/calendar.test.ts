@@ -5,6 +5,7 @@ import {
   dayEvents,
   dayStartMs,
   describeConflict,
+  doneColor,
   eventTitle,
   markerOf,
   mirrorDescription,
@@ -162,6 +163,7 @@ describe("planMirror", () => {
     endDate: 200 * MIN,
     allDay: false,
     recurring: false,
+    colorKey: null,
     ...patch,
   });
   const base = (id: string, patch: Partial<MirrorBase> = {}): Record<string, MirrorBase> => ({
@@ -176,12 +178,14 @@ describe("planMirror", () => {
   it("beze změny nedělá nic a základ drží", () => {
     const plan = planMirror([item()], [ev("1")], base("1"), H);
     expect(plan).toMatchObject({ create: [], update: [], remove: [], pull: [] });
-    expect(plan.base.b1).toEqual({ ...base("1").b1, allDay: false });
+    expect(plan.base.b1).toEqual({ ...base("1").b1, allDay: false, colorKey: null });
   });
 
   it("změna v appce přepíše kalendář", () => {
     const plan = planMirror([item({ startDate: 150 * MIN, endDate: 250 * MIN })], [ev("1")], base("1"), H);
-    expect(plan.update).toEqual([{ ...item({ startDate: 150 * MIN, endDate: 250 * MIN }), id: "1" }]);
+    expect(plan.update).toEqual([
+      { ...item({ startDate: 150 * MIN, endDate: 250 * MIN }), id: "1", colorKey: null, rewrite: true, recolor: false },
+    ]);
     expect(plan.pull).toEqual([]);
     expect(plan.base.b1.startDate).toBe(150 * MIN);
   });
@@ -189,7 +193,10 @@ describe("planMirror", () => {
   it("změnu v kalendáři převezme appka: název, čas i odškrtnutí", () => {
     const remote = ev("1", { title: "✓ Psaní knihy", startDate: 300 * MIN, endDate: 360 * MIN });
     const plan = planMirror([item()], [remote], base("1"), H);
-    expect(plan.update).toEqual([]);
+    // Odškrtnuté z Googlu v kalendáři jen zešedne (Grafitová), obsah se nepřepisuje.
+    expect(plan.update).toEqual([
+      { ...item({ title: "Psaní knihy", done: true, startDate: 300 * MIN, endDate: 360 * MIN }), id: "1", colorKey: "8", rewrite: false, recolor: true },
+    ]);
     expect(plan.pull).toEqual([
       { key: "b1", kind: "block", title: "Psaní knihy", done: true, allDay: false, startDate: 300 * MIN, endDate: 360 * MIN },
     ]);
@@ -209,7 +216,7 @@ describe("planMirror", () => {
       H,
     );
     expect(plan.pull).toEqual([]);
-    expect(plan.update).toEqual([{ ...item({ title: "Appka" }), id: "1" }]);
+    expect(plan.update).toEqual([{ ...item({ title: "Appka" }), id: "1", colorKey: null, rewrite: true, recolor: false }]);
     expect(plan.base.b1.title).toBe("Appka");
     expect(plan.conflicts).toHaveLength(1);
     expect(plan.conflicts[0]).toMatchObject({
@@ -242,14 +249,15 @@ describe("planMirror", () => {
     expect(plan.conflicts).toEqual([]);
     expect(plan.pull).toEqual([{ key: "b1", kind: "block", done: true, allDay: false, startDate: 300 * MIN, endDate: 400 * MIN }]);
     expect(plan.update).toEqual([
-      { ...item({ title: "Appka", done: true, startDate: 300 * MIN, endDate: 400 * MIN }), id: "1" },
+      { ...item({ title: "Appka", done: true, startDate: 300 * MIN, endDate: 400 * MIN }), id: "1", colorKey: "8", rewrite: true, recolor: true },
     ]);
-    expect(plan.base.b1).toEqual({ eventId: "1", title: "✓ Appka", startDate: 300 * MIN, endDate: 400 * MIN, allDay: false });
+    expect(plan.base.b1).toEqual({ eventId: "1", title: "✓ Appka", startDate: 300 * MIN, endDate: 400 * MIN, allDay: false, colorKey: "8" });
   });
 
-  it("stejná změna na obou stranách není konflikt ani práce navíc", () => {
+  it("stejná změna na obou stranách není konflikt; hotové jen zešedne", () => {
     const plan = planMirror([item({ title: "Nové", done: true })], [ev("1", { title: "✓ Nové" })], base("1"), H);
-    expect(plan).toMatchObject({ create: [], update: [], remove: [], pull: [], conflicts: [] });
+    expect(plan).toMatchObject({ create: [], remove: [], pull: [], conflicts: [] });
+    expect(plan.update).toEqual([{ ...item({ title: "Nové", done: true }), id: "1", colorKey: "8", rewrite: false, recolor: true }]);
     expect(plan.base.b1.title).toBe("✓ Nové");
   });
 
@@ -281,7 +289,26 @@ describe("planMirror", () => {
     const plan = planMirror([item()], [allDay], base("1"), H);
     expect(plan.pull).toEqual([]);
     const next = planMirror([item()], [allDay], plan.base, H);
-    expect(next.update).toEqual([{ ...item(), id: "1" }]);
+    expect(next.update).toEqual([{ ...item(), id: "1", colorKey: null, rewrite: true, recolor: false }]);
+  });
+
+  it("Grafitová v Googlu odškrtne, odbarvení odškrtnutí zruší i s ✓ v názvu", () => {
+    const grey = planMirror([item()], [ev("1", { colorKey: "8" })], base("1"), H);
+    expect(grey.pull).toEqual([{ key: "b1", kind: "block", done: true }]);
+    expect(grey.update).toEqual([{ ...item({ done: true }), id: "1", colorKey: "8", rewrite: true, recolor: false }]);
+
+    const was = base("1", { title: "✓ Psaní", colorKey: "8" });
+    const plain = planMirror([item({ done: true })], [ev("1", { title: "✓ Psaní", colorKey: null })], was, H);
+    expect(plain.pull).toEqual([{ key: "b1", kind: "block", done: false }]);
+    expect(plain.update).toEqual([{ ...item(), id: "1", colorKey: null, rewrite: true, recolor: false }]);
+  });
+
+  it("vlastní barvu nehotové události appka nechá být", () => {
+    const plan = planMirror([item()], [ev("1", { colorKey: "5" })], base("1", { colorKey: "5" }), H);
+    expect(plan.update).toEqual([]);
+    expect(doneColor(true, "5")).toBe("8");
+    expect(doneColor(false, "8")).toBeNull();
+    expect(doneColor(false, "5")).toBe("5");
   });
 
   it("smazání v kalendáři se převezme", () => {
@@ -456,6 +483,7 @@ describe("celodenní ToDo, přesný čas a úkoly projektu", () => {
     title: "vlasy",
     allDay: true,
     recurring: false,
+    colorKey: null,
     startDate: Date.UTC(2026, 10, 27),
     endDate: Date.UTC(2026, 10, 28),
     ...patch,
@@ -483,7 +511,7 @@ describe("celodenní ToDo, přesný čas a úkoly projektu", () => {
     const was = { b1: { eventId: "1", title: "vlasy", startDate: 100 * MIN, endDate: 200 * MIN } };
     const plan = planMirror([block], [ev({ key: "b1" })], was, H);
     expect(plan.pull).toEqual([]);
-    expect(plan.update).toEqual([{ ...block, id: "1" }]);
+    expect(plan.update).toEqual([{ ...block, id: "1", colorKey: null, rewrite: true, recolor: false }]);
   });
 
   it("převzetí: celodenní termín bez hodiny, blok úkolu přejmenuje úkol, čas bloku přesně", () => {

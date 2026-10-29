@@ -267,7 +267,16 @@ export interface MirrorEvent {
   endDate: number;
   allDay: boolean;
   recurring: boolean;
+  /** Barva události z palety Googlu; null = barva kalendáře. */
+  colorKey: string | null;
 }
+
+/**
+ * Barva „Grafitová“ v paletě událostí Googlu (colorId 8). Hotové věci appka
+ * v kalendáři obarví na ni a naopak: událost obarvená v Googlu na Grafitovou
+ * appka odškrtne - zaškrtávátko Google u událostí nemá.
+ */
+export const DONE_COLOR = "8";
 
 /** Jak událost vypadala po posledním běhu - podle toho se pozná, kdo co změnil. */
 export interface MirrorBase {
@@ -277,6 +286,8 @@ export interface MirrorBase {
   endDate: number;
   /** Chybí u základů z doby před celodenními ToDo = nebyla celodenní. */
   allDay?: boolean;
+  /** Chybí u základů z doby před barvou hotového = barva kalendáře. */
+  colorKey?: string | null;
 }
 
 /** Změna z kalendáře, kterou má převzít appka. */
@@ -308,9 +319,19 @@ export interface MirrorConflict {
   useGoogle: MirrorPull;
 }
 
+/** Úprava události: obsah podle sloučení a barva (hotové = Grafitová). */
+export type MirrorUpdate = MirrorItem & {
+  id: string;
+  colorKey: string | null;
+  /** Mění se název, čas či celý den. */
+  rewrite: boolean;
+  /** Barva se mění - nastavuje se zvlášť, ať se neoznačí změna, kde žádná není. */
+  recolor: boolean;
+};
+
 export interface MirrorPlan {
   create: MirrorItem[];
-  update: (MirrorItem & { id: string })[];
+  update: MirrorUpdate[];
   remove: string[];
   pull: MirrorPull[];
   conflicts: MirrorConflict[];
@@ -353,6 +374,15 @@ function when(f: Fields): string {
   return `${d.getDate()}. ${d.getMonth() + 1}. ${hhmm(d)}–${hhmm(new Date(f.endDate))}`;
 }
 
+/**
+ * Barva události podle odškrtnutí: hotové Grafitová; nehotové zpátky na barvu
+ * kalendáře - ale jen z Grafitové, vlastní barvu z Googlu appka nechá být.
+ */
+export function doneColor(done: boolean, current: string | null): string | null {
+  if (done) return DONE_COLOR;
+  return current === DONE_COLOR ? null : current;
+}
+
 /** Hláška ke konfliktu: co zůstalo, co bylo v Googlu a čím vzít verzi z Googlu. */
 export function describeConflict(c: MirrorConflict): { title: string; description: string; action: string } {
   const google = c.google ?? c.app;
@@ -384,6 +414,10 @@ export function describeConflict(c: MirrorConflict): { title: string; descriptio
  * hodnoty je konflikt a zůstane appka. Co kalendář nést neumí (prázdný název,
  * čas opakované události, celý den u bloku - blok čas mít musí), bere se
  * jako nezměněné. U ToDo celý den znamená termín bez hodiny.
+ *
+ * Hotovo jde v Googlu dát dvojím způsobem: barvou Grafitová, nebo ✓ na
+ * začátku názvu. Změnila-li se od minula barva, platí barva (odbarvení tak
+ * odškrtnutí zruší, i když ✓ v názvu zůstalo); jinak ✓.
  */
 function mergeFields(
   item: MirrorItem,
@@ -395,9 +429,10 @@ function mergeFields(
   const raw = fieldsOf(event);
   const usable = !event.recurring && (raw.allDay ? item.kind === "todo" : raw.endDate > raw.startDate);
   const time = usable ? raw : base;
+  const recolored = event.colorKey !== (was.colorKey ?? null);
   const google: Fields = {
     title: raw.title === "" ? base.title : raw.title,
-    done: raw.done,
+    done: recolored ? event.colorKey === DONE_COLOR : raw.done,
     allDay: time.allDay,
     startDate: time.startDate,
     endDate: time.endDate,
@@ -499,13 +534,15 @@ export function planMirror(
       endDate: target.endDate,
       allDay: target.allDay,
     };
+    const colorKey = doneColor(target.done, event.colorKey);
+    const recolor = colorKey !== event.colorKey;
     const differs =
       shape.title !== event.title ||
       shape.startDate !== event.startDate ||
       shape.endDate !== event.endDate ||
       shape.allDay !== event.allDay;
-    if (differs) plan.update.push({ ...target, id: event.id });
-    plan.base[item.key] = { eventId: event.id, ...shape };
+    if (differs || recolor) plan.update.push({ ...target, id: event.id, colorKey, rewrite: differs, recolor });
+    plan.base[item.key] = { eventId: event.id, ...shape, colorKey };
   }
 
   const known = Object.keys(base).length;
@@ -639,8 +676,11 @@ interface CalendarSyncPlugin {
       endDate: number;
       allDay: boolean;
       recurring: boolean;
+      /** Chybí = barva kalendáře. */
+      colorKey?: string | null;
     }[];
   }>;
+  setEventColor(options: { eventId: string; colorKey: string | null }): Promise<void>;
   watch(): Promise<void>;
   addListener(event: "change", fn: () => void): Promise<PluginListenerHandle>;
 }
@@ -816,9 +856,22 @@ async function mirrorEvents(calendarId: string): Promise<{ ok: boolean; events: 
     ok,
     events: events.flatMap((e) => {
       const key = markerOf(e.description);
-      return key ? [{ ...e, key }] : [];
+      return key ? [{ ...e, key, colorKey: e.colorKey ?? null }] : [];
     }),
   };
+}
+
+/**
+ * Barva hotového. Selhání (účet bez palety Googlu) nevadí - hotovo pak nese
+ * jen ✓ v názvu - a vrací, jaká barva opravdu platí.
+ */
+async function paint(eventId: string, colorKey: string | null, current: string | null): Promise<string | null> {
+  try {
+    await CalendarSync.setEventColor({ eventId, colorKey });
+    return colorKey;
+  } catch {
+    return current;
+  }
 }
 
 export interface MirrorRun {
@@ -874,17 +927,24 @@ export async function syncMirror(
         startDate: item.startDate,
         endDate: item.endDate,
         allDay: item.allDay,
+        colorKey: item.done ? await paint(id, DONE_COLOR, null) : null,
       };
     }
   }
   for (const item of plan.update) {
-    await CapacitorCalendar.modifyEvent({
-      id: item.id,
-      title: eventTitle(item),
-      ...pluginTimes(item),
-      // Přepsaný popis se vrací zpátky se značkou.
-      description: mirrorDescription(item.key),
-    });
+    if (item.rewrite) {
+      await CapacitorCalendar.modifyEvent({
+        id: item.id,
+        title: eventTitle(item),
+        ...pluginTimes(item),
+        // Přepsaný popis se vrací zpátky se značkou.
+        description: mirrorDescription(item.key),
+      });
+    }
+    if (item.recolor) {
+      const was = events.find((e) => e.id === item.id)?.colorKey ?? null;
+      next[item.key] = { ...next[item.key], colorKey: await paint(item.id, item.colorKey, was) };
+    }
   }
   if (plan.remove.length > 0) await CapacitorCalendar.deleteEventsById({ ids: plan.remove });
 

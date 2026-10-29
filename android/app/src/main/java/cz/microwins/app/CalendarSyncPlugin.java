@@ -2,6 +2,7 @@ package cz.microwins.app;
 
 import android.content.ContentResolver;
 import android.content.ContentUris;
+import android.content.ContentValues;
 import android.database.ContentObserver;
 import android.database.Cursor;
 import android.os.Bundle;
@@ -118,6 +119,7 @@ public class CalendarSyncPlugin extends Plugin {
                     CalendarContract.Events.DTEND,
                     CalendarContract.Events.ALL_DAY,
                     CalendarContract.Events.RRULE,
+                    CalendarContract.Events.EVENT_COLOR_KEY,
                 },
                 CalendarContract.Events.CALENDAR_ID + "=? AND " +
                     CalendarContract.Events.DELETED + "=0 AND " +
@@ -136,6 +138,8 @@ public class CalendarSyncPlugin extends Plugin {
                     e.put("endDate", c.isNull(4) ? start : c.getLong(4));
                     e.put("allDay", c.getInt(5) == 1);
                     e.put("recurring", !c.isNull(6) && !c.getString(6).isEmpty());
+                    // Barva z palety Googlu ("1"-"11"); null = barva kalendáře.
+                    e.put("colorKey", c.isNull(7) ? null : c.getString(7));
                     events.put(e);
                 }
             }
@@ -145,6 +149,41 @@ public class CalendarSyncPlugin extends Plugin {
         }
         result.put("events", events);
         call.resolve(result);
+    }
+
+    /**
+     * Nastaví události barvu z palety Googlu (`colorKey` "1"-"11", "8" =
+     * Grafitová), nebo ji s `null` vrátí na barvu kalendáře. Google ji
+     * synchronizuje jako barvu události (colorId). Klíč, který účet nemá,
+     * kalendář odmítne - pak skončí chybou a zrcadlo zůstane jen u ✓.
+     */
+    @PluginMethod
+    public void setEventColor(PluginCall call) {
+        String eventId = call.getString("eventId");
+        if (eventId == null) {
+            call.reject("Chybí eventId");
+            return;
+        }
+        String colorKey = call.getString("colorKey");
+        ContentValues values = new ContentValues();
+        if (colorKey == null) {
+            values.putNull(CalendarContract.Events.EVENT_COLOR_KEY);
+            values.putNull(CalendarContract.Events.EVENT_COLOR);
+        } else {
+            values.put(CalendarContract.Events.EVENT_COLOR_KEY, colorKey);
+        }
+        try {
+            getContext().getContentResolver().update(
+                ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, Long.parseLong(eventId)),
+                values,
+                null,
+                null
+            );
+        } catch (Exception e) {
+            call.reject("Barvu nejde nastavit: " + e.getMessage());
+            return;
+        }
+        call.resolve();
     }
 
     /** Začne hlásit změny kalendáře událostí `change`. Opakované volání nic nedělá. */

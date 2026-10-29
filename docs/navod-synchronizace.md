@@ -65,7 +65,7 @@ uděláš v Googlu, propíše se do appky.
 | ToDo s termínem a hodinou | půlhodinová událost v čase termínu |
 | ToDo s termínem bez hodiny | celodenní událost |
 | ToDo naplánované do mřížky | jen ten blok (ne dvakrát) |
-| odškrtnutý blok | událost s `✓` na začátku názvu |
+| odškrtnutý blok | šedá událost (barva **Grafitová**) s `✓` na začátku názvu |
 | odškrtnuté / smazané ToDo | událost zmizí |
 
 Starší dny zůstávají v kalendáři jako historie.
@@ -77,11 +77,16 @@ Starší dny zůstávají v kalendáři jako historie.
 | přejmenuješ událost | přejmenuje se blok (nebo ToDo, hlavní věc dne, úkol projektu - podle toho, odkud blok je) |
 | posuneš / prodloužíš | blok se posune na přesný čas, ToDo dostane nový termín |
 | přetáhneš ToDo na celý den | ToDo ztratí hodinu (termín bez hodiny) |
+| obarvíš událost na **Grafitovou** | blok/ToDo se odškrtne |
+| vrátíš jí barvu (nebo jinou než Grafitovou) | blok se zase „neodškrtne“ |
 | dáš `✓` na začátek názvu (jde i ✔ nebo ✅) | blok/ToDo se odškrtne |
 | smažeš blok | blok se smaže - appka nabídne **Vrátit** |
 | smažeš ToDo | ToDo se odškrtne - appka nabídne **Vrátit** |
 
-Google kalendář u událostí zaškrtávátko nemá, proto `✓` v názvu.
+Google kalendář u událostí zaškrtávátko nemá, proto hotovo = **barva Grafitová**
+(na webu pravým tlačítkem na událost → Grafitová; v aplikaci Google Kalendář
+upravit událost → barva). Jde to i `✓` na začátku názvu. Vlastní barvy
+nehotových událostí appka nechává být.
 
 Celodenní nebo opakovaná událost čas bloku nést neumí - když na ni blok
 v Googlu převedeš, appka ho vrátí zpátky na čas.

@@ -193,8 +193,9 @@ export function CalendarSection() {
 
       <p className="px-1 text-xs text-muted-foreground">
         Bloky od včerejška dál a ToDo s termínem (bez hodiny jako celodenní) se zrcadlí do
-        vybraného kalendáře oběma směry: přejmenování, posun i smazání v Googlu se propíše sem,
-        ✓ na začátku názvu odškrtne. Změníš-li totéž tady i v Googlu, zůstane verze z appky a
+        vybraného kalendáře oběma směry: přejmenování, posun i smazání v Googlu se propíše sem.
+        Odškrtnuté jsou v Googlu šedé (barva Grafitová) - obarvením na ni nebo ✓ na začátku
+        názvu se tam i odškrtává. Změníš-li totéž tady i v Googlu, zůstane verze z appky a
         konflikt počká níž v seznamu. Propojení běží jen na jednom telefonu. Nejlíp si na to v
         Google kalendáři založ vlastní, třeba MicroWins. Po přepnutí jinam se zrcadlo ze starého
         kalendáře smaže.

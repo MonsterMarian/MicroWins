@@ -186,6 +186,16 @@ export async function applyPendingUpdate(): Promise<ApplyResult> {
     const target = pending ?? read(CURRENT_KEY);
     if (!target) return { applied: null };
 
+    // Nové APK nese novější web než dřív stažený balík - ten by ho hned po
+    // instalaci přebil a appka by spadla o verzi zpátky. Verze jsou časy
+    // `YYYY.MM.DD.HH.MM` (release.mjs), takže stačí porovnat text.
+    const builtIn = process.env.NEXT_PUBLIC_BUNDLE_VERSION;
+    if (builtIn && target < builtIn) {
+      write(CURRENT_KEY, null);
+      write(PENDING_KEY, null);
+      return { applied: null };
+    }
+
     const dir = await bundleDir(target);
 
     const active = await withTimeout(
@@ -293,7 +303,12 @@ export async function checkForUpdate(): Promise<UpdateCheck> {
     }
 
     const current = currentBundleVersion();
-    if (manifest.version === current || manifest.version === pendingBundleVersion()) {
+    if (
+      manifest.version === current ||
+      manifest.version === pendingBundleVersion() ||
+      // Starší manifest, než co běží (APK novější než poslední push) - nestahovat.
+      (current !== null && manifest.version < current)
+    ) {
       return { kind: "up-to-date", version: current };
     }
 

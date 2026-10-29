@@ -452,13 +452,40 @@
     }
   }
 
+  /*
+   * Hláška s „Vrátit“, která právě nahradila předchozí: přijede z boku a
+   * jednou zazáří okraj - jinak by to vypadalo, že se jen přepsal text té
+   * staré. `backwards`, ne `both`: po doběhnutí se vrátí vlastní stín hlášky.
+   */
+  @keyframes mw-toast-swap {
+    0% {
+      opacity: 0;
+      transform: translateX(28px) scale(0.96);
+      box-shadow: 0 0 0 0 color-mix(in oklab, var(--progress) 75%, transparent);
+    }
+    45% {
+      opacity: 1;
+      transform: none;
+    }
+    to {
+      opacity: 1;
+      transform: none;
+      box-shadow: 0 0 0 9px color-mix(in oklab, var(--progress) 0%, transparent);
+    }
+  }
+
+  .mw-toast-swap {
+    animation: mw-toast-swap 0.55s ease-out backwards;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .animate-in-up,
     .mw-shine,
     .mw-pop,
     .mw-rise,
     .mw-flash,
-    .mw-fab-in {
+    .mw-fab-in,
+    .mw-toast-swap {
       animation: none;
     }
 

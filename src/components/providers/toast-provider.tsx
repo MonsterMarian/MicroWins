@@ -16,10 +16,18 @@ interface Toast {
    * u akce, která proběhla bez ptaní, takže hláška s ním zůstane déle.
    */
   action?: { label: string; onClick: () => void };
+  /** Nahradila předchozí hlášku s „Vrátit“ - jiná animace, ať je vidět, že je nová. */
+  replaced?: boolean;
 }
 
+/**
+ * Hláška s tímhle tlačítkem smaže předchozí se stejným tlačítkem: dvě
+ * „Vrátit“ pod sebou matou, které co vrací - platí to poslední.
+ */
+const UNDO_LABEL = "Vrátit";
+
 interface ToastApi {
-  toast: (t: Omit<Toast, "id">) => void;
+  toast: (t: Omit<Toast, "id" | "replaced">) => void;
 }
 
 const ToastContext = React.createContext<ToastApi | null>(null);
@@ -41,9 +49,13 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const toast = React.useCallback(
-    (t: Omit<Toast, "id">) => {
+    (t: Omit<Toast, "id" | "replaced">) => {
       const id = nextId.current++;
-      setToasts((prev) => [...prev, { ...t, id }]);
+      setToasts((prev) => {
+        const undo = t.action?.label === UNDO_LABEL;
+        const kept = undo ? prev.filter((p) => p.action?.label !== UNDO_LABEL) : prev;
+        return [...kept, { ...t, id, replaced: kept.length < prev.length }];
+      });
       window.setTimeout(() => dismiss(id), t.action ? 7000 : t.tone === "win" ? 6000 : 4000);
     },
     [dismiss],
@@ -66,7 +78,8 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
             <div
               key={t.id}
               className={cn(
-                "animate-in-up pointer-events-auto flex w-full max-w-sm items-start gap-3 rounded-lg border p-3 shadow-lg",
+                t.replaced ? "mw-toast-swap" : "animate-in-up",
+                "pointer-events-auto flex w-full max-w-sm items-start gap-3 rounded-lg border p-3 shadow-lg",
                 t.tone === "win"
                   ? "border-win/40 bg-win-muted text-win-muted-foreground"
                   : "bg-card text-card-foreground",

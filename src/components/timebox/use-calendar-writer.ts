@@ -81,21 +81,28 @@ export function useCalendarWriter() {
         const run = await syncMirror(latest.current.store.state, todayISO(), syncAlways);
         if (run.pull.length > 0) {
           const { store: api, toast: say } = latest.current;
-          const removed = applyPulls(api.state, run.pull, api);
-          for (const block of removed.blocks) {
+          const { blocks, todos } = applyPulls(api.state, run.pull, api);
+          // Jedna hláška za celý běh: nová „Vrátit“ smaže předchozí, takže
+          // by se jinak dalo vrátit jen poslední z několika smazání naráz.
+          const names = [...blocks.map((b) => blockTitle(api.state, b)), ...todos.map((t) => t.text)];
+          if (names.length > 0) {
             say({
               tone: "info",
-              title: "Smazáno v Google kalendáři",
-              description: blockTitle(api.state, block),
-              action: { label: "Vrátit", onClick: () => latest.current.store.restoreBlock(block) },
-            });
-          }
-          for (const todo of removed.todos) {
-            say({
-              tone: "info",
-              title: "Hotovo podle Google kalendáře",
-              description: todo.text,
-              action: { label: "Vrátit", onClick: () => latest.current.store.toggleTodo(todo.id) },
+              title:
+                todos.length === 0
+                  ? "Smazáno v Google kalendáři"
+                  : blocks.length === 0
+                    ? "Hotovo podle Google kalendáře"
+                    : "Změněno v Google kalendáři",
+              description: names.join(", "),
+              action: {
+                label: "Vrátit",
+                onClick: () => {
+                  const { store } = latest.current;
+                  for (const block of blocks) store.restoreBlock(block);
+                  for (const todo of todos) store.toggleTodo(todo.id);
+                },
+              },
             });
           }
         }

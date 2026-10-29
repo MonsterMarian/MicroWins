@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { IconField } from "@/components/ui/icon-picker";
 import { Field, Input, Select } from "@/components/ui/input";
+import { SwitchPill } from "@/components/ui/switch-pill";
 import { useStore } from "@/components/providers/store-provider";
 import { hasOwnProgress } from "@/lib/project-actions";
 import { milestonesOfProject, taskById } from "@/lib/projects";
@@ -258,19 +259,7 @@ export function TaskDialog({
                   : "Procenta se začnou počítat jen z podúkolů. Čísla zůstanou schovaná, přepnout to jde v Nastavení úkolu."}
               </span>
             </span>
-            <span
-              className={cn(
-                "relative h-6 w-11 shrink-0 rounded-full transition-colors",
-                keepProgress ? "bg-progress" : "bg-muted-foreground/30",
-              )}
-            >
-              <span
-                className={cn(
-                  "absolute top-1 size-4 rounded-full bg-card shadow transition-[left] duration-200",
-                  keepProgress ? "left-6" : "left-1",
-                )}
-              />
-            </span>
+            <SwitchPill on={keepProgress} />
           </button>
         ) : null}
 

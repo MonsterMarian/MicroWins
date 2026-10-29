@@ -16,7 +16,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
 import { Field, Input, Select } from "@/components/ui/input";
 import { ProgressBar } from "@/components/ui/progress";
-import { EntityIcon } from "@/components/ui/icon-picker";
+import { EntityIcon } from "@/components/ui/icon-picker";
+import { SwitchPill } from "@/components/ui/switch-pill";
 import { useStore } from "@/components/providers/store-provider";
 import { tapFeedback } from "@/lib/native";
 import {
@@ -223,19 +224,7 @@ function NewTaskDialog({
                     : "Zůstane jen v atomizéru - do seznamu projektů ani do přehledů se nedostane."}
                 </span>
               </span>
-              <span
-                className={cn(
-                  "relative h-6 w-11 shrink-0 rounded-full transition-colors",
-                  listed ? "bg-progress" : "bg-muted-foreground/30",
-                )}
-              >
-                <span
-                  className={cn(
-                    "absolute top-1 size-4 rounded-full bg-card shadow transition-[left] duration-200",
-                    listed ? "left-6" : "left-1",
-                  )}
-                />
-              </span>
+              <SwitchPill on={listed} />
             </button>
           </>
         ) : null}

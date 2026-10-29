@@ -33,7 +33,8 @@ import {
   syncNow,
   type SyncStatus,
 } from "@/lib/sync-runtime";
-import { ProgressBar } from "@/components/ui/progress";
+import { ProgressBar } from "@/components/ui/progress";
+import { SwitchPill } from "@/components/ui/switch-pill";
 import { ACCENTS, ADDONS, TODO_TTL_CHOICES, type Accent } from "@/lib/prefs";
 import { timeboxRowCount } from "@/lib/timebox";
 import {
@@ -541,19 +542,7 @@ function AddonChoice() {
                 <span className="block text-sm font-medium">{addon.label}</span>
                 <span className="block text-xs text-muted-foreground">{addon.hint}</span>
               </span>
-              <span
-                className={cn(
-                  "relative h-6 w-11 shrink-0 rounded-full transition-colors",
-                  on ? "bg-progress" : "bg-muted-foreground/30",
-                )}
-              >
-                <span
-                  className={cn(
-                    "absolute top-1 size-4 rounded-full bg-card shadow transition-[left] duration-200",
-                    on ? "left-6" : "left-1",
-                  )}
-                />
-              </span>
+              <SwitchPill on={on} />
             </button>
           </div>
         );
@@ -779,19 +768,7 @@ function TodoExpirySection() {
               : "Nic nemizí, mažeš si sám."}
           </span>
         </span>
-        <span
-          className={cn(
-            "relative h-6 w-11 shrink-0 rounded-full transition-colors",
-            todoExpire ? "bg-progress" : "bg-muted-foreground/30",
-          )}
-        >
-          <span
-            className={cn(
-              "absolute top-1 size-4 rounded-full bg-card shadow transition-[left] duration-200",
-              todoExpire ? "left-6" : "left-1",
-            )}
-          />
-        </span>
+        <SwitchPill on={todoExpire} />
       </button>
 
       {todoExpire ? (
@@ -853,19 +830,7 @@ function TodoTimeboxLinkSection() {
               : "List dne je čistý - jen to, co si napíšeš sám."}
           </span>
         </span>
-        <span
-          className={cn(
-            "relative h-6 w-11 shrink-0 rounded-full transition-colors",
-            todoInTimebox ? "bg-progress" : "bg-muted-foreground/30",
-          )}
-        >
-          <span
-            className={cn(
-              "absolute top-1 size-4 rounded-full bg-card shadow transition-[left] duration-200",
-              todoInTimebox ? "left-6" : "left-1",
-            )}
-          />
-        </span>
+        <SwitchPill on={todoInTimebox} />
       </button>
     </Section>
   );

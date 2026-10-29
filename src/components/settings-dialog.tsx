@@ -49,6 +49,7 @@ import {
   type AiProvider,
 } from "@/lib/ai";
 import { DueRulesSection } from "./settings/due-rules-section";
+import { CalendarSection } from "./settings/calendar-section";
 import { formatDuration } from "@/lib/todos";
 import { logoImage } from "@/lib/logo-image";
 import {
@@ -144,6 +145,7 @@ export function SettingsDialog({
             </Section>
 
             <TimeboxHoursSection />
+            <CalendarSection />
             <AiKeySection />
             <TodoExpirySection />
             <TodoDueSection />

@@ -15,6 +15,7 @@ import { applyAccent } from "@/lib/prefs";
 import { applyPendingUpdate, checkForUpdate, markBootSucceeded } from "@/lib/live-update";
 import { hideSplash, isNative, registerBackButton, syncStatusBar } from "@/lib/native";
 import { closeTopLayer } from "@/components/ui/back-stack";
+import { useCalendarWriter } from "@/components/timebox/use-calendar-writer";
 import { streaks } from "@/lib/stats";
 import { cn, plural } from "@/lib/utils";
 import { logoImage } from "@/lib/logo-image";
@@ -109,6 +110,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [native, setNative] = React.useState(false);
 
   useNativeShell();
+  useCalendarWriter();
   useTrackNavigation();
   /*
    * Přejíždění mezi sekcemi platí jen na těch třech - v detailu projektu nebo

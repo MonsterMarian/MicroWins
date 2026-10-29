@@ -1,11 +1,22 @@
 "use client";
 
 import * as React from "react";
-import { ArrowDown, ArrowUp, Check, Link2, Plus } from "lucide-react";
+import { ArrowDown, ArrowUp, CalendarDays, Check, Link2, Plus } from "lucide-react";
+import type { CalendarEvent } from "@ebarooni/capacitor-calendar";
 import { Card } from "@/components/ui/card";
 import { useStore } from "@/components/providers/store-provider";
 import { usePrefs } from "@/components/providers/use-prefs";
 import { useToast } from "@/components/providers/toast-provider";
+import {
+  dayEvents,
+  getCalendarSettings,
+  getDefaultCalendarSettings,
+  onCalendarChange,
+  readEvents,
+  subscribeCalendarSettings,
+  syncPhoneCalendars,
+  type DayEvent,
+} from "@/lib/calendar";
 import { tapFeedback, winFeedback } from "@/lib/native";
 import { blockTitle, formatMinutes, TIMEBLOCK_MAX_TITLE } from "@/lib/timeblocks";
 import {
@@ -17,6 +28,7 @@ import {
   timeboxRows,
   timeboxSlots,
   type SheetSlot,
+  type TimeboxRow,
 } from "@/lib/timebox";
 import type { ISODate, TimeBlock } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -91,6 +103,9 @@ export function TimeboxGrid({
     return map;
   }, [state.timeBlocks, rows]);
 
+  const eventsByDate = usePhoneEvents(rows);
+  const allDay = (eventsByDate.get(date) ?? []).filter((e) => e.allDay);
+
   const dragging = drag.ghost !== null;
 
   const isEditing = (slot: SheetSlot) =>
@@ -103,6 +118,7 @@ export function TimeboxGrid({
         date={slot.date}
         start={slot.start}
         blocks={blocksByDate.get(slot.date) ?? []}
+        events={eventsByDate.get(slot.date) ?? []}
         editing={isEditing(slot) ? editing : null}
         onEdit={setEditing}
         onOpenBlock={onOpenBlock}
@@ -135,6 +151,12 @@ export function TimeboxGrid({
 
   return (
     <section ref={container} className={cn("flex flex-col gap-1.5", className)}>
+      {allDay.length > 0 ? (
+        <p className="flex items-start gap-1 px-1 text-[11px] leading-4 text-muted-foreground">
+          <CalendarDays className="mt-0.5 size-3 shrink-0" aria-hidden />
+          <span>Celý den: {allDay.map((e) => e.title).join(" · ")}</span>
+        </p>
+      ) : null}
       <div className="tabular grid grid-cols-[2.1rem_minmax(0,1fr)_minmax(0,1fr)] px-0.5 text-[11px] text-muted-foreground">
         <span />
         <span className="pl-1.5">:00</span>
@@ -165,6 +187,62 @@ export function TimeboxGrid({
       {nowPill}
     </section>
   );
+}
+
+/**
+ * Události z kalendářů telefonu po dnech mřížky - jen když je čtení zapnuté
+ * v Nastavení. Při otevření a návratu do appky si řekne o novinky z Googlu;
+ * co synchronizace přinese, ukáže hned, jak to dorazí do telefonu.
+ */
+function usePhoneEvents(rows: TimeboxRow[]): Map<ISODate, DayEvent[]> {
+  const settings = React.useSyncExternalStore(
+    subscribeCalendarSettings,
+    getCalendarSettings,
+    getDefaultCalendarSettings,
+  );
+  const [events, setEvents] = React.useState<CalendarEvent[]>([]);
+  const from = rows[0]?.date;
+  const to = rows[rows.length - 1]?.date;
+
+  React.useEffect(() => {
+    if (!settings.read || !from || !to) {
+      setEvents([]);
+      return;
+    }
+    let alive = true;
+    let timer: number | undefined;
+    const load = () =>
+      void readEvents(from, to).then((list) => {
+        if (alive) setEvents(list);
+      });
+    // Synchronizace mění kalendář po řádcích - načte se až po chvilce klidu.
+    const stopWatching = onCalendarChange(() => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(load, 500);
+    });
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      load();
+      void syncPhoneCalendars();
+    };
+    load();
+    void syncPhoneCalendars();
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+      stopWatching();
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [settings, from, to]);
+
+  return React.useMemo(() => {
+    const map = new Map<ISODate, DayEvent[]>();
+    for (const row of rows) {
+      if (!map.has(row.date)) map.set(row.date, dayEvents(events, row.date));
+    }
+    return map;
+  }, [events, rows]);
 }
 
 function isNowSlot(slot: SheetSlot, today: ISODate, now: number): boolean {
@@ -226,6 +304,7 @@ function Slot({
   date,
   start,
   blocks,
+  events,
   editing,
   onEdit,
   onOpenBlock,
@@ -237,6 +316,8 @@ function Slot({
   date: ISODate;
   start: number;
   blocks: TimeBlock[];
+  /** Události z kalendáře telefonu - jen se ukazují, do políčka se dál dá psát. */
+  events: DayEvent[];
   editing: Editing | null;
   onEdit: (editing: Editing | null) => void;
   onOpenBlock: (id: string) => void;
@@ -249,6 +330,9 @@ function Slot({
     useStore();
   const { toast } = useToast();
   const content = slotContent(blocks, start);
+  const timed = events.filter((e) => !e.allDay);
+  const ownEvents = timed.filter((e) => e.start >= start && e.start < start + SHEET_SLOT);
+  const runningEvent = timed.some((e) => e.start < start && e.start + e.duration > start);
   const isTarget =
     drag.target?.kind === "slot" && drag.target.date === date && drag.target.start === start;
 
@@ -314,10 +398,13 @@ function Slot({
     >
       {/* Dvě věci v jedné půlhodině stojí vedle sebe, ne pod sebou - dějí se
           naráz. Pod sebou vypadaly jako seznam kroků za sebou. */}
-      {content.blocks.length > 0 || writing ? (
+      {content.blocks.length > 0 || ownEvents.length > 0 || writing ? (
         /* Zalamuje se: dvě věci se vejdou vedle sebe, třetí si vezme řádek pod
            nimi. Bez toho se sloupce zmáčkly na pár písmen na řádek. */
         <div className="flex min-w-0 flex-wrap items-stretch gap-px">
+          {ownEvents.map((event) => (
+            <EventLine key={event.id} event={event} offset={event.start !== start} />
+          ))}
           {content.blocks.map((block) =>
             editing?.blockId === block.id ? (
               <SlotInput
@@ -357,16 +444,19 @@ function Slot({
         </div>
       ) : null}
 
-      {writing ? null : content.blocks.length === 0 ? (
+      {writing ? null : content.blocks.length === 0 && ownEvents.length === 0 ? (
         <button
           type="button"
           onClick={() => onEdit({ date, start, blockId: null })}
           aria-label={`Naplánovat na ${formatMinutes(start)}`}
-          className="flex h-6 w-full items-center rounded-[4px] text-left hover:bg-accent/60"
+          className="flex h-6 w-full items-center gap-0.5 rounded-[4px] text-left hover:bg-accent/60"
         >
           {/* Delší blok tu jen pokračuje - popsaný je ve svém prvním políčku. */}
           {content.running ? (
             <span className="ml-0.5 h-3.5 w-0.5 rounded-full bg-progress/50" aria-hidden />
+          ) : null}
+          {runningEvent ? (
+            <span className="ml-0.5 h-3.5 w-0.5 rounded-full bg-muted-foreground/40" aria-hidden />
           ) : null}
         </button>
       ) : (
@@ -453,6 +543,22 @@ function BlockLine({
         {linked ? <Link2 className="mr-0.5 inline size-2.5 text-muted-foreground" /> : null}
         {label}
       </button>
+    </span>
+  );
+}
+
+/** Událost z kalendáře telefonu - ztlumená, bez zaškrtávátka, nedá se tahat. */
+function EventLine({ event, offset }: { event: DayEvent; offset: boolean }) {
+  return (
+    <span
+      title={event.title}
+      className="flex min-w-[4.5rem] flex-[1_1_4.5rem] items-start gap-1 text-[11px] leading-4 text-muted-foreground"
+    >
+      <CalendarDays className="mt-0.5 size-3.5 shrink-0" aria-label="Z kalendáře" />
+      <span className="min-w-0 flex-1 break-words">
+        {offset ? <span className="tabular mr-1">{formatMinutes(event.start)}</span> : null}
+        {event.title}
+      </span>
     </span>
   );
 }

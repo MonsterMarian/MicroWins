@@ -137,8 +137,9 @@ export function CalendarSection() {
       <p className="px-1 text-xs text-muted-foreground">
         Platí jen pro tenhle telefon. Bloky od včerejška dál a ToDo s termínem a hodinou se
         zrcadlí do vybraného kalendáře oběma směry: přejmenování, posun i smazání v Googlu se
-        propíše sem, ✓ na začátku názvu odškrtne. Nejlíp si na to v Google kalendáři založ
-        vlastní, třeba MicroWins. Po přepnutí jinam se zrcadlo ze starého kalendáře smaže.
+        propíše sem, ✓ na začátku názvu odškrtne. Změníš-li totéž tady i v Googlu, zůstane
+        verze z appky a appka nabídne vzít tu z Googlu. Nejlíp si na to v Google kalendáři
+        založ vlastní, třeba MicroWins. Po přepnutí jinam se zrcadlo ze starého kalendáře smaže.
       </p>
     </section>
   );

@@ -258,50 +258,136 @@ export interface MirrorPull {
   endDate?: number;
 }
 
+/**
+ * Tatáž věc změněná v appce i v kalendáři na různé hodnoty. Zůstane verze
+ * z appky (v ní žijí data, kalendář je zrcadlo), ale appka to ohlásí a
+ * `useGoogle` nabídne vzít verzi z kalendáře - nic se neztratí potichu.
+ */
+export interface MirrorConflict {
+  key: string;
+  kind: "block" | "todo";
+  /** `deleted` = v kalendáři smazané, v appce mezitím změněné. */
+  field: "title" | "time" | "deleted";
+  app: Fields;
+  google: Fields | null;
+  useGoogle: MirrorPull;
+}
+
 export interface MirrorPlan {
   create: MirrorItem[];
   update: (MirrorItem & { id: string })[];
   remove: string[];
   pull: MirrorPull[];
+  conflicts: MirrorConflict[];
   /** Základ pro příští běh - bez událostí, které se teprve založí (ty doplní zápis). */
   base: Record<string, MirrorBase>;
 }
 
-type Shape = Pick<MirrorBase, "title" | "startDate" | "endDate">;
-
-function same(a: Shape, b: Shape): boolean {
-  return a.title === b.title && a.startDate === b.startDate && a.endDate === b.endDate;
+/** Tři nezávislá políčka události: název, odškrtnutí, čas. */
+interface Fields {
+  title: string;
+  done: boolean;
+  startDate: number;
+  endDate: number;
 }
 
-/** Co se v kalendáři změnilo oproti základu. Prázdný název se nepřebírá. */
-function pullOf(item: MirrorItem, event: MirrorEvent, was: MirrorBase): MirrorPull | null {
-  const pull: MirrorPull = { key: item.key, kind: item.kind };
-  const now = parseEventTitle(event.title);
-  const before = parseEventTitle(was.title);
-  if (now.title !== "" && now.title !== before.title) pull.title = now.title;
-  if (now.done !== before.done) pull.done = now.done;
-  // Celodenní či opakovaná událost čas bloku nemá jak nést - vrátí se zpátky.
-  const timed = !event.allDay && !event.recurring && event.endDate > event.startDate;
-  if (timed && (event.startDate !== was.startDate || event.endDate !== was.endDate)) {
-    pull.startDate = event.startDate;
-    pull.endDate = event.endDate;
+function fieldsOf(shape: Pick<MirrorBase, "title" | "startDate" | "endDate">): Fields {
+  return { ...parseEventTitle(shape.title), startDate: shape.startDate, endDate: shape.endDate };
+}
+
+const sameTime = (a: Fields, b: Fields) => a.startDate === b.startDate && a.endDate === b.endDate;
+const fieldsEqual = (a: Fields, b: Fields) => a.title === b.title && a.done === b.done && sameTime(a, b);
+
+function when(f: Fields): string {
+  const d = new Date(f.startDate);
+  return `${d.getDate()}. ${d.getMonth() + 1}. ${hhmm(d)}–${hhmm(new Date(f.endDate))}`;
+}
+
+/** Hláška ke konfliktu: co zůstalo, co bylo v Googlu a čím vzít verzi z Googlu. */
+export function describeConflict(c: MirrorConflict): { title: string; description: string; action: string } {
+  const google = c.google ?? c.app;
+  switch (c.field) {
+    case "deleted":
+      return {
+        title: "V Googlu smazané, v appce mezitím změněné",
+        description: `„${c.app.title}“ zůstává`,
+        action: c.kind === "todo" ? "Odškrtnout" : "Smazat",
+      };
+    case "title":
+      return {
+        title: "Název změněný v appce i v Googlu",
+        description: `Zůstává „${c.app.title}“, v Googlu „${google.title}“`,
+        action: "Vzít z Googlu",
+      };
+    case "time":
+      return {
+        title: "Čas změněný v appce i v Googlu",
+        description: `„${c.app.title}“ zůstává ${when(c.app)}, v Googlu ${when(google)}`,
+        action: "Vzít z Googlu",
+      };
   }
-  return Object.keys(pull).length > 2 ? pull : null;
+}
+
+/**
+ * Sloučí appku a kalendář po políčkách proti základu (tříbodové slučování).
+ * Políčko změněné jen na jedné straně platí; změněné na obou na různé
+ * hodnoty je konflikt a zůstane appka. Co kalendář nést neumí (prázdný název,
+ * čas celodenní či opakované události), bere se jako nezměněné.
+ */
+function mergeFields(
+  item: MirrorItem,
+  event: MirrorEvent,
+  was: MirrorBase,
+): { merged: Fields; pull: MirrorPull | null; conflicts: MirrorConflict[] } {
+  const app: Fields = { title: item.title, done: item.done, startDate: item.startDate, endDate: item.endDate };
+  const base = fieldsOf(was);
+  const raw = fieldsOf(event);
+  const timed = !event.allDay && !event.recurring && raw.endDate > raw.startDate;
+  const google: Fields = {
+    title: raw.title === "" ? base.title : raw.title,
+    done: raw.done,
+    ...(timed ? { startDate: raw.startDate, endDate: raw.endDate } : { startDate: base.startDate, endDate: base.endDate }),
+  };
+
+  const merged: Fields = { ...app };
+  const pull: MirrorPull = { key: item.key, kind: item.kind };
+  const conflicts: MirrorConflict[] = [];
+  const conflict = (field: MirrorConflict["field"], useGoogle: Partial<MirrorPull>) =>
+    conflicts.push({ key: item.key, kind: item.kind, field, app, google, useGoogle: { key: item.key, kind: item.kind, ...useGoogle } });
+
+  if (google.title !== base.title && google.title !== app.title) {
+    if (app.title === base.title) merged.title = pull.title = google.title;
+    else conflict("title", { title: google.title });
+  }
+  // Odškrtnutí je ano/ne: změnily-li ho obě strany, změnily ho stejně, takže
+  // konflikt tu nevznikne - jen se převezme, co změnil kalendář.
+  if (google.done !== base.done && google.done !== app.done) merged.done = pull.done = google.done;
+  if (!sameTime(google, base) && !sameTime(google, app)) {
+    if (sameTime(app, base)) {
+      merged.startDate = pull.startDate = google.startDate;
+      merged.endDate = pull.endDate = google.endDate;
+    } else {
+      conflict("time", { startDate: google.startDate, endDate: google.endDate });
+    }
+  }
+  return { merged, pull: Object.keys(pull).length > 2 ? pull : null, conflicts };
 }
 
 /**
  * Co udělat, aby kalendář a appka odpovídaly jedno druhému.
  *
  * Tři strany: co chce appka (`items`), co je v kalendáři (`events`) a jak to
- * vypadalo po posledním běhu (`base`). Změnil se jen kalendář → appka to
- * převezme (`pull`); změnila se appka nebo obojí → vyhrává appka a událost se
- * přepíše. Bez základu (první běh, nový telefon) vyhrává appka - nic se
- * nepřebírá naslepo.
+ * vypadalo po posledním běhu (`base`). Slučuje se po políčkách (`mergeFields`):
+ * co se změnilo jen v kalendáři, převezme appka (`pull`); co jen v appce,
+ * přepíše se do kalendáře; změna na obou stranách na různé hodnoty je
+ * konflikt (`conflicts`) - zůstane appka a appka ho ohlásí. Bez základu
+ * (první běh, nový telefon) vyhrává appka - nic se nepřebírá naslepo.
  *
  * Událost, která zmizela, ač ji základ zná, je smazaná v kalendáři → appka
- * smaže blok, ToDo odškrtne. Zmizí-li ale skoro všechno naráz, je to spíš
- * odpojený či vyprázdněný kalendář než mazání - pak se nic nemaže a události
- * se založí znovu.
+ * smaže blok, ToDo odškrtne. Byla-li ale věc v appce mezitím změněná, úprava
+ * je novější informace než smazání: zůstane a ohlásí se jako konflikt. Zmizí-li
+ * skoro všechno naráz, je to spíš odpojený či vyprázdněný kalendář než
+ * mazání - pak se nic nemaže a události se založí znovu.
  *
  * Události bez protějšku v `items` se mažou, kromě historie: bloků a ToDo
  * starších dnů (`history.pastKeys`) a starých událostí, které už základ nezná.
@@ -313,7 +399,7 @@ export function planMirror(
   base: Record<string, MirrorBase>,
   history: { from: number; pastKeys: Set<string> },
 ): MirrorPlan {
-  const plan: MirrorPlan = { create: [], update: [], remove: [], pull: [], base: {} };
+  const plan: MirrorPlan = { create: [], update: [], remove: [], pull: [], conflicts: [], base: {} };
   const byKey = new Map<string, MirrorEvent[]>();
   // Nejstarší událost za klíč je ta pravá, další jsou duplikáty.
   for (const e of [...events].sort((a, b) => Number(a.id) - Number(b.id))) {
@@ -326,25 +412,38 @@ export function planMirror(
     byKey.delete(item.key);
     plan.remove.push(...extra.map((e) => e.id));
     const was = base[item.key];
-    const want: Shape = { title: eventTitle(item), startDate: item.startDate, endDate: item.endDate };
 
     if (!event) {
-      if (was) gone.push(item);
-      else plan.create.push(item);
+      if (!was) plan.create.push(item);
+      else if (fieldsEqual(fieldsOf(was), item)) gone.push(item);
+      else {
+        // Smazané v kalendáři, ale v appce mezitím změněné: zůstane.
+        plan.create.push(item);
+        plan.conflicts.push({
+          key: item.key,
+          kind: item.kind,
+          field: "deleted",
+          app: { title: item.title, done: item.done, startDate: item.startDate, endDate: item.endDate },
+          google: null,
+          useGoogle: { key: item.key, kind: item.kind, deleted: true },
+        });
+      }
       continue;
     }
-    const remoteChanged = was !== undefined && !same(event, was);
-    const appChanged = was === undefined || !same(want, was);
-    if (remoteChanged && !appChanged) {
-      const pull = pullOf(item, event, was);
-      if (pull) plan.pull.push(pull);
-      // Základ = kalendář: co appka převzít neumí (celodenní, prázdný název),
-      // příští běh pozná jako rozdíl appky a vrátí zpátky.
-      plan.base[item.key] = { eventId: event.id, title: event.title, startDate: event.startDate, endDate: event.endDate };
-      continue;
-    }
-    if (!same(want, event) || event.allDay) plan.update.push({ ...item, id: event.id });
-    plan.base[item.key] = { eventId: event.id, ...want };
+
+    // Bez základu nic nepřebírat - kalendář se srovná podle appky.
+    const { merged, pull, conflicts } = was
+      ? mergeFields(item, event, was)
+      : { merged: { title: item.title, done: item.done, startDate: item.startDate, endDate: item.endDate }, pull: null, conflicts: [] };
+    if (pull) plan.pull.push(pull);
+    plan.conflicts.push(...conflicts);
+    const target = { ...item, ...merged };
+    const shape = { title: eventTitle(target), startDate: target.startDate, endDate: target.endDate };
+    const differs =
+      shape.title !== event.title || shape.startDate !== event.startDate || shape.endDate !== event.endDate;
+    // Celodenní událost se vrací na čas, i když časy náhodou sedí.
+    if (differs || event.allDay) plan.update.push({ ...target, id: event.id });
+    plan.base[item.key] = { eventId: event.id, ...shape };
   }
 
   const known = Object.keys(base).length;
@@ -627,6 +726,8 @@ async function mirrorEvents(calendarId: string): Promise<{ ok: boolean; events: 
 export interface MirrorRun {
   /** Změny z kalendáře, které má appka převzít (`applyPulls`). */
   pull: MirrorPull[];
+  /** Konflikty k ohlášení - zůstala appka, verzi z Googlu jde vzít ručně. */
+  conflicts: MirrorConflict[];
   /** Uloží základ - až po převzetí, ať se při pádu mezi tím převezme znovu. */
   commit: () => void;
 }
@@ -641,7 +742,7 @@ export async function syncMirror(
   today: ISODate,
   syncAlways = false,
 ): Promise<MirrorRun> {
-  const idle: MirrorRun = { pull: [], commit: () => {} };
+  const idle: MirrorRun = { pull: [], conflicts: [], commit: () => {} };
   const { writeTo } = getCalendarSettings();
   if (!calendarAvailable() || !writeTo) return idle;
   const { ok, events } = await mirrorEvents(writeTo);
@@ -691,7 +792,7 @@ export async function syncMirror(
   } else if (wrote) {
     await CalendarSync.requestSync({ upload: true });
   }
-  return { pull: plan.pull, commit: () => saveBase(writeTo, next) };
+  return { pull: plan.pull, conflicts: plan.conflicts, commit: () => saveBase(writeTo, next) };
 }
 
 /**

@@ -6,6 +6,7 @@ import { usePrefs } from "@/components/providers/use-prefs";
 import { useToast } from "@/components/providers/toast-provider";
 import {
   applyPulls,
+  describeConflict,
   getCalendarSettings,
   getDefaultCalendarSettings,
   onCalendarChange,
@@ -22,6 +23,8 @@ let queue: Promise<void> = Promise.resolve();
  * Drží vybraný kalendář telefonu a time box v souladu, oběma směry
  * (`syncMirror` + `applyPulls`): po změně bloků či ToDo, po změně kalendáře
  * v telefonu (synchronizace přinesla úpravu z Googlu) a po návratu do appky.
+ * Konflikty (tatáž věc změněná na obou stranách) ohlásí s nabídkou vzít
+ * verzi z Googlu.
  *
  * Neběží, dokud se stav nenačetl (prázdný stav by zrcadlo smazal) a s
  * vypnutým Time boxem - jeho nastavení je pak schované a zápis by nešel vypnout.
@@ -68,6 +71,22 @@ export function useCalendarWriter() {
               action: { label: "Vrátit", onClick: () => latest.current.store.toggleTodo(todo.id) },
             });
           }
+        }
+        // Konflikt: zůstala appka - verzi z Googlu jde vzít jedním ťuknutím.
+        for (const conflict of run.conflicts) {
+          const text = describeConflict(conflict);
+          latest.current.toast({
+            tone: "warn",
+            title: text.title,
+            description: text.description,
+            action: {
+              label: text.action,
+              onClick: () => {
+                const { store: api } = latest.current;
+                applyPulls(api.state, [conflict.useGoogle], api);
+              },
+            },
+          });
         }
         run.commit();
       })

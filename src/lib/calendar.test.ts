@@ -4,6 +4,7 @@ import {
   applyPulls,
   dayEvents,
   dayStartMs,
+  describeConflict,
   eventTitle,
   markerOf,
   mirrorDescription,
@@ -185,7 +186,7 @@ describe("planMirror", () => {
     expect(plan.pull).toEqual([{ key: "b1", kind: "block", done: false }]);
   });
 
-  it("změna na obou stranách: vyhrává appka", () => {
+  it("tentýž název změněný na obou stranách: zůstane appka a hlásí se konflikt", () => {
     const plan = planMirror(
       [item({ title: "Appka" })],
       [ev("1", { title: "Google" })],
@@ -193,8 +194,57 @@ describe("planMirror", () => {
       H,
     );
     expect(plan.pull).toEqual([]);
-    expect(plan.update).toHaveLength(1);
+    expect(plan.update).toEqual([{ ...item({ title: "Appka" }), id: "1" }]);
     expect(plan.base.b1.title).toBe("Appka");
+    expect(plan.conflicts).toHaveLength(1);
+    expect(plan.conflicts[0]).toMatchObject({
+      field: "title",
+      app: { title: "Appka" },
+      google: { title: "Google" },
+      useGoogle: { key: "b1", kind: "block", title: "Google" },
+    });
+  });
+
+  it("čas posunutý na obou stranách jinam: zůstane appka, konflikt nabídne čas z Googlu", () => {
+    const plan = planMirror(
+      [item({ startDate: 150 * MIN, endDate: 250 * MIN })],
+      [ev("1", { startDate: 300 * MIN, endDate: 400 * MIN })],
+      base("1"),
+      H,
+    );
+    expect(plan.update[0]).toMatchObject({ startDate: 150 * MIN, endDate: 250 * MIN });
+    expect(plan.conflicts.map((c) => [c.field, c.useGoogle.startDate])).toEqual([["time", 300 * MIN]]);
+  });
+
+  it("různá políčka změněná na každé straně se sloučí bez konfliktu", () => {
+    // V appce přejmenováno, v Googlu posunuto a odškrtnuto.
+    const plan = planMirror(
+      [item({ title: "Appka" })],
+      [ev("1", { title: "✓ Psaní", startDate: 300 * MIN, endDate: 400 * MIN })],
+      base("1"),
+      H,
+    );
+    expect(plan.conflicts).toEqual([]);
+    expect(plan.pull).toEqual([{ key: "b1", kind: "block", done: true, startDate: 300 * MIN, endDate: 400 * MIN }]);
+    expect(plan.update).toEqual([
+      { ...item({ title: "Appka", done: true, startDate: 300 * MIN, endDate: 400 * MIN }), id: "1" },
+    ]);
+    expect(plan.base.b1).toEqual({ eventId: "1", title: "✓ Appka", startDate: 300 * MIN, endDate: 400 * MIN });
+  });
+
+  it("stejná změna na obou stranách není konflikt ani práce navíc", () => {
+    const plan = planMirror([item({ title: "Nové", done: true })], [ev("1", { title: "✓ Nové" })], base("1"), H);
+    expect(plan).toMatchObject({ create: [], update: [], remove: [], pull: [], conflicts: [] });
+    expect(plan.base.b1.title).toBe("✓ Nové");
+  });
+
+  it("smazané v Googlu, ale v appce mezitím změněné: zůstane a hlásí se", () => {
+    const plan = planMirror([item({ title: "Přejmenováno" })], [], base("1"), H);
+    expect(plan.pull).toEqual([]);
+    expect(plan.create).toEqual([item({ title: "Přejmenováno" })]);
+    expect(plan.conflicts).toMatchObject([
+      { field: "deleted", google: null, useGoogle: { key: "b1", kind: "block", deleted: true } },
+    ]);
   });
 
   it("bez základu (první běh) nic nepřebírá a kalendář srovná podle appky", () => {
@@ -264,6 +314,30 @@ describe("planMirror", () => {
     );
     // 11 duplikát, 12 smazaný blok, 15 položka, která v appce už není a základ ji zná
     expect(plan.remove.sort()).toEqual(["11", "12", "15"]);
+  });
+});
+
+describe("describeConflict", () => {
+  const app = { title: "Psaní", done: false, startDate: dayStartMs(DAY) + 9 * 60 * MIN, endDate: dayStartMs(DAY) + 10 * 60 * MIN };
+
+  it("název, čas i smazání řekne česky s nabídkou verze z Googlu", () => {
+    expect(
+      describeConflict({ key: "b1", kind: "block", field: "title", app, google: { ...app, title: "Kniha" }, useGoogle: { key: "b1", kind: "block" } }),
+    ).toEqual({ title: "Název změněný v appce i v Googlu", description: "Zůstává „Psaní“, v Googlu „Kniha“", action: "Vzít z Googlu" });
+
+    const later = { ...app, startDate: app.startDate + 60 * MIN, endDate: app.endDate + 90 * MIN };
+    expect(
+      describeConflict({ key: "b1", kind: "block", field: "time", app, google: later, useGoogle: { key: "b1", kind: "block" } })
+        .description,
+    ).toBe("„Psaní“ zůstává 29. 10. 09:00–10:00, v Googlu 29. 10. 10:00–11:30");
+
+    expect(
+      describeConflict({ key: "b1", kind: "block", field: "deleted", app, google: null, useGoogle: { key: "b1", kind: "block" } }),
+    ).toMatchObject({ description: "„Psaní“ zůstává", action: "Smazat" });
+    expect(
+      describeConflict({ key: "t1", kind: "todo", field: "deleted", app, google: null, useGoogle: { key: "t1", kind: "todo" } })
+        .action,
+    ).toBe("Odškrtnout");
   });
 });
 

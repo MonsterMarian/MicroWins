@@ -92,7 +92,7 @@ export interface StoreApi {
   addBlock: (input: blockActions.BlockInput) => TimeBlock;
   updateBlock: (
     id: string,
-    patch: { title?: string; start?: number; duration?: number; date?: ISODate },
+    patch: { title?: string; start?: number; duration?: number; date?: ISODate; exact?: boolean },
   ) => void;
   /** Posun v rámci dne - z tahu prstem, proto zvlášť a bez ostatních polí. */
   moveBlock: (id: string, start: number) => void;

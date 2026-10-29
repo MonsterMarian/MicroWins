@@ -154,7 +154,7 @@ export function mirrorDescription(key: string): string {
   return `Z MicroWins - ✓ na začátku názvu = hotovo, smazání smaže i v appce.\n${MARKER}${key}`;
 }
 
-/** Blok, nebo termín ToDo s hodinou, tak jak má v kalendáři stát. */
+/** Blok, nebo termín ToDo, tak jak má v kalendáři stát. */
 export interface MirrorItem {
   /** Id bloku či položky ToDo - totéž, co nese značka v popisu. */
   key: string;
@@ -162,8 +162,27 @@ export interface MirrorItem {
   /** Název bez ✓. */
   title: string;
   done: boolean;
+  /**
+   * Celodenní = termín ToDo bez hodiny. Časy jsou pak jako v Androidu:
+   * půlnoc UTC daného dne až půlnoc UTC dalšího.
+   */
+  allDay: boolean;
   startDate: number;
   endDate: number;
+}
+
+const DAY_MS = 24 * 60 * 60_000;
+
+/** Celodenní rozsah dne tak, jak ho Android ukládá (UTC půlnoc, konec výlučně). */
+function allDaySpan(date: ISODate) {
+  const [y, m, d] = date.split("-").map(Number);
+  const start = Date.UTC(y, m - 1, d);
+  return { startDate: start, endDate: start + DAY_MS };
+}
+
+/** Den celodenní události z jejího začátku (UTC půlnoc). */
+function allDayDate(startDate: number): ISODate {
+  return new Date(startDate).toISOString().slice(0, 10);
 }
 
 const DONE_RE = /^[✓✔☑✅]\s*/u;
@@ -194,9 +213,10 @@ export function mirrorFrom(today: ISODate): ISODate {
 }
 
 /**
- * Co má v kalendáři stát: bloky od `from` a otevřené ToDo s termínem a
- * hodinou, které ještě nejsou v mřížce (stopy z `pinsOfDay`). Naplánované
- * ToDo zastupuje jeho blok, odškrtnuté z kalendáře mizí.
+ * Co má v kalendáři stát: bloky od `from` a otevřené ToDo s termínem, které
+ * ještě nejsou v mřížce - s hodinou jako půlhodina (stopy z `pinsOfDay`), bez
+ * hodiny jako celodenní událost. Naplánované ToDo zastupuje jeho blok,
+ * odškrtnuté z kalendáře mizí.
  */
 export function mirrorItems(state: MicroWinsState, from: ISODate): MirrorItem[] {
   const blocks: MirrorItem[] = state.timeBlocks
@@ -206,23 +226,34 @@ export function mirrorItems(state: MicroWinsState, from: ISODate): MirrorItem[] 
       kind: "block" as const,
       title: blockTitle(state, b) || "Blok",
       done: b.doneAt !== null,
+      allDay: false,
       ...span(b.date, b.start, b.duration),
     }));
-  const dates = new Set(
-    state.todos
-      .filter((t) => t.doneAt === null && t.dueTime !== null && t.dueDate !== null && t.dueDate >= from)
-      .map((t) => t.dueDate as ISODate),
-  );
-  const todos: MirrorItem[] = [...dates].flatMap((date) =>
-    pinsOfDay(state, date).map(({ todo, start, duration }) => ({
-      key: todo.id,
+  const open = state.todos.filter((t) => t.doneAt === null && t.dueDate !== null && t.dueDate >= from);
+  const timed: MirrorItem[] = [...new Set(open.filter((t) => t.dueTime !== null).map((t) => t.dueDate as ISODate))]
+    .flatMap((date) =>
+      pinsOfDay(state, date).map(({ todo, start, duration }) => ({
+        key: todo.id,
+        kind: "todo" as const,
+        title: todo.text,
+        done: false,
+        allDay: false,
+        ...span(date, start, duration),
+      })),
+    );
+  // Stejně jako stopy: ToDo naplánované do mřížky toho dne zastupuje blok.
+  const planned = new Set(state.timeBlocks.map((b) => `${b.todoId}|${b.date}`));
+  const allDay: MirrorItem[] = open
+    .filter((t) => t.dueTime === null && !planned.has(`${t.id}|${t.dueDate}`))
+    .map((t) => ({
+      key: t.id,
       kind: "todo" as const,
-      title: todo.text,
+      title: t.text,
       done: false,
-      ...span(date, start, duration),
-    })),
-  );
-  return [...blocks, ...todos];
+      allDay: true,
+      ...allDaySpan(t.dueDate as ISODate),
+    }));
+  return [...blocks, ...timed, ...allDay];
 }
 
 // --- zrcadlo: plán oběma směry ----------------------------------------------
@@ -244,6 +275,8 @@ export interface MirrorBase {
   title: string;
   startDate: number;
   endDate: number;
+  /** Chybí u základů z doby před celodenními ToDo = nebyla celodenní. */
+  allDay?: boolean;
 }
 
 /** Změna z kalendáře, kterou má převzít appka. */
@@ -256,6 +289,8 @@ export interface MirrorPull {
   done?: boolean;
   startDate?: number;
   endDate?: number;
+  /** S časem: celodenní = termín ToDo bez hodiny. */
+  allDay?: boolean;
 }
 
 /**
@@ -283,22 +318,37 @@ export interface MirrorPlan {
   base: Record<string, MirrorBase>;
 }
 
-/** Tři nezávislá políčka události: název, odškrtnutí, čas. */
-interface Fields {
+/** Tři nezávislá políčka události: název, odškrtnutí, čas (i celý den). */
+export interface Fields {
   title: string;
   done: boolean;
+  allDay: boolean;
   startDate: number;
   endDate: number;
 }
 
-function fieldsOf(shape: Pick<MirrorBase, "title" | "startDate" | "endDate">): Fields {
-  return { ...parseEventTitle(shape.title), startDate: shape.startDate, endDate: shape.endDate };
+function fieldsOf(shape: Pick<MirrorBase, "title" | "startDate" | "endDate" | "allDay">): Fields {
+  return {
+    ...parseEventTitle(shape.title),
+    allDay: shape.allDay === true,
+    startDate: shape.startDate,
+    endDate: shape.endDate,
+  };
 }
 
-const sameTime = (a: Fields, b: Fields) => a.startDate === b.startDate && a.endDate === b.endDate;
+function itemFields(item: MirrorItem): Fields {
+  return { title: item.title, done: item.done, allDay: item.allDay, startDate: item.startDate, endDate: item.endDate };
+}
+
+const sameTime = (a: Fields, b: Fields) =>
+  a.allDay === b.allDay && a.startDate === b.startDate && a.endDate === b.endDate;
 const fieldsEqual = (a: Fields, b: Fields) => a.title === b.title && a.done === b.done && sameTime(a, b);
 
 function when(f: Fields): string {
+  if (f.allDay) {
+    const [, m, d] = allDayDate(f.startDate).split("-").map(Number);
+    return `${d}. ${m}. celý den`;
+  }
   const d = new Date(f.startDate);
   return `${d.getDate()}. ${d.getMonth() + 1}. ${hhmm(d)}–${hhmm(new Date(f.endDate))}`;
 }
@@ -332,21 +382,25 @@ export function describeConflict(c: MirrorConflict): { title: string; descriptio
  * Sloučí appku a kalendář po políčkách proti základu (tříbodové slučování).
  * Políčko změněné jen na jedné straně platí; změněné na obou na různé
  * hodnoty je konflikt a zůstane appka. Co kalendář nést neumí (prázdný název,
- * čas celodenní či opakované události), bere se jako nezměněné.
+ * čas opakované události, celý den u bloku - blok čas mít musí), bere se
+ * jako nezměněné. U ToDo celý den znamená termín bez hodiny.
  */
 function mergeFields(
   item: MirrorItem,
   event: MirrorEvent,
   was: MirrorBase,
 ): { merged: Fields; pull: MirrorPull | null; conflicts: MirrorConflict[] } {
-  const app: Fields = { title: item.title, done: item.done, startDate: item.startDate, endDate: item.endDate };
+  const app = itemFields(item);
   const base = fieldsOf(was);
   const raw = fieldsOf(event);
-  const timed = !event.allDay && !event.recurring && raw.endDate > raw.startDate;
+  const usable = !event.recurring && (raw.allDay ? item.kind === "todo" : raw.endDate > raw.startDate);
+  const time = usable ? raw : base;
   const google: Fields = {
     title: raw.title === "" ? base.title : raw.title,
     done: raw.done,
-    ...(timed ? { startDate: raw.startDate, endDate: raw.endDate } : { startDate: base.startDate, endDate: base.endDate }),
+    allDay: time.allDay,
+    startDate: time.startDate,
+    endDate: time.endDate,
   };
 
   const merged: Fields = { ...app };
@@ -364,10 +418,11 @@ function mergeFields(
   if (google.done !== base.done && google.done !== app.done) merged.done = pull.done = google.done;
   if (!sameTime(google, base) && !sameTime(google, app)) {
     if (sameTime(app, base)) {
+      merged.allDay = pull.allDay = google.allDay;
       merged.startDate = pull.startDate = google.startDate;
       merged.endDate = pull.endDate = google.endDate;
     } else {
-      conflict("time", { startDate: google.startDate, endDate: google.endDate });
+      conflict("time", { allDay: google.allDay, startDate: google.startDate, endDate: google.endDate });
     }
   }
   return { merged, pull: Object.keys(pull).length > 2 ? pull : null, conflicts };
@@ -423,7 +478,7 @@ export function planMirror(
           key: item.key,
           kind: item.kind,
           field: "deleted",
-          app: { title: item.title, done: item.done, startDate: item.startDate, endDate: item.endDate },
+          app: itemFields(item),
           google: null,
           useGoogle: { key: item.key, kind: item.kind, deleted: true },
         });
@@ -434,15 +489,22 @@ export function planMirror(
     // Bez základu nic nepřebírat - kalendář se srovná podle appky.
     const { merged, pull, conflicts } = was
       ? mergeFields(item, event, was)
-      : { merged: { title: item.title, done: item.done, startDate: item.startDate, endDate: item.endDate }, pull: null, conflicts: [] };
+      : { merged: itemFields(item), pull: null, conflicts: [] };
     if (pull) plan.pull.push(pull);
     plan.conflicts.push(...conflicts);
     const target = { ...item, ...merged };
-    const shape = { title: eventTitle(target), startDate: target.startDate, endDate: target.endDate };
+    const shape = {
+      title: eventTitle(target),
+      startDate: target.startDate,
+      endDate: target.endDate,
+      allDay: target.allDay,
+    };
     const differs =
-      shape.title !== event.title || shape.startDate !== event.startDate || shape.endDate !== event.endDate;
-    // Celodenní událost se vrací na čas, i když časy náhodou sedí.
-    if (differs || event.allDay) plan.update.push({ ...target, id: event.id });
+      shape.title !== event.title ||
+      shape.startDate !== event.startDate ||
+      shape.endDate !== event.endDate ||
+      shape.allDay !== event.allDay;
+    if (differs) plan.update.push({ ...target, id: event.id });
     plan.base[item.key] = { eventId: event.id, ...shape };
   }
 
@@ -465,12 +527,13 @@ export function planMirror(
 export interface MirrorApi {
   updateBlock: (
     id: string,
-    patch: { title?: string; start?: number; duration?: number; date?: ISODate },
+    patch: { title?: string; start?: number; duration?: number; date?: ISODate; exact?: boolean },
   ) => void;
   toggleBlockDone: (id: string) => void;
   deleteBlock: (id: string) => TimeBlock | null;
   renameEverywhere: (date: ISODate, from: string, to: string) => void;
   setPriority: (date: ISODate, index: number, text: string) => void;
+  updateTask: (id: string, patch: { name: string }) => void;
   renameTodo: (id: string, text: string) => void;
   toggleTodo: (id: string) => void;
   setTodoDue: (id: string, dueDate: ISODate | null, dueTime?: string | null) => void;
@@ -497,8 +560,10 @@ function renameBlock(state: MicroWinsState, block: TimeBlock, text: string, api:
     api.setPriority(priority.date, priority.index, text);
     return;
   }
-  // Název drží úkol projektu - z kalendáře se nepřepisuje, příští běh ho vrátí.
-  if (block.taskId) return;
+  if (block.taskId && state.tasks.some((t) => t.id === block.taskId)) {
+    api.updateTask(block.taskId, { name: text });
+    return;
+  }
   const before = blockTitle(state, block);
   // Věc je i v dumpu či trojce - přepsaný text platí všude (jako v mřížce).
   if (placeCount(placesOf(state, block.date, before)) > 1) {
@@ -522,10 +587,12 @@ export function applyPulls(state: MicroWinsState, pulls: MirrorPull[], api: Mirr
       if (pull.title !== undefined) renameBlock(state, block, pull.title, api);
       if (pull.startDate !== undefined && pull.endDate !== undefined) {
         const d = new Date(pull.startDate);
+        // Přesně, bez zarovnání na čtvrthodiny - jinak by appka čas z Googlu posunula.
         api.updateBlock(block.id, {
           date: toISODate(d),
           start: d.getHours() * 60 + d.getMinutes(),
           duration: Math.round((pull.endDate - pull.startDate) / 60_000),
+          exact: true,
         });
       }
       if (pull.done !== undefined && pull.done !== (block.doneAt !== null)) {
@@ -538,7 +605,9 @@ export function applyPulls(state: MicroWinsState, pulls: MirrorPull[], api: Mirr
     if (pull.title !== undefined) api.renameTodo(todo.id, pull.title);
     if (pull.startDate !== undefined) {
       const d = new Date(pull.startDate);
-      api.setTodoDue(todo.id, toISODate(d), hhmm(d));
+      // Celodenní událost = termín bez hodiny.
+      if (pull.allDay) api.setTodoDue(todo.id, allDayDate(pull.startDate), null);
+      else api.setTodoDue(todo.id, toISODate(d), hhmm(d));
     }
     // Smazaný termín ToDo = hotovo: odškrtnutá položka jde vrátit, smazaná ne.
     if ((pull.deleted || pull.done) && todo.doneAt === null) {
@@ -558,6 +627,8 @@ export function applyPulls(state: MicroWinsState, pulls: MirrorPull[], api: Mirr
  */
 interface CalendarSyncPlugin {
   requestSync(options: { upload: boolean }): Promise<void>;
+  /** Synchronizace kalendáře na pozadí (WorkManager, co 15 minut), i když je appka zavřená. */
+  background(options: { enabled: boolean }): Promise<void>;
   mirrorEvents(options: { calendarId: string }): Promise<{
     ok: boolean;
     events: {
@@ -602,6 +673,33 @@ export async function syncPhoneCalendars(): Promise<void> {
     await CalendarSync.requestSync({ upload: false });
   } catch {
     // bez přístupu nebo bez sítě - zkusí se při dalším návratu do appky
+  }
+}
+
+let uploadAgain: ReturnType<typeof setTimeout> | undefined;
+
+/**
+ * Odešle změny z telefonu do Googlu. Žádost se za 20 s zopakuje: když zrovna
+ * běží jiná synchronizace, Android novou žádost někdy spolkne a změny by
+ * čekaly do příští (v testu dvakrát po sobě).
+ */
+async function requestUpload(): Promise<void> {
+  await CalendarSync.requestSync({ upload: true });
+  clearTimeout(uploadAgain);
+  uploadAgain = setTimeout(() => void CalendarSync.requestSync({ upload: true }).catch(() => {}), 20_000);
+}
+
+/**
+ * Zapne či vypne synchronizaci kalendáře na pozadí. Bez ní by s vypnutou
+ * automatickou synchronizací účtů nic z Googlu nepřišlo, dokud se appka
+ * neotevře. Zapnutá je, když se kalendář čte nebo zrcadlí.
+ */
+export async function setBackgroundSync(enabled: boolean): Promise<void> {
+  if (!calendarAvailable()) return;
+  try {
+    await CalendarSync.background({ enabled });
+  } catch {
+    // starší APK bez téhle metody - synchronizace jen s otevřenou appkou
   }
 }
 
@@ -766,20 +864,25 @@ export async function syncMirror(
     const { id } = await CapacitorCalendar.createEvent({
       calendarId: writeTo,
       title: eventTitle(item),
-      startDate: item.startDate,
-      endDate: item.endDate,
+      ...pluginTimes(item),
       description: mirrorDescription(item.key),
     });
-    if (id) next[item.key] = { eventId: id, title: eventTitle(item), startDate: item.startDate, endDate: item.endDate };
+    if (id) {
+      next[item.key] = {
+        eventId: id,
+        title: eventTitle(item),
+        startDate: item.startDate,
+        endDate: item.endDate,
+        allDay: item.allDay,
+      };
+    }
   }
   for (const item of plan.update) {
     await CapacitorCalendar.modifyEvent({
       id: item.id,
       title: eventTitle(item),
-      startDate: item.startDate,
-      endDate: item.endDate,
-      // Celodenní z Googlu se vrací na čas, přepsaný popis zpátky se značkou.
-      isAllDay: false,
+      ...pluginTimes(item),
+      // Přepsaný popis se vrací zpátky se značkou.
       description: mirrorDescription(item.key),
     });
   }
@@ -790,7 +893,7 @@ export async function syncMirror(
     lastSync = Date.now();
     await CalendarSync.requestSync({ upload: false });
   } else if (wrote) {
-    await CalendarSync.requestSync({ upload: true });
+    await requestUpload();
   }
   return { pull: plan.pull, conflicts: plan.conflicts, commit: () => saveBase(writeTo, next) };
 }
@@ -806,7 +909,85 @@ export async function clearMirror(calendarId: string, today: ISODate): Promise<v
   const ids = events.filter((e) => e.endDate > from).map((e) => e.id);
   if (ids.length > 0) {
     await CapacitorCalendar.deleteEventsById({ ids });
-    await CalendarSync.requestSync({ upload: true });
+    await requestUpload();
   }
   dropBase(calendarId);
+}
+
+/**
+ * Časy pro plugin. Celodenní chce místní den (začátek i konec téhož dne) a
+ * sám z něj udělá půlnoc UTC s výlučným koncem; isAllDay se posílá vždy, aby
+ * se událost převedená v Googlu na celodenní vrátila na čas a naopak.
+ */
+function pluginTimes(item: MirrorItem): { startDate: number; endDate: number; isAllDay: boolean } {
+  if (!item.allDay) return { startDate: item.startDate, endDate: item.endDate, isAllDay: false };
+  const day = dayStartMs(allDayDate(item.startDate));
+  return { startDate: day, endDate: day, isAllDay: true };
+}
+
+// --- nevyřešené konflikty --------------------------------------------------
+
+/** Konflikt čekající na rozhodnutí - hláška zmizí, tenhle seznam ne. */
+export interface PendingConflict extends MirrorConflict {
+  /** Kdy se konflikt objevil (ms). */
+  at: number;
+}
+
+const CONFLICTS_KEY = "microwins:calendar-conflicts";
+/** Starší konflikty už nikoho nezajímají - věc se mezitím stejně změnila. */
+const CONFLICT_TTL_MS = 14 * DAY_MS;
+let conflictCache: PendingConflict[] | null = null;
+const conflictListeners = new Set<() => void>();
+
+/** Snímek pro `useSyncExternalStore`. */
+export function getConflicts(): PendingConflict[] {
+  if (conflictCache) return conflictCache;
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = JSON.parse(window.localStorage.getItem(CONFLICTS_KEY) ?? "[]");
+    conflictCache = Array.isArray(raw) ? raw : [];
+  } catch {
+    conflictCache = [];
+  }
+  return conflictCache;
+}
+
+const NO_CONFLICTS: PendingConflict[] = [];
+export function getServerConflicts(): PendingConflict[] {
+  return NO_CONFLICTS;
+}
+
+function saveConflicts(list: PendingConflict[]): void {
+  conflictCache = list;
+  try {
+    window.localStorage.setItem(CONFLICTS_KEY, JSON.stringify(list));
+  } catch {
+    // seznam vydrží aspoň do zavření appky
+  }
+  for (const fn of conflictListeners) fn();
+}
+
+export function subscribeConflicts(fn: () => void): () => void {
+  conflictListeners.add(fn);
+  return () => conflictListeners.delete(fn);
+}
+
+/** Přidá nové konflikty; novější na tutéž věc a políčko nahradí starší. */
+export function mergeConflicts(
+  list: PendingConflict[],
+  added: MirrorConflict[],
+  now: number,
+): PendingConflict[] {
+  const fresh = added.map((c) => ({ ...c, at: now }));
+  const same = (a: MirrorConflict, b: MirrorConflict) => a.key === b.key && a.field === b.field;
+  return [...list.filter((c) => now - c.at < CONFLICT_TTL_MS && !fresh.some((f) => same(f, c))), ...fresh];
+}
+
+export function addConflicts(added: MirrorConflict[]): void {
+  if (added.length > 0) saveConflicts(mergeConflicts(getConflicts(), added, Date.now()));
+}
+
+/** Konflikt vyřešený (vzato z Googlu nebo necháno) - pryč ze seznamu. */
+export function resolveConflict(conflict: Pick<MirrorConflict, "key" | "field">): void {
+  saveConflicts(getConflicts().filter((c) => !(c.key === conflict.key && c.field === conflict.field)));
 }

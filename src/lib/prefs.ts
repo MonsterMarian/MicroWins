@@ -130,6 +130,12 @@ export interface Prefs {
   todoInTimebox: boolean;
   /** Tlačítka rychlých termínů v ToDo, viz `lib/due-rules.ts`. */
   dueRules: DueRule[];
+  /**
+   * Zařízení (`deviceId`), které zrcadlí time box do Google kalendáře. Jen
+   * jedno - dva telefony by si zrcadlo přetahovaly. Sdílí se mezi zařízeními,
+   * aby to ostatní věděla; který kalendář, drží každé zařízení u sebe.
+   */
+  calendarWriter: string | null;
 }
 
 /** Doby, ze kterých se v Nastavení vybírá. Víc voleb by z toho udělalo formulář. */
@@ -151,6 +157,7 @@ export const DEFAULT_PREFS: Prefs = {
   timeboxEnd: DEFAULT_TIMEBOX_END,
   todoInTimebox: true,
   dueRules: DEFAULT_DUE_RULES,
+  calendarWriter: null,
 };
 
 export const PREFS_KEY = "microwins:prefs";
@@ -225,6 +232,7 @@ export function parsePrefs(raw: unknown): Prefs {
     // Chybějící volba = propojené, jako to bylo dřív napevno.
     todoInTimebox: record.todoInTimebox !== false,
     dueRules: parseDueRules(record.dueRules),
+    calendarWriter: typeof record.calendarWriter === "string" ? record.calendarWriter : null,
   };
 }
 

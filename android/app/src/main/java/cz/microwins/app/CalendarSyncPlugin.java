@@ -8,12 +8,18 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.CalendarContract;
+import androidx.work.Constraints;
+import androidx.work.ExistingPeriodicWorkPolicy;
+import androidx.work.NetworkType;
+import androidx.work.PeriodicWorkRequest;
+import androidx.work.WorkManager;
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Synchronizace kalendáře telefonu s Googlem na žádost appky.
@@ -36,16 +42,39 @@ public class CalendarSyncPlugin extends Plugin {
 
     private ContentObserver observer;
 
+    private static final String BACKGROUND_WORK = "microwins-calendar-sync";
+
     /** Ruční synchronizace kalendářů; `upload` = hlavně odeslat změny z telefonu. */
     @PluginMethod
     public void requestSync(PluginCall call) {
+        requestCalendarSync(Boolean.TRUE.equals(call.getBoolean("upload", false)));
+        call.resolve();
+    }
+
+    /** Totéž pro {@link CalendarSyncWorker} na pozadí. */
+    static void requestCalendarSync(boolean upload) {
         Bundle extras = new Bundle();
         extras.putBoolean(ContentResolver.SYNC_EXTRAS_MANUAL, true);
         extras.putBoolean(ContentResolver.SYNC_EXTRAS_EXPEDITED, true);
-        if (Boolean.TRUE.equals(call.getBoolean("upload", false))) {
-            extras.putBoolean(ContentResolver.SYNC_EXTRAS_UPLOAD, true);
-        }
+        if (upload) extras.putBoolean(ContentResolver.SYNC_EXTRAS_UPLOAD, true);
         ContentResolver.requestSync(null, CalendarContract.AUTHORITY, extras);
+    }
+
+    /**
+     * Zapne/vypne synchronizaci na pozadí co 15 minut (nejkratší interval,
+     * který WorkManager dovolí), jen se sítí. Opakované zapnutí nic nemění.
+     */
+    @PluginMethod
+    public void background(PluginCall call) {
+        WorkManager work = WorkManager.getInstance(getContext());
+        if (Boolean.TRUE.equals(call.getBoolean("enabled", false))) {
+            PeriodicWorkRequest request = new PeriodicWorkRequest.Builder(CalendarSyncWorker.class, 15, TimeUnit.MINUTES)
+                .setConstraints(new Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                .build();
+            work.enqueueUniquePeriodicWork(BACKGROUND_WORK, ExistingPeriodicWorkPolicy.KEEP, request);
+        } else {
+            work.cancelUniqueWork(BACKGROUND_WORK);
+        }
         call.resolve();
     }
 

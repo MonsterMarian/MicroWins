@@ -80,7 +80,8 @@ function saveMeta(meta: SyncMeta): void {
   }
 }
 
-function deviceId(): string {
+/** Stálé id tohoto zařízení (i kalendář podle něj pozná, který telefon zrcadlí). */
+export function deviceId(): string {
   try {
     let id = window.localStorage.getItem(DEVICE_KEY);
     if (!id) {

@@ -16,7 +16,9 @@ import {
   type MirrorBase,
   type MirrorEvent,
   type MirrorItem,
+  mergeConflicts,
 } from "./calendar";
+import { createProject, createTask } from "./project-actions";
 import { addBlock } from "./timeblocks";
 import { addTodo, setTodoDue, toggleTodo } from "./todos";
 import { EMPTY_STATE, type MicroWinsState } from "./types";
@@ -111,20 +113,32 @@ describe("mirrorItems", () => {
     expect(item.endDate - item.startDate).toBe(30 * MIN);
   });
 
-  it("ToDo bez hodiny, odškrtnuté, prošlé ani naplánované do mřížky v kalendáři není", () => {
-    const a = addTodo(EMPTY_STATE, "bez hodiny", NOON);
-    let state = setTodoDue(a.state, a.todo!.id, DAY, null);
-    const b = addTodo(state, "hotové", NOON);
-    state = toggleTodo(setTodoDue(b.state, b.todo!.id, DAY, "10:00"), b.todo!.id, NOON);
+  it("odškrtnuté, prošlé ani naplánované do mřížky ToDo v kalendáři není", () => {
+    const b = addTodo(EMPTY_STATE, "hotové", NOON);
+    let state = toggleTodo(setTodoDue(b.state, b.todo!.id, DAY, "10:00"), b.todo!.id, NOON);
     const c = addTodo(state, "prošlé", NOON);
     state = setTodoDue(c.state, c.todo!.id, "2026-10-20", "10:00");
     const d = addTodo(state, "v mřížce", NOON);
     state = setTodoDue(d.state, d.todo!.id, DAY, "14:00");
     state = addBlock(state, { date: DAY, start: 14 * 60, duration: 30, title: "v mřížce", todoId: d.todo!.id }, NOON).state;
+    const e = addTodo(state, "bez hodiny v mřížce", NOON);
+    state = setTodoDue(e.state, e.todo!.id, DAY, null);
+    state = addBlock(state, { date: DAY, start: 600, title: "bez hodiny v mřížce", todoId: e.todo!.id }, NOON).state;
 
     const items = mirrorItems(state, "2026-10-28");
-    expect(items).toHaveLength(1);
-    expect(items[0]).toMatchObject({ kind: "block", title: "v mřížce" });
+    expect(items.map((i) => [i.kind, i.title])).toEqual([
+      ["block", "v mřížce"],
+      ["block", "bez hodiny v mřížce"],
+    ]);
+  });
+
+  it("ToDo s datem bez hodiny je celodenní událost - časy jako v Androidu (UTC půlnoc)", () => {
+    const a = addTodo(EMPTY_STATE, "vlasy", NOON);
+    const state = setTodoDue(a.state, a.todo!.id, "2026-11-27", null);
+    const [item] = mirrorItems(state, "2026-10-28");
+    expect(item).toMatchObject({ kind: "todo", title: "vlasy", allDay: true });
+    expect(item.startDate).toBe(Date.UTC(2026, 10, 27));
+    expect(item.endDate).toBe(Date.UTC(2026, 10, 28));
   });
 });
 
@@ -135,6 +149,7 @@ describe("planMirror", () => {
     kind: "block",
     title: "Psaní",
     done: false,
+    allDay: false,
     startDate: 100 * MIN,
     endDate: 200 * MIN,
     ...patch,
@@ -161,7 +176,7 @@ describe("planMirror", () => {
   it("beze změny nedělá nic a základ drží", () => {
     const plan = planMirror([item()], [ev("1")], base("1"), H);
     expect(plan).toMatchObject({ create: [], update: [], remove: [], pull: [] });
-    expect(plan.base.b1).toEqual(base("1").b1);
+    expect(plan.base.b1).toEqual({ ...base("1").b1, allDay: false });
   });
 
   it("změna v appce přepíše kalendář", () => {
@@ -176,7 +191,7 @@ describe("planMirror", () => {
     const plan = planMirror([item()], [remote], base("1"), H);
     expect(plan.update).toEqual([]);
     expect(plan.pull).toEqual([
-      { key: "b1", kind: "block", title: "Psaní knihy", done: true, startDate: 300 * MIN, endDate: 360 * MIN },
+      { key: "b1", kind: "block", title: "Psaní knihy", done: true, allDay: false, startDate: 300 * MIN, endDate: 360 * MIN },
     ]);
     expect(plan.base.b1).toMatchObject({ title: "✓ Psaní knihy", startDate: 300 * MIN });
   });
@@ -225,11 +240,11 @@ describe("planMirror", () => {
       H,
     );
     expect(plan.conflicts).toEqual([]);
-    expect(plan.pull).toEqual([{ key: "b1", kind: "block", done: true, startDate: 300 * MIN, endDate: 400 * MIN }]);
+    expect(plan.pull).toEqual([{ key: "b1", kind: "block", done: true, allDay: false, startDate: 300 * MIN, endDate: 400 * MIN }]);
     expect(plan.update).toEqual([
       { ...item({ title: "Appka", done: true, startDate: 300 * MIN, endDate: 400 * MIN }), id: "1" },
     ]);
-    expect(plan.base.b1).toEqual({ eventId: "1", title: "✓ Appka", startDate: 300 * MIN, endDate: 400 * MIN });
+    expect(plan.base.b1).toEqual({ eventId: "1", title: "✓ Appka", startDate: 300 * MIN, endDate: 400 * MIN, allDay: false });
   });
 
   it("stejná změna na obou stranách není konflikt ani práce navíc", () => {
@@ -318,7 +333,7 @@ describe("planMirror", () => {
 });
 
 describe("describeConflict", () => {
-  const app = { title: "Psaní", done: false, startDate: dayStartMs(DAY) + 9 * 60 * MIN, endDate: dayStartMs(DAY) + 10 * 60 * MIN };
+  const app = { title: "Psaní", done: false, allDay: false, startDate: dayStartMs(DAY) + 9 * 60 * MIN, endDate: dayStartMs(DAY) + 10 * 60 * MIN };
 
   it("název, čas i smazání řekne česky s nabídkou verze z Googlu", () => {
     expect(
@@ -352,6 +367,7 @@ describe("applyPulls", () => {
         return state.timeBlocks.find((b) => b.id === id) ?? null;
       },
       renameEverywhere: (...args) => void calls.push(["renameEverywhere", ...args]),
+      updateTask: (...args) => void calls.push(["updateTask", ...args]),
       setPriority: (...args) => void calls.push(["setPriority", ...args]),
       renameTodo: (...args) => void calls.push(["renameTodo", ...args]),
       toggleTodo: (...args) => void calls.push(["toggleTodo", ...args]),
@@ -367,7 +383,7 @@ describe("applyPulls", () => {
     applyPulls(state, [{ key: block.id, kind: "block", title: "Psaní knihy", done: true, startDate: start, endDate: start + 90 * MIN }], api);
     expect(calls).toEqual([
       ["updateBlock", block.id, { title: "Psaní knihy" }],
-      ["updateBlock", block.id, { date: "2026-10-30", start: 600, duration: 90 }],
+      ["updateBlock", block.id, { date: "2026-10-30", start: 600, duration: 90, exact: true }],
       ["toggleBlockDone", block.id],
     ]);
   });
@@ -419,5 +435,112 @@ describe("applyPulls", () => {
     const { api, calls } = fakeApi(state);
     applyPulls(state, [{ key: added.todo!.id, kind: "todo", deleted: true }, { key: "nic", kind: "block", deleted: true }], api);
     expect(calls).toEqual([]);
+  });
+});
+
+describe("celodenní ToDo, přesný čas a úkoly projektu", () => {
+  const H = { from: 0, pastKeys: new Set<string>() };
+  const todo = (patch: Partial<MirrorItem> = {}): MirrorItem => ({
+    key: "t1",
+    kind: "todo",
+    title: "vlasy",
+    done: false,
+    allDay: true,
+    startDate: Date.UTC(2026, 10, 27),
+    endDate: Date.UTC(2026, 10, 28),
+    ...patch,
+  });
+  const ev = (patch: Partial<MirrorEvent> = {}): MirrorEvent => ({
+    id: "1",
+    key: "t1",
+    title: "vlasy",
+    allDay: true,
+    recurring: false,
+    startDate: Date.UTC(2026, 10, 27),
+    endDate: Date.UTC(2026, 10, 28),
+    ...patch,
+  });
+  const known: Record<string, MirrorBase> = {
+    t1: { eventId: "1", title: "vlasy", startDate: Date.UTC(2026, 10, 27), endDate: Date.UTC(2026, 10, 28), allDay: true },
+  };
+
+  it("celodenní ToDo posunuté v Googlu na jiný den se převezme", () => {
+    const moved = ev({ startDate: Date.UTC(2026, 10, 29), endDate: Date.UTC(2026, 10, 30) });
+    const plan = planMirror([todo()], [moved], known, H);
+    expect(plan.pull).toEqual([{ key: "t1", kind: "todo", allDay: true, startDate: Date.UTC(2026, 10, 29), endDate: Date.UTC(2026, 10, 30) }]);
+    expect(plan.update).toEqual([]);
+  });
+
+  it("celodenní ToDo, kterému Google dal hodinu, dostane hodinu", () => {
+    const start = dayStartMs("2026-11-27") + 9 * 60 * MIN;
+    const timed = ev({ allDay: false, startDate: start, endDate: start + 30 * MIN });
+    const plan = planMirror([todo()], [timed], known, H);
+    expect(plan.pull).toEqual([{ key: "t1", kind: "todo", allDay: false, startDate: start, endDate: start + 30 * MIN }]);
+  });
+
+  it("blok převedený v Googlu na celodenní se vrátí na čas", () => {
+    const block = todo({ key: "b1", kind: "block", allDay: false, startDate: 100 * MIN, endDate: 200 * MIN });
+    const was = { b1: { eventId: "1", title: "vlasy", startDate: 100 * MIN, endDate: 200 * MIN } };
+    const plan = planMirror([block], [ev({ key: "b1" })], was, H);
+    expect(plan.pull).toEqual([]);
+    expect(plan.update).toEqual([{ ...block, id: "1" }]);
+  });
+
+  it("převzetí: celodenní termín bez hodiny, blok úkolu přejmenuje úkol, čas bloku přesně", () => {
+    const added = addTodo(EMPTY_STATE, "vlasy", NOON);
+    let state = setTodoDue(added.state, added.todo!.id, "2026-11-27", "08:00");
+    const project = createProject(state, { name: "Kniha" }, DAY);
+    const task = createTask(project.state, project.project.id, { name: "kapitola", target: 1 }, DAY);
+    const res = addBlock(task.state, { date: DAY, start: 540, title: "kapitola", taskId: task.task.id }, NOON);
+    state = res.state;
+    const calls: unknown[][] = [];
+    const record = (name: string) => (...args: unknown[]) => void calls.push([name, ...args]);
+    const api: MirrorApi = {
+      updateBlock: record("updateBlock"),
+      toggleBlockDone: record("toggleBlockDone"),
+      deleteBlock: () => null,
+      renameEverywhere: record("renameEverywhere"),
+      setPriority: record("setPriority"),
+      updateTask: record("updateTask"),
+      renameTodo: record("renameTodo"),
+      toggleTodo: record("toggleTodo"),
+      setTodoDue: record("setTodoDue"),
+    };
+    const start = dayStartMs(DAY) + (9 * 60 + 7) * MIN;
+    applyPulls(
+      state,
+      [
+        { key: added.todo!.id, kind: "todo", allDay: true, startDate: Date.UTC(2026, 10, 28), endDate: Date.UTC(2026, 10, 29) },
+        { key: res.block.id, kind: "block", title: "kapitola 2", startDate: start, endDate: start + 52 * MIN },
+      ],
+      api,
+    );
+    expect(calls).toEqual([
+      ["setTodoDue", added.todo!.id, "2026-11-28", null],
+      ["updateTask", task.task.id, { name: "kapitola 2" }],
+      ["updateBlock", res.block.id, { date: DAY, start: 547, duration: 52, exact: true }],
+    ]);
+  });
+});
+
+describe("mergeConflicts", () => {
+  const c = (key: string, field: "title" | "time", title: string) => ({
+    key,
+    kind: "block" as const,
+    field,
+    app: { title, done: false, allDay: false, startDate: 0, endDate: 1 },
+    google: null,
+    useGoogle: { key, kind: "block" as const },
+  });
+
+  it("novější konflikt na tutéž věc a políčko nahradí starší, staré po 14 dnech zmizí", () => {
+    const day = 24 * 60 * MIN;
+    let list = mergeConflicts([], [c("b1", "title", "A"), c("b2", "time", "B")], 0);
+    list = mergeConflicts(list, [c("b1", "title", "A2")], 1);
+    expect(list.map((x) => [x.key, x.field, x.app.title])).toEqual([
+      ["b2", "time", "B"],
+      ["b1", "title", "A2"],
+    ]);
+    expect(mergeConflicts(list, [], 15 * day)).toEqual([]);
   });
 });

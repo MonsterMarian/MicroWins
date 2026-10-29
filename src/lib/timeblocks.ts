@@ -268,15 +268,17 @@ export function resizeBlock(state: MicroWinsState, id: string, duration: number)
 export function updateBlock(
   state: MicroWinsState,
   id: string,
-  patch: { title?: string; start?: number; duration?: number; date?: ISODate },
+  /** `exact` = bez zarovnání na čtvrthodiny - čas z kalendáře se nemá posunout. */
+  patch: { title?: string; start?: number; duration?: number; date?: ISODate; exact?: boolean },
 ): MicroWinsState {
+  const snap = (minutes: number) => (patch.exact ? minutes : snapMinutes(minutes));
   return patchBlock(state, id, (block) => {
     const duration = clampDuration(
-      patch.duration === undefined ? block.duration : snapMinutes(patch.duration),
+      patch.duration === undefined ? block.duration : snap(patch.duration),
       0,
     );
     const start = clampStart(
-      patch.start === undefined ? block.start : snapMinutes(patch.start),
+      patch.start === undefined ? block.start : snap(patch.start),
       duration,
     );
     return {

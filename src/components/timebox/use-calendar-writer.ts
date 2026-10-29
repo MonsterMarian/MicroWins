@@ -3,65 +3,104 @@
 import * as React from "react";
 import { useStore } from "@/components/providers/store-provider";
 import { usePrefs } from "@/components/providers/use-prefs";
+import { useToast } from "@/components/providers/toast-provider";
 import {
+  applyPulls,
   getCalendarSettings,
   getDefaultCalendarSettings,
+  onCalendarChange,
   subscribeCalendarSettings,
-  writeBlocks,
+  syncMirror,
 } from "@/lib/calendar";
 import { todayISO } from "@/lib/date";
+import { blockTitle } from "@/lib/timeblocks";
 
-/** Zápisy jdou za sebou - dva souběžné by tentýž blok založily dvakrát. */
+/** Běhy jdou za sebou - dva souběžné by tentýž blok založily dvakrát. */
 let queue: Promise<void> = Promise.resolve();
 
 /**
- * Drží vybraný kalendář telefonu v souladu s bloky time boxu: po změně bloků
- * (i té, co přijde synchronizací z jiného zařízení) a po návratu do appky -
- * to vrátí zpátky i události přepsané v Google kalendáři.
+ * Drží vybraný kalendář telefonu a time box v souladu, oběma směry
+ * (`syncMirror` + `applyPulls`): po změně bloků či ToDo, po změně kalendáře
+ * v telefonu (synchronizace přinesla úpravu z Googlu) a po návratu do appky.
  *
  * Neběží, dokud se stav nenačetl (prázdný stav by zrcadlo smazal) a s
  * vypnutým Time boxem - jeho nastavení je pak schované a zápis by nešel vypnout.
  */
 export function useCalendarWriter() {
-  const { state, hydrated } = useStore();
+  const store = useStore();
+  const { state, hydrated } = store;
   const { addons } = usePrefs();
+  const { toast } = useToast();
   const { writeTo } = React.useSyncExternalStore(
     subscribeCalendarSettings,
     getCalendarSettings,
     getDefaultCalendarSettings,
   );
   const on = hydrated && addons.timebox && writeTo !== null;
-  const latest = React.useRef(state);
-  latest.current = state;
-  // Po startu a návratu do appky se odešle i to, co minule nestihlo odejít.
+  const latest = React.useRef({ store, toast });
+  latest.current = { store, toast };
+  // Po startu a návratu do appky se i stáhnou novinky a odešle, co nestihlo.
   const resumed = React.useRef(true);
+  const timer = React.useRef<number | undefined>(undefined);
 
   const write = React.useCallback(() => {
     const syncAlways = resumed.current;
     resumed.current = false;
     queue = queue
-      .then(() => writeBlocks(latest.current, todayISO(), syncAlways))
+      .then(async () => {
+        const run = await syncMirror(latest.current.store.state, todayISO(), syncAlways);
+        if (run.pull.length > 0) {
+          const { store: api, toast: say } = latest.current;
+          const removed = applyPulls(api.state, run.pull, api);
+          for (const block of removed.blocks) {
+            say({
+              tone: "info",
+              title: "Smazáno v Google kalendáři",
+              description: blockTitle(api.state, block),
+              action: { label: "Vrátit", onClick: () => latest.current.store.restoreBlock(block) },
+            });
+          }
+          for (const todo of removed.todos) {
+            say({
+              tone: "info",
+              title: "Hotovo podle Google kalendáře",
+              description: todo.text,
+              action: { label: "Vrátit", onClick: () => latest.current.store.toggleTodo(todo.id) },
+            });
+          }
+        }
+        run.commit();
+      })
       // bez přístupu nebo se smazaným kalendářem - zkusí se při další změně
       .catch(() => {});
   }, []);
 
-  // Jen to, z čeho se skládá blok a jeho název (`blockTitle`).
+  /** Psaní i synchronizace mění stav po kouscích - běží se až po chvilce klidu. */
+  const soon = React.useCallback(() => {
+    window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(write, 1500);
+  }, [write]);
+
+  // Jen to, z čeho se skládá zrcadlo: bloky, ToDo a jejich názvy (`blockTitle`).
   const { timeBlocks, todos, tasks, daySheets } = state;
   React.useEffect(() => {
     if (!on) return;
-    // Psaní do políčka mění stav po písmenech - zapisuje se až po chvilce klidu.
-    const timer = window.setTimeout(write, 1500);
-    return () => window.clearTimeout(timer);
-  }, [on, writeTo, timeBlocks, todos, tasks, daySheets, write]);
+    soon();
+    return () => window.clearTimeout(timer.current);
+  }, [on, writeTo, timeBlocks, todos, tasks, daySheets, soon]);
 
   React.useEffect(() => {
     if (!on) return;
+    const stopWatching = onCalendarChange(soon);
     const onVisible = () => {
       if (document.visibilityState !== "visible") return;
       resumed.current = true;
       write();
     };
     document.addEventListener("visibilitychange", onVisible);
-    return () => document.removeEventListener("visibilitychange", onVisible);
-  }, [on, write]);
+    return () => {
+      stopWatching();
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [on, write, soon]);
 }

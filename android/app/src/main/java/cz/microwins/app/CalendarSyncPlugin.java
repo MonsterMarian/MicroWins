@@ -1,11 +1,15 @@
 package cz.microwins.app;
 
 import android.content.ContentResolver;
+import android.content.ContentUris;
 import android.database.ContentObserver;
+import android.database.Cursor;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.CalendarContract;
+import com.getcapacitor.JSArray;
+import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
@@ -43,6 +47,75 @@ public class CalendarSyncPlugin extends Plugin {
         }
         ContentResolver.requestSync(null, CalendarContract.AUTHORITY, extras);
         call.resolve();
+    }
+
+    /**
+     * Všechny události zrcadla (se značkou `microwins:` v popisu) v kalendáři
+     * `calendarId`, bez ohledu na datum - událost posunutá v Googlu daleko
+     * dopředu se tak nesplete se smazanou. Čte se tabulka událostí, ne
+     * výskyty, a smazané řádky čekající na synchronizaci se vynechají.
+     *
+     * `ok` = kalendář existuje a stahuje události. Bez toho appka nesmí brát
+     * chybějící události jako smazané.
+     */
+    @PluginMethod
+    public void mirrorEvents(PluginCall call) {
+        String calendarId = call.getString("calendarId");
+        if (calendarId == null) {
+            call.reject("Chybí calendarId");
+            return;
+        }
+        ContentResolver cr = getContext().getContentResolver();
+        JSObject result = new JSObject();
+        JSArray events = new JSArray();
+        try {
+            long id = Long.parseLong(calendarId);
+            try (Cursor c = cr.query(
+                ContentUris.withAppendedId(CalendarContract.Calendars.CONTENT_URI, id),
+                new String[] { CalendarContract.Calendars.SYNC_EVENTS },
+                null,
+                null,
+                null
+            )) {
+                result.put("ok", c != null && c.moveToFirst() && c.getInt(0) == 1);
+            }
+            try (Cursor c = cr.query(
+                CalendarContract.Events.CONTENT_URI,
+                new String[] {
+                    CalendarContract.Events._ID,
+                    CalendarContract.Events.TITLE,
+                    CalendarContract.Events.DESCRIPTION,
+                    CalendarContract.Events.DTSTART,
+                    CalendarContract.Events.DTEND,
+                    CalendarContract.Events.ALL_DAY,
+                    CalendarContract.Events.RRULE,
+                },
+                CalendarContract.Events.CALENDAR_ID + "=? AND " +
+                    CalendarContract.Events.DELETED + "=0 AND " +
+                    CalendarContract.Events.DESCRIPTION + " LIKE ?",
+                new String[] { calendarId, "%microwins:%" },
+                null
+            )) {
+                while (c != null && c.moveToNext()) {
+                    long start = c.getLong(3);
+                    JSObject e = new JSObject();
+                    e.put("id", String.valueOf(c.getLong(0)));
+                    e.put("title", c.isNull(1) ? "" : c.getString(1));
+                    e.put("description", c.isNull(2) ? "" : c.getString(2));
+                    e.put("startDate", start);
+                    // Opakovaná událost nemá konec, jen délku - pro zrcadlo stačí začátek.
+                    e.put("endDate", c.isNull(4) ? start : c.getLong(4));
+                    e.put("allDay", c.getInt(5) == 1);
+                    e.put("recurring", !c.isNull(6) && !c.getString(6).isEmpty());
+                    events.put(e);
+                }
+            }
+        } catch (Exception e) {
+            call.reject("Kalendář nejde přečíst: " + e.getMessage());
+            return;
+        }
+        result.put("events", events);
+        call.resolve(result);
     }
 
     /** Začne hlásit změny kalendáře událostí `change`. Opakované volání nic nedělá. */

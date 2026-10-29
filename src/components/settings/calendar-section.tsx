@@ -114,14 +114,14 @@ export function CalendarSection() {
       </button>
 
       <label className="flex flex-wrap items-center gap-2 text-sm">
-        <span className="text-muted-foreground">Bloky zapisovat do</span>
+        <span className="text-muted-foreground">Bloky a ToDo propojit s</span>
         <Select
           value={writeTo ?? ""}
           onChange={(e) => changeTarget(e.target.value || null)}
           aria-label="Kalendář pro zápis bloků"
           className="h-8 w-auto max-w-full text-xs"
         >
-          <option value="">nezapisovat</option>
+          <option value="">nepropojovat</option>
           {writable.map((c) => (
             <option key={c.id} value={c.id}>
               {c.title}
@@ -135,10 +135,10 @@ export function CalendarSection() {
       </label>
 
       <p className="px-1 text-xs text-muted-foreground">
-        Platí jen pro tenhle telefon. Bloky od včerejška na dva týdny dopředu se zrcadlí do
-        vybraného kalendáře - nejlíp si na to v Google kalendáři založ vlastní, třeba MicroWins.
-        Upravuj je tady, změny udělané v Googlu appka přepíše. Po přepnutí jinam se bloky ze
-        starého kalendáře smažou.
+        Platí jen pro tenhle telefon. Bloky od včerejška dál a ToDo s termínem a hodinou se
+        zrcadlí do vybraného kalendáře oběma směry: přejmenování, posun i smazání v Googlu se
+        propíše sem, ✓ na začátku názvu odškrtne. Nejlíp si na to v Google kalendáři založ
+        vlastní, třeba MicroWins. Po přepnutí jinam se zrcadlo ze starého kalendáře smaže.
       </p>
     </section>
   );

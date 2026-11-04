@@ -20,7 +20,7 @@ Aplikace **MicroWins** ve dvou částech:
 
 | Sekce | Route | Obsah |
 |---|---|---|
-| Projekty | `/` | záložky Přehled / ToDo / Plán / Projekty / Time box / Atomy, filtry, řazení, hledání; mezi sekcemi se dá přejet prstem |
+| Projekty | `/` | záložky Přehled / ToDo / Projekty / Time box / Atomy (pořadí jde přeskládat), filtry, řazení, hledání; mezi sekcemi se dá přejet prstem |
 | Time box | `/?tab=timebox` | list dne: tři odškrtávací priority, brain dump přes celou výšku, návrhy z AI, pás rozdělané práce a mřížka půlhodin (`:00` / `:30`) nad bloky plánu; tahem se věci posouvají mezi trojkou, mřížkou a košem, na telefonu se čas vybírá ze spodního panelu „Kdy?“ a blok má vlastní panel (čas, délka, na zítra, smazat) |
 | Atomy | `/?tab=atoms` | posouvací lišta úkolů, mapa jednoho z nich rozsekaná až na atomy (kreslený strom, tahem se kusy převěšují) a zakládání úkolu i projektu rovnou tady |
 | Detail projektu | `/projects/[id]` | %, delta dne, start–deadline, zbývá dní, tempo %/den, popis, úkoly, milníky, archiv |
@@ -30,7 +30,7 @@ Aplikace **MicroWins** ve dvou částech:
 | Strom | `/tree` | dnešek + procházení složek s winy a jejich záznamy |
 | Analýza | `/stats` | série, pruh měsíce, kalendář roku, přehled winů, tempo projektů |
 
-Stack: Next.js 15 (App Router, vše klientské) · React 19 · TypeScript strict · Tailwind 4 · Vitest. Data v `localStorage`, export/import JSON. Grafy jsou vlastní SVG bez knihoven. 366 testů nad doménovou logikou.
+Stack: Next.js 15 (App Router, vše klientské) · React 19 · TypeScript strict · Tailwind 4 · Vitest · Capacitor. Data v účtu (Supabase), v zařízení je jejich kopie v `localStorage` pro práci bez signálu. Time box se dá propojit s Google Kalendářem přes systémový kalendář Androidu ([návod](docs/navod-synchronizace.md)). Grafy jsou vlastní SVG bez knihoven. 462 testů nad doménovou logikou.
 
 ---
 
@@ -48,7 +48,7 @@ Věci, které ze zadání jednoznačně nevyplývaly a musely se dořešit:
 | **Procenta se zaokrouhlují dolů** | 99,7 % ještě není hotovo. Sedí to i s referenční aplikací (630/2000 = 31 %, ne 32 %). |
 | **Denní otisky postupu (`snapshots`)** | Úkoly znají jen aktuální hodnotu. Bez otisku by nešel nakreslit graf ani deník změn. Jeden otisk na projekt a den. |
 | **Statistiky úkolu jdou z jeho vlastních otisků** | Graf v detailu úkolu dřív vedl na statistiky projektu, takže úkol ukazoval průměr všech úkolů v projektu. Řada úkolu začíná jeho prvním otiskem: starší úkoly historii z doby před otisky nemají a nula před ní by tvrdila, že v ten den narostl celý postup. Den založení se naopak počítá od nuly, stejně jako „+X % dnes" v detailu. |
-| **localStorage místo SQLite** | Zadání bylo o pravidlech a UI. Doménová logika je oddělená od úložiště, takže výměna za DB je práce na jednom místě — viz níže. |
+| **Doménová logika je oddělená od úložiště** | Zadání bylo o pravidlech a UI, proto appka začínala nad `localStorage`. Díky oddělení šlo později přidat účet a databázi bez přepisování pravidel (viz 5.1). |
 | **Dva akcenty místo jednoho** | Jantar = microwin/rekord, zelená = postup projektu. Sémanticky odlišné věci; jinak platí neutrální paleta. |
 | **Zelená na pět způsobů** | Vybrat odstín od stolu nešlo, tak jich je pět (Smaragd / Nefrit / Neon / Limetka / Šalvěj) a přepínají se v Nastavení. Sedí na `data-accent` na `<html>`, takže se to obejde bez přebarvování komponent. Jantar u microwinů se nemění. |
 | **Úkoly počítají v celých číslech** | „13,6 / 20" nikdo nečte a posuvník po desetinách takové hodnoty vyráběl sám. Cíl, hodnota, krok i váha se zaokrouhlují při zápisu a stará data se srovnají při načtení. |
@@ -60,7 +60,6 @@ Věci, které ze zadání jednoznačně nevyplývaly a musely se dořešit:
 | **Několik pohledů na winy místo jedné tabulky** | Pětisloupcová tabulka odpovídala na všechny otázky naráz a na žádnou pořádně. Pohledy (Stručně / Postup / Dnešek / Žebříček / Úplná tabulka) se přepínají v Nastavení, výchozí je nejstručnější. |
 | **Kalendář po celých rocích** | "Posledních 53 týdnů" začínalo uprostřed loňska a nešlo se podle toho zorientovat. Rok je pevná jednotka, mřížka se sama posune na dnešek. |
 | **Lokální zálohy padly (14. 10. 2026)** | Data žijí v databázi účtu a přihlášení je povinné, takže export, import, ukládání po částech i ukládání map atomů do souboru zmizelo i s kódem (`backup.ts`, `import.ts`, `parts.ts`, `map-transfer.tsx`, `backup-dialogs.tsx`). Kopie dat v telefonu zůstává - slouží pro chvíle bez signálu, ne jako záloha. |
-| **Time box se ukládá i s bloky plánu** | Mřížka time boxu nemá vlastní data, políčka jsou bloky plánu. Bez nich by z uloženého time boxu zbyly jen priority a brain dump. Části se proto smějí překrývat a skládá se sjednocení kolekcí. Blok, jehož úkol nebo položka ToDo v souboru není, si do souboru nese dnešní popisek a odkaz po načtení drží jen tehdy, když stejné id v appce opravdu je. |
 | **Úkol s podúkoly: čísla, podúkoly, nebo obojí** | Úkol s podúkoly se dřív počítal jen z nich, takže první podúkol pod rozdělanými 50 / 250 shodil úkol na 0 % a čísla zmizela z obrazovky. Teď má úkol volbu `progressFrom` (Nastavení úkolu → Postup z): **Čísla** (podúkoly se nepočítají), **Podúkoly** (výchozí, jako dřív), **Obojí** - dva pruhy pod sebou a procenta úkolu jsou jejich průměr, ať jde z obrazovky vyčíst proč. Při prvním podúkolu pod úkolem s rozdělanými čísly se nabídne rovnou Obojí. Atomizér při rozsekání rozdělanou práci přesune do prvního dílu (`carryProgressToSubtask`) - tam je kus buď rozsekaný, nebo ne. |
 | **Ikona jako string s předponou** | Emoji se ukládá rovnou, kreslená ikona jako `lucide:Dumbbell`. Stará data zůstala platná a nic se nemigrovalo. Komponenty se importují jmenovitě, aby v balíku neskončilo všech 1500 ikon knihovny. |
 | **Ikonu má jen složka, ne win** | Winy poznává oko podle druhu (měrák / fajfka / hvězda) a vlastní ikona by ten rozdíl zakryla. Složka bez vybrané ikony zůstává kresleným `Folder`, takže strom bez jediné ikony vypadá jako dřív a nic se nemigrovalo. |
@@ -73,10 +72,8 @@ Věci, které ze zadání jednoznačně nevyplývaly a musely se dořešit:
 | **Rychlé termíny jsou pravidla, ne texty** | „Zítra ráno" se musí dát přenastavit na šestou a musí jít přidat vlastní tlačítko, takže se nabídka neukládá jako hotový text, ale jako pravidlo, které se přepočítá až při otevření. Druhy jsou tři a pokrývají všechno: `offset` (za N minut), `day` (za N dní v HH:MM), `weekday` (nejbližší den v týdnu). Viz `lib/due-rules.ts`. |
 | **„Nejbližší sobota" počítá i dnešek - do zadané hodiny** | V sobotu v sedm ráno je nejbližší sobota dnešek, v devět už sobota za týden. Kdyby se dnešek nepočítal nikdy, byla by nabídka k ničemu právě v den, kdy se hodí nejvíc; kdyby se počítal vždycky, vyrobila by termín v minulosti. Den bez hodiny platí celý den. |
 | **Appka se otevírá na první záložce zleva** | Dřív o tom rozhodoval obsah - něco k odškrtnutí = ToDo, jinak Přehled - jenže appka pak startovala pokaždé jinde a přeskládané pořadí záložek nic neznamenalo. Teď platí jednoduché pravidlo: co si člověk přetáhne doleva, to uvidí po spuštění. |
-| **Plán má dvě podoby, ne jednu** | Osa dne odpovídá na „jak vypadá dnešek", týden na „kdy v tom týdnu na to bude čas". Je to jiná otázka, ne jiný vkus, a odpovědět na obě jednou obrazovkou znamená odpovědět na obě špatně. Data i tažení jsou pod obojím stejná, přepíná se v Nastavení → Vzhled. |
 | **Termín v ToDo a blok v plánu jsou jedna věc ze dvou stran** | Položka s hodinou se v mřížce ukáže jako čárkovaná stopa a ťuknutím se z ní stane blok; posunutí bloku naopak přepíše termín položky. Dvě čísla, která si můžou odporovat, jsou horší než jedno: jinak by po přesunu bloku na odpoledne zůstal v ToDo svítit ranní termín a nikdo neví, čemu věřit. |
 | **Stopa se na blok mění ťuknutím, ne sama** | Kdyby si termíny zakládaly bloky samy, plán by se zaplňoval bez zásahu a smazaný blok by se hned vrátil (termín ho vyrobí znovu). Čárkovaná stopa proto zůstane stopou, dokud na ni někdo neťukne. |
-| **V týdnu mění vodorovný tah den** | Sedm sloupců vedle sebe má tu výhodu, že „přehodit to na čtvrtek" je jeden pohyb prstem. Svisle se mění čas, vodorovně den; tažený blok se přitom kreslí ve sloupci, nad kterým visí, ne v tom, odkud šel. |
 | **Plán dne je hloupý schválně** | Blok ví jen kdy začíná, jak dlouho trvá a co se v něm dělá. Žádná procenta ani cíle - ty už mají svoje místo v úkolech. Plán odpovídá na jinou otázku: *kdy* na to bude čas. Odškrtnutí bloku z položky ToDo odškrtne i tu položku (jedna věc ze dvou stran), úkolu projektu se ale nesahá - nastavit ho na sto procent za odsezenou hodinu by lhalo o postupu. |
 | **Bloky se smějí překrývat** | Ubránit se překryvu by znamenalo bloky odstrkávat nebo puštění zakazovat. Dvě věci vedle sebe jsou lepší: je z nich na první pohled vidět, že si to člověk naplánoval přes sebe. Šířku počítá `layoutDay` ze sloupců celého shluku, aby na sebe sousední bloky navazovaly. |
 | **Do plánu se hází z pásu na jedno ťuknutí** | Nahoře leží otevřené ToDo a nedokončené úkoly; ťuknutí posadí věc do nejbližšího volna a řekne hláškou kam. Kdyby se pás ptal na čas, přestala by to být cesta na jedno ťuknutí - a člověk by radši neplánoval nic. Přesný čas se doladí tahem, ťuknutím do mřížky nebo v editoru. |
@@ -93,7 +90,7 @@ Věci, které ze zadání jednoznačně nevyplývaly a musely se dořešit:
 | **Políčko ani priorita text neusekává** | V mřížce není kam dlouhý zápis rozkliknout, takže by se ztratil. Pole proto rostou s textem (`AutoTextarea`) a řádek mřížky se roztáhne podle nejvyššího políčka. |
 | **Číslo priority je zároveň zaškrtávátko** | Pořadí i odškrtnutí vedle sebe by na řádku sebraly místo textu, a ten je tu to hlavní. Vygumovaná priorita se odškrtnutí zbaví sama - na prázdném řádku nemá co dělat. |
 | **Tažení hledá cíl pod prstem; myš táhne hned, prst po podržení** | Řádky mřížky mají po zalamování různou výšku a plátno atomů je navíc zvětšené, takže žádný pevný přepočet souřadnic by neseděl - cíl se bere z toho, nad čím prst visí (`elementFromPoint`). Prstem se stránka scrolluje tahem, proto se u dotyku čeká 420 ms jako u seznamů; myší se nescrolluje nic, tam by čekání znamenalo jen to, že „přetahování nefunguje". Obojí drží jeden `useHoldDrag` (`components/ui`), aby se to v každém addonu nechovalo jinak; cíl se přepisuje jen při skutečné změně, jinak by se mřížka překreslovala desetkrát za sekundu. |
-| **Klíč k AI nebydlí v nastavení appky** | Nastavení se celé propisuje do zálohy a záloha se posílá mailem, takže by z ní klíč vypadl někomu do rukou. Leží proto ve vlastním klíči localStorage (u každého poskytovatele svůj), zůstává na jednom zařízení, do zálohy se nedává a na obrazovku se nevypisuje zpátky - jde jen přepsat nebo smazat. Do kódu ani do commitu nesmí vůbec: repozitář je veřejný a z něj si telefon tahá balíky, takže by si klíč přečetl kdokoliv. Ven odchází jen text brain dumpu, a jen na stisk tlačítka: appka jinak nikam sama nevolá. |
+| **Klíč k AI nebydlí v nastavení appky** | Klíč nesmí opustit zařízení. Leží proto ve vlastním klíči localStorage (u každého poskytovatele svůj), nesynchronizuje se a na obrazovku se nevypisuje zpátky - jde jen přepsat nebo smazat. Do kódu ani do commitu nesmí vůbec: repozitář je veřejný a z něj si telefon tahá balíky, takže by si klíč přečetl kdokoliv. Ven odchází jen text brain dumpu, a jen na stisk tlačítka: appka jinak nikam sama nevolá. |
 | **Poskytovatelé AI jsou dva, výchozí je Claude s nejlevnějším modelem** | Gemini umí být přetížený a hlásit „high demand", takže návrhy nesmí stát na jednom poskytovateli. Claude jede přes oficiální SDK s nejlevnějším modelem (`claude-haiku-4-5`) - vytáhnout ze zápisků pár úkolů je malá práce a dražší model by ji neudělal lépe. Klíč i model si každý poskytovatel drží svůj, takže přepnutí tam a zpět nic nezahodí, a SDK se načítá až při prvním dotazu (`import()`), aby balík nezatěžovalo těm, kdo návrhy nepoužívají. Změna nastavení se ohlašuje událostí - klíč se zadává v dialogu nad otevřeným listem a tlačítko se má objevit hned, ne po restartu. |
 | **Hlavní věc dne a blok jsou jedna věc ze dvou stran** | Trojka nahoře říká *co*, mřížka *kdy* - a je to tentýž úkol, takže odškrtnout se má jednou. Přetažení z trojky do mřížky proto blok **kopíruje i s odkazem** (`priorityId` ve tvaru `den#pořadí`): v trojce věc zůstává, v mřížce přibude čas. Odkaz nemá vlastní id, protože priorita ho nemá - drží ji den a pořadí. Z toho plyne, že **prohození dvou priorit musí přesunout i odkazy bloků**, jinak by blok po prohození ukazoval na cizí text a odškrtával něco jiného. Druhé puštění na totéž políčko nic nevyrobí - dva stejné zápisy přes sebe by se musely odškrtávat oba. |
 | **Do time boxu se hází z pásu rozdělané práce, stejně jako do plánu** | Bez pásu se věc, která už leží v ToDo nebo v projektu, musela do listu přepsat rukou - a tím v appce žila dvakrát, s vlastním odškrtáváním a bez vazby na postup. Ťuknutí ji posadí do nejbližšího volna, tažením se pustí přesně do půlhodiny, kterou si člověk vybere; blok si v obou případech nese odkaz, takže hotovo platí na obou stranách. |
@@ -103,12 +100,12 @@ Věci, které ze zadání jednoznačně nevyplývaly a musely se dořešit:
 | **Schovaný projekt místo dalšího archivu** | Nápad, který se teprve krájí, nemá zabírat řádek mezi projekty s procenty a deadlinem. Archiv na to nesedí - ten znamená "hotovo, uklizeno" a má vlastní filtr, kde by se nový projekt tvářil divně. Schovaný projekt se nekreslí ani v Projektech, ani v přehledech; jeho úkoly ale žijí normálně a dají se naplánovat. Přepíná se okem nad mapou. |
 | **Smazání úkolu bere celý podstrom** | Dřív mizely jen přímé podúkoly. Do dvou pater se to nepoznalo, ale atomizér rozsekává do hloubky a vnuk osiřelého rodiče by v datech zůstal navždy: ze seznamů by zmizel, do součtů by se počítal dál. |
 | **Gesto se pozná až po puštění** | Přejetí musí vyhrát nad scrolováním a to se dá rozhodnout jedině z celého tvaru pohybu: 64 px do strany, nejmíň 1,6× víc než nahoru/dolů, do 700 ms. Uvnitř vodorovného scrolleru (kalendář roku, cesta ve stromu, široká tabulka) patří gesto jemu - ale jen dokud tam je kam posouvat, doscrollovaná tabulka prst nepotřebuje. Myš ne: tahem myši se vybírá text. |
-| **Brain dump je seznam řádků, ne jedno pole** | Z dumpu se má dát táhnout do trojky i do mřížky - z jednoho textarea to nejde, protože v textovém poli patří tah výběru textu. Každý řádek má proto vlastní pole a úchyt; data zůstávají jeden text řádků spojených `\n`, takže se nic nemigruje a AI návrhy i záloha jedou dál. Řádek má stabilní id, aby při mazání a přeskakování neskákal fokus mezi řádky. Řádek tažením ven z dumpu zmizí (věc nesmí ležet dvakrát), na koš jde taky. |
+| **Brain dump je seznam řádků, ne jedno pole** | Z dumpu se má dát táhnout do trojky i do mřížky - z jednoho textarea to nejde, protože v textovém poli patří tah výběru textu. Každý řádek má proto vlastní pole a úchyt; data zůstávají jeden text řádků spojených `\n`, takže se nic nemigruje a AI návrhy jedou dál. Řádek má stabilní id, aby při mazání a přeskakování neskákal fokus mezi řádky. Řádek tažením ven z dumpu zmizí (věc nesmí ležet dvakrát), na koš jde taky. |
 | **Čas za dvojtečkou plánuje řádek dumpu sám** | „úkol1:14:30" je dohoda s appkou: napřed co, za dvojtečkou kdy - tak, jak věc člověka napadne (od 13. 10. 2026; dřív se čas psal dopředu, „14:30 běh", a to se čte dál, ať se nerozbijí staré řádky). Do mřížky jde jen text („úkol1"), řádek se odchodem z pole změní na blok a z dumpu vypadne. Text se bere co nejkratší, takže dvojtečka uvnitř textu („Poznámka: zavolat:14:30") nevadí. Nestane se to během psaní, ale až když se od řádku odejde - jinak by řádek mizel pod prstem. Nesmyslný čas (25:00) i samotný čas bez textu zůstávají obyčejným zápisem. |
 | **Nestihl jsem: přenos, ne kopie** | Nedokončené hlavní věci z dřívějších dnů se samy nabízejí v sekci nad trojkou - bez ní by včerejší list přestal existovat v okamžiku, kdy se den otočil. Přenos (ťuknutím, tahem) věc na původním dni **nechá** (historie se nepřepisuje, jen se odškrtává), jen ji označí `carriedTo`, takže přestane obtěžovat. Vezmou se jen hlavní věci; zápisy v mřížce jsou historie dne, ne úkol, a propadlé položky ToDo se hlásí červeně v pásu samy. |
 | **Propojení ToDo s time boxem jde vypnout** | Někdo chce list dne čistý - jen věci, které si nadiktoval sám nad dump. V Nastavení → Addony se proto pásmo nad listem vypíná (data se nemažou, jen se přestanou nabízet). Chybějící volba ze staršího nastavení znamená zapnuté, jinak by po aktualizaci položky z pásu zmizely. |
 | **Pás ukazuje všechna otevřené ToDo, rozplánovaná ztlumená** | Dřív se ukazovalo jen to, co ještě dnes nemá blok - ale pak se položky dostaly do mřížky a pás ztichl úplně, což vypadalo jako rozbité propojení. Teď zůstává na očích všechno otevřené: co dnes stojí v mřížce, jen ztlumené a s fajfkou a časem („✓ 14:30"), a znovu se plánovat nedá - ťuknutí jen připomene, kde stojí. |
-| **Plán dne padl, time box převzal mřížku** | Dva pohledy na ty samé bloky (Plán a Time box) si dělily práci, kterou dělá lépe jeden: time box má k blokům navíc trojku a brain dump, takže Plán neměl co říct, co by time box neřekl lépe. Addon, záložka, volby podoby i vlastní složka komponent zmizely; **časové bloky zůstávají** - mřížka time boxu z nich celá stojí. Část „plan" v zálohách se dál čte (legacy), nové zálohy ji nenabízí, protože „timebox" nese bloky taky. Uložené pořadí záložek a vypnuté addony se o zrušený Plán očistí samy při načtení. |
+| **Plán dne padl, time box převzal mřížku** | Dva pohledy na ty samé bloky (Plán a Time box) si dělily práci, kterou dělá lépe jeden: time box má k blokům navíc trojku a brain dump, takže Plán neměl co říct, co by time box neřekl lépe. Addon, záložka, volby podoby i vlastní složka komponent zmizely; **časové bloky zůstávají** - mřížka time boxu z nich celá stojí. Uložené pořadí záložek a vypnuté addony se o zrušený Plán očistí samy při načtení. |
 | **Pět sekcí listu dne je vždy všech pět** | Pás rozdělané práce, Nestihl jsem, trojka, mřížka a brain dump jsou list dne - kdo hledá věc, smí vědět, kde stojí, i když je prázdná. Sekce proto nesmí mizet podle toho, jak jsou zrovna prázdné (pás i Nestihl jsem vypíší vlídnou poznámku), a rozvržení „Záložky" padlo úplně: schovávalo brain dump na vlastní obrazovce, takže na té s dnem vždycky něco chybělo. Jediná výjimka je vědomá: s vypnutým propojením ToDo a prázdnými úkoly se pás schová, protože si to člověk explicitně přehl. |
 | **Ťuknutí na úchyt plánuje, podržení vybírá čas, tah přesouvá** | Na telefonu je tažení přes půlku obrazovky nemotorné - proto má každý úchyt (priorita, řádek dumpu, věc z „Nestihl jsem", ToDo) i cestu na jedno ťuknutí: věc padne do nejbližšího volna, u dumpu s časem dopředu na svůj čas. Hláška pak nabídne **Změnit** a ta otevře spodní panel „Kdy?“: délka, nejbližší volno a všechny půlhodiny dne, ťuknutí na čas rovnou plánuje. Stejný panel otevře podržení úchytu, po kterém se prst nehne (zápis z mřížky otevře svůj panel bloku). Vzor je Structured: čas a délka se vybírají čipy, ne tahem. Už rozplánovaná priorita se ťuknutím nerozdvojuje. |
 | **Duch tažení říká, kam věc padne** | Prst zakrývá přesně to políčko, na které míří, takže duch visí nad prstem a pod názvem píše cíl („→ 14:30", „→ 2. hlavní věc", „↔ prohodit s 3.", „→ pryč z listu"). Každý nový cíl jemně cvakne, takže se půlhodiny dají nahmatat. Nad vlastním řádkem duch nic nepíše - puštění tam tah jen zruší. |
@@ -122,6 +119,7 @@ Věci, které ze zadání jednoznačně nevyplývaly a musely se dořešit:
 | **Zapsat do brain dumpu odkudkoli** | Plovoucí tlačítko otevře panel s jedním polem: Enter uloží řádek a pole zůstane připravené na další, čas dopředu („14:30 běh") ho posadí rovnou do mřížky. Brain dump je na telefonu pod mřížkou a „rychle si to zapsat" nesmí znamenat sjet o obrazovku níž. Vzor je první krok Chroboxu (vysypat hlavu) a Inbox ve Structured. |
 | **Spodní panely zavírá i tlačítko Zpět** | Panel se zavírá ťuknutím vedle, stažením za horní pruh, Escape a hardwarovým Zpět - to se na Androidu čeká a jinak by se pod panelem odešlo z obrazovky. Panely se hlásí do zásobníku vrstev (`back-stack.ts`), Zpět zavře tu nejvyšší dřív, než sáhne na historii. Nic se v nich samo nefokusuje (klávesnice by zakryla půl panelu), kromě pole v Zapsat. |
 | **Terče na velikost prstu** | Zaškrtávátka, úchyty a koše v listu mají klikací plochu 44 px, i když je vidět jen malý čtvereček (Android doporučuje 48 dp; dřív 18-20 px a v papíru 14 px). Řádky bloků a priorit mají nejmíň 48 px. |
+| **Google Kalendář přes systémový kalendář Androidu, ne přes Google API** | Ve WebView přihlášení přes Google neprojde a obnova tokenu by chtěla server s tajemstvím, zatímco repo i balíky jsou veřejné. Zrcadlí vždy jen jedno zařízení (`prefs.calendarWriter`), ostatní to můžou převzít. |
 | **Prázdný brain dump má vždy řádek** | Když poslední řádek odešel do mřížky nebo trojky, dump zůstal úplně bez pole a nedalo se do něj psát. Uložení teď prázdný seznam řádků doplní jedním prázdným. |
 
 ---
@@ -129,29 +127,28 @@ Věci, které ze zadání jednoznačně nevyplývaly a musely se dořešit:
 ## 4. Známá omezení
 
 - **Bez účtu appka nejede.** Data jsou v databázi účtu; první přihlášení potřebuje signál, potom appka jede i offline a synchronizuje se později.
-- **Bez přihlášení a bez synchronizace.** Návrh účtů a databáze je v [DATABAZE.md](DATABAZE.md).
-- **Bez undo.** Smazání uzlu/projektu je nevratné (dialog aspoň ukáže, co všechno zmizí).
+- **Smazání uzlu a projektu je nevratné** (dialog aspoň ukáže, co všechno zmizí). ToDo a time box nabízejí Vrátit.
 - **Přetahovat jde jen ve vlastním pořadí** — v řazení podle názvu nebo postupu úchyty zmizí, protože puštěný řádek by okamžitě odskočil zpátky.
 - **Ploché „Úkoly" napříč projekty se přetahovat nedají** — míchají rodiče i podúkoly do jednoho seznamu, takže pořadí v nich nemá kam se uložit.
 - **Přílohy u úkolů nejsou** (referenční aplikace je má).
 - **Historie postupu se nedá zpětně opravit** — otisk vzniká v den změny.
-- **Termíny ani plán dne nic nepřipomínají** — appka neposílá notifikace, takže propadlý termín je vidět jen uvnitř ní.
-- **Plán dne se neopakuje** — blok platí pro jeden den; „každé úterý v 9" se musí naklikat znovu (dá se přesunout na jiný den, ne rozkopírovat).
-- **Týden na telefonu je jen přehled** — sedm sloupců na 375 px dá bloku ~45 px šířky, takže z názvu zbyde pár znaků. Na čtení je osa dne, týden je na rozvržení.
+- **Termíny ani time box nic nepřipomínají** — appka neposílá notifikace, takže propadlý termín je vidět jen uvnitř ní.
+- **Bloky time boxu se neopakují** — blok platí pro jeden den; „každé úterý v 9" se musí naklikat znovu (dá se přesunout na jiný den, ne rozkopírovat).
 - Grafy nemají textovou alternativu (tabulku hodnot) pro čtečky, jen `aria-label`.
-- **Návrhy z brain dumpu potřebují vlastní klíč** (Claude nebo Gemini) a text brain dumpu při nich odchází Anthropicu, respektive Googlu. Klíč se nesynchronizuje ani nezálohuje, takže se na každém zařízení zadává znovu - a do repozitáře nepatří, ten je veřejný.
+- **Návrhy z brain dumpu potřebují vlastní klíč** (Claude nebo Gemini) a text brain dumpu při nich odchází Anthropicu, respektive Googlu. Klíč se nesynchronizuje, takže se na každém zařízení zadává znovu - a do repozitáře nepatří, ten je veřejný.
 
 ---
 
 ## 5. Návrhy do budoucna
 
-### 5.1 Databáze a účty
+### 5.1 Databáze a účty (hotovo)
 
-Samostatný návrh v [DATABAZE.md](DATABAZE.md): Supabase (Postgres + přihlášení
-+ RLS), offline napřed, jedna tabulka záznamů s JSONem a pravidla, jak se data
-z telefonu převezmou do nově založeného účtu (`lib/account-merge.ts`, už
-napsané a otestované). Dřívější plán se SQLite, Prismou a Server Actions padl -
-statický export žádný server nemá.
+Účty a synchronizace běží, přihlášení je od 14. 10. 2026 povinné. Návrh je
+v [DATABAZE.md](DATABAZE.md): Supabase (Postgres + přihlášení + RLS), offline
+napřed, jedna tabulka záznamů s JSONem a pravidla, jak se data z telefonu
+převezmou do účtu (`lib/account-merge.ts`). Skutečné chování popisuje
+[IMPLEMENTACE_SYNCHRONIZACE.md](IMPLEMENTACE_SYNCHRONIZACE.md). Dřívější plán
+se SQLite, Prismou a Server Actions padl - statický export žádný server nemá.
 
 ### 5.2 Vizuál podle harnessu a 21st.dev
 
@@ -161,15 +158,12 @@ Připraveno: `components.json`, `cn()` (clsx + tailwind-merge), shadcn CSS prom�
 
 | Nápad | Poznámka |
 |---|---|
-| **Drag & drop pořadí** | logika (`moveProject`, `moveTask`) už existuje, chybí jen UI |
 | **Undo / koš** | 30denní soft-delete místo tvrdého mazání |
 | **Cíle na metriku** | „chci 10 cold calls denně" — vedle rekordu i denní cíl a jeho plnění |
 | **Týdenní / měsíční rekordy** | teď je rekord jen denní; týdenní součet je přirozené rozšíření |
-| **Připomínka na sérii** | notifikace, když se blíží půlnoc a dnešek je bez microwinu |
-| **PWA + offline instalace** | s localStorage je to skoro zadarmo, dá se to na mobil |
+| **Připomínka na sérii** | notifikace, když se blíží půlnoc a dnešek je bez microwinu; pozor, PushWin padl jako „až moc" a tohle tlačí stejným směrem |
 | **Propojení projektů a stromu** | posun úkolu by mohl volitelně zapsat i záznam do metriky (např. „X kliků za den") |
 | **Přílohy a odkazy u úkolů** | referenční aplikace je má |
-| **Vlastní ikony metrik a kategorií** | teď má emoji jen projekt a úkol |
 | **Grafy jako tabulka** | přepínač „zobrazit data" kvůli přístupnosti |
 | **E2E testy (Playwright)** | doménová logika je pokrytá, proklik UI zatím ne |
 
@@ -192,9 +186,10 @@ src/lib/
   project-actions.ts  CRUD projektů a úkolů (+ snapshotProject)
   stats.ts            série, kalendář roku, přehled winů
   todos.ts            jednoduchý seznam (přidat, odškrtnout, termín, mizení)
-  timeblocks.ts       plán dne (bloky, překryvy, hledání volna, stopy z ToDo)
+  timeblocks.ts       časové bloky (překryvy, hledání volna, stopy z ToDo)
   timebox.ts          list dne (mřížka půlhodin nad bloky, priority, brain dump)
   atom-tree.ts        rozmístění stromu atomů do plátna (uzly, hrany, šířka)
+  calendar.ts         propojení time boxu a ToDo s Google Kalendářem
   ai.ts               návrhy z brain dumpu přes Claude/Gemini (jediné volání ven)
   due-rules.ts        rychlé termíny jako pravidla (za hodinu, nejbližší sobota)
   storage.ts          kopie dat v localStorage (pro chvíle bez signálu)

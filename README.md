@@ -1,12 +1,15 @@
 # MicroWins
 
-[MicroWins](https://github.com/MonsterMarian/MicroWins) je webová a mobilní aplikace pro sledování tvých cílů a úspěchů. Skládá se ze dvou hlavních částí:
+[MicroWins](https://github.com/MonsterMarian/MicroWins) je webová a mobilní aplikace pro sledování tvých cílů, úspěchů a dne. Skládá se z těchto částí:
 
 1. **Projekty** - Sledování velkých cílů. Můžeš si projekt rozdělit na menší měřitelné úkoly, sledovat postup, tempo, graf vývoje a deník změn.
 2. **Strom winů** - Systém pro evidenci každodenních úspěchů ("microwinů"). Podporuje tři typy záznamů:
    - **Číselné** (např. počet kilometrů, prodejů - eviduje se překonání dosavadního rekordu)
    - **Zaškrtávací** (udělal/neudělal, pro budování návyků)
    - **Jednorázové** (významné milníky, které se staly jednou)
+3. **ToDo** - Jednoduchý seznam s nepovinným termínem.
+4. **Time box** - List dne: tři hlavní věci, brain dump a mřížka půlhodin. Dá se propojit s Google Kalendářem.
+5. **Atomy** - Mapa úkolu rozsekaného na nejmenší kroky.
 
 Co ze stromu vypadlo z hlavy, ale ne z historie, se dá **archivovat** - složka
 i win zmizí ze stromu, jejich microwiny a rekordy ale zůstanou ve statistikách.

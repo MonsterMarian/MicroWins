@@ -40,7 +40,8 @@ export function ProjectDialog({
     setDeadline(project?.deadline ?? "");
     setDescription(project?.description ?? "");
     setError(null);
-  }, [open, project, today]);
+    // Podle id: synchronizace mění objekty projektů a rozepsaný formulář by se vynuloval.
+  }, [open, project?.id]);
 
   const submit = () => {
     const trimmed = name.trim();

@@ -58,7 +58,8 @@ export function TaskDialog({
     setDescription(task?.description ?? "");
     setError(null);
     setKeepProgress(true);
-  }, [open, task]);
+    // Podle id: synchronizace mění objekty úkolů a rozepsaný formulář by se vynuloval.
+  }, [open, task?.id]);
 
   const milestones = milestonesOfProject(state, projectId);
   /* První podúkol pod úkolem s vlastním postupem by ten postup přebil -
@@ -81,7 +82,7 @@ export function TaskDialog({
     const currentNum = Number.isFinite(parseWhole(current)) ? parseWhole(current) : 0;
     const stepNum = Number.isFinite(parseWhole(step)) && parseWhole(step) > 0 ? parseWhole(step) : 1;
     const weightNum =
-      Number.isFinite(parseWhole(weight)) && parseWhole(weight) > 0 ? parseWhole(weight) : 1;
+      Number.isFinite(parseWhole(weight)) && parseWhole(weight) >= 0 ? parseWhole(weight) : 1;
 
     if (task) {
       updateTask(task.id, {

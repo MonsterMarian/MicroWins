@@ -172,7 +172,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </header>
 
       {/* pt-6, ne py-6: spodní odsazení řeší mw-pad-nav a py-6 by ho přebilo. */}
-      <main className="mw-pad-nav mx-auto w-full max-w-4xl flex-1 px-4 pt-6">{children}</main>
+      {/* pan-y: jinak si vodorovný tah vezme prohlížeč, pošle pointercancel a přejetí mezi sekcemi se nikdy nedokončí. */}
+      <main className="mw-pad-nav mx-auto w-full max-w-4xl flex-1 px-4 pt-6 [touch-action:pan-y_pinch-zoom]">{children}</main>
 
       <BottomNav pathname={pathname} />
 

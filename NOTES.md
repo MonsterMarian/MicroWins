@@ -120,6 +120,10 @@ Věci, které ze zadání jednoznačně nevyplývaly a musely se dořešit:
 | **Spodní panely zavírá i tlačítko Zpět** | Panel se zavírá ťuknutím vedle, stažením za horní pruh, Escape a hardwarovým Zpět - to se na Androidu čeká a jinak by se pod panelem odešlo z obrazovky. Panely se hlásí do zásobníku vrstev (`back-stack.ts`), Zpět zavře tu nejvyšší dřív, než sáhne na historii. Nic se v nich samo nefokusuje (klávesnice by zakryla půl panelu), kromě pole v Zapsat. |
 | **Terče na velikost prstu** | Zaškrtávátka, úchyty a koše v listu mají klikací plochu 44 px, i když je vidět jen malý čtvereček (Android doporučuje 48 dp; dřív 18-20 px a v papíru 14 px). Řádky bloků a priorit mají nejmíň 48 px. |
 | **Google Kalendář přes systémový kalendář Androidu, ne přes Google API** | Ve WebView přihlášení přes Google neprojde a obnova tokenu by chtěla server s tajemstvím, zatímco repo i balíky jsou veřejné. Zrcadlí vždy jen jedno zařízení (`prefs.calendarWriter`), ostatní to můžou převzít. |
+| **Dialog nesmí záviset na `onOpenChange`** | Volající ho často předává přímo v JSX. Když byl v závislostech efektu, běžel efekt po každém překreslení a vracel fokus na první pole: v úpravě atomu šel do Popisu jen první znak a zbytek se dopsal do Nadpisu. Handler je proto v refu a efekt hlídá jen `open` a `mounted`. |
+| **Číselná pole ukládaná při psaní jsou `WholeInput`** | Pole řízené uloženou hodnotou nejde vymazat, takže z váhy 1 se přepsáním na 5 stalo 15. `WholeInput` si rozepsaný text drží sám. |
+| **Přejetí mezi sekcemi stojí na `touch-action` na `main`** | Bez `pan-y` si vodorovný tah vezme prohlížeč, pošle `pointercancel` a `pointerup` nikdy nepřijde. Syntetické PointerEventy tohle neukážou, gesta se musí zkoušet skutečným dotykem (`Input.dispatchTouchEvent`). |
+| **Zámek rolování je počítadlo** | Dvě okna zavřená naráz si „předchozí hodnotu" vrátila v opačném pořadí a stránka zůstala zamčená. Viz `ui/scroll-lock.ts`. |
 | **Prázdný brain dump má vždy řádek** | Když poslední řádek odešel do mřížky nebo trojky, dump zůstal úplně bez pole a nedalo se do něj psát. Uložení teď prázdný seznam řádků doplní jedním prázdným. |
 
 ---

@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "./button";
+import { lockBodyScroll } from "./scroll-lock";
 
 export interface DialogProps {
   open: boolean;
@@ -36,23 +37,27 @@ export function Dialog({
 }: DialogProps) {
   const [mounted, setMounted] = React.useState(false);
   const panelRef = React.useRef<HTMLDivElement>(null);
+  /* Volající často předá funkci přímo v JSX. Efekt na ní nesmí záviset: běžel by
+     po každém překreslení a fokus by při psaní skákal zpátky na první pole. */
+  const onOpenChangeRef = React.useRef(onOpenChange);
+  onOpenChangeRef.current = onOpenChange;
 
   React.useEffect(() => setMounted(true), []);
 
   React.useEffect(() => {
-    if (!open) return;
+    // Až s `mounted`: dialog otevřený rovnou při připojení ještě nemá panel, kam dát fokus.
+    if (!open || !mounted) return;
     // Dialogy se dají vnořit (výběr ikony nad formulářem projektu). Escape smí
     // zavřít jen ten nejvýš, jinak by zmizely oba naráz.
     const token = {};
     dialogStack.push(token);
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && dialogStack[dialogStack.length - 1] === token) {
-        onOpenChange(false);
+        onOpenChangeRef.current(false);
       }
     };
     document.addEventListener("keydown", onKey);
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    const unlockScroll = lockBodyScroll();
     // Napřed pole formuláře, teprve pak tlačítka - jinak by fokus sebral křížek.
     const panel = panelRef.current;
     const focusTarget =
@@ -63,9 +68,9 @@ export function Dialog({
       document.removeEventListener("keydown", onKey);
       const at = dialogStack.indexOf(token);
       if (at !== -1) dialogStack.splice(at, 1);
-      document.body.style.overflow = previousOverflow;
+      unlockScroll();
     };
-  }, [open, onOpenChange]);
+  }, [open, mounted]);
 
   if (!mounted || !open) return null;
 

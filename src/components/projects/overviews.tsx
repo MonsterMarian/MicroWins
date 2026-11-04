@@ -23,6 +23,7 @@ import { useStore } from "@/components/providers/store-provider";
 import { usePrefs } from "@/components/providers/use-prefs";
 import { diffDays, formatDate, formatDateRelative } from "@/lib/date";
 import {
+  daysLeftLabel,
   displayPercent,
   isListed,
   isTaskDone,
@@ -146,7 +147,7 @@ function ClassicOverview({ onNewProject }: { onNewProject: () => void }) {
         <Card>
           <CardHeader>
             <CardTitle>Dnes se pohnulo</CardTitle>
-            <CardDescription>Projekty, kterým dnes narostla procenta.</CardDescription>
+            <CardDescription>Projekty, kterým se dnes změnila procenta.</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-2">
             {movers.length === 0 ? (
@@ -165,9 +166,7 @@ function ClassicOverview({ onNewProject }: { onNewProject: () => void }) {
                   <span className="tabular text-xs text-muted-foreground">
                     {displayPercent(m.percent)} %
                   </span>
-                  <Badge variant="outline" className="tabular border-progress/40 text-progress">
-                    +{formatTenth(m.delta)} %
-                  </Badge>
+                  <DeltaBadge delta={m.delta} />
                 </Link>
               ))
             )}
@@ -379,9 +378,7 @@ function BoardOverview() {
                 {stats.deltaToday > 0.05
                   ? `+${formatTenth(stats.deltaToday)} % dnes`
                   : stats.daysLeft !== null
-                    ? stats.daysLeft >= 0
-                      ? `zbývá ${stats.daysLeft} dní`
-                      : `${-stats.daysLeft} dní po termínu`
+                    ? daysLeftLabel(stats.daysLeft)
                     : "bez deadlinu"}
               </span>
             </Card>
@@ -551,9 +548,7 @@ function PulseOverview() {
             >
               <EntityIcon icon={m.project.icon} size="lg" />
               <span className="min-w-0 flex-1 truncate text-sm">{m.project.name}</span>
-              <Badge variant="outline" className="tabular border-progress/40 text-progress">
-                +{formatTenth(m.delta)} %
-              </Badge>
+              <DeltaBadge delta={m.delta} />
             </Link>
           ))
         )}
@@ -629,11 +624,27 @@ function TableOverview() {
   );
 }
 
+/** Dnešní změna projektu: pokles (oprava hodnoty, smazaný úkol) nesmí vypadat jako přírůstek. */
+function DeltaBadge({ delta }: { delta: number }) {
+  return (
+    <Badge
+      variant="outline"
+      className={cn(
+        "tabular",
+        delta > 0 ? "border-progress/40 text-progress" : "border-destructive/40 text-destructive",
+      )}
+    >
+      {delta > 0 ? "+" : ""}
+      {formatTenth(delta)} %
+    </Badge>
+  );
+}
+
 function Empty() {
   return (
     <Card>
       <CardContent className="py-10 text-center text-sm text-muted-foreground">
-        Všechny projekty jsou v archivu.
+        Všechny projekty jsou v archivu nebo schované.
       </CardContent>
     </Card>
   );

@@ -129,7 +129,7 @@ function NewTaskDialog({
     setProjectName("");
     setListed(true);
     setProjectId(projects[0]?.id ?? NEW_PROJECT);
-  }, [open, projects]);
+  }, [open]);
 
   const fresh = projectId === NEW_PROJECT;
   const ready = name.trim() !== "" && (!fresh || projectName.trim() !== "");

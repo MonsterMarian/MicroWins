@@ -7,7 +7,7 @@ import { AnimatedPercent, ProgressBar, type ProgressTone } from "@/components/ui
 import { EntityIcon } from "@/components/ui/icon-picker";
 import { useStore } from "@/components/providers/store-provider";
 import { formatDate } from "@/lib/date";
-import { displayPercent, pace, projectStats, type Pace } from "@/lib/projects";
+import { daysLeftLabel, displayPercent, pace, projectStats, type Pace } from "@/lib/projects";
 import type { Project } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -58,7 +58,7 @@ export function ProjectRow({ project }: { project: Project }) {
           {formatDate(project.startDate)}
           {project.deadline ? ` - ${formatDate(project.deadline)}` : " -"}
           {stats.daysLeft !== null && !done
-            ? ` · ${stats.daysLeft >= 0 ? `zbývá ${stats.daysLeft} dní` : `${-stats.daysLeft} dní po termínu`}`
+            ? ` · ${daysLeftLabel(stats.daysLeft)}`
             : ""}
         </span>
       </span>

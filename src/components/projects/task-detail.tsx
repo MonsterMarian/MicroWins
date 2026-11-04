@@ -21,7 +21,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
 import { Fab } from "@/components/ui/fab";
-import { Field, Input, Select, Textarea } from "@/components/ui/input";
+import { Field, Input, Select, Textarea, WholeInput } from "@/components/ui/input";
 import { AnimatedPercent, DeltaBubble, ProgressBar, Slider } from "@/components/ui/progress";
 import { EntityIcon } from "@/components/ui/icon-picker";
 import { SortableItem, SortableList } from "@/components/ui/sortable";
@@ -122,6 +122,11 @@ export function TaskDetail({ taskId }: { taskId: string }) {
     "podúkolů",
   )}`;
   const childrenPercent = subtasksPercent(state, task);
+
+  const commitManual = () => {
+    const v = parseWhole(manual);
+    if (Number.isFinite(v)) setTaskCurrent(task.id, v);
+  };
 
   /* Krok hodnoty i s hmatovou odezvou. Doražení do cíle cvakne jinak než
      obyčejný krok - je to jediná chvíle, kdy se dá bez dívání poznat, že je
@@ -409,13 +414,9 @@ export function TaskDetail({ taskId }: { taskId: string }) {
 
             <Row icon={Scale} label="Váha">
               <div className="flex items-center gap-2">
-                <Input
-                  value={String(task.weight)}
-                  inputMode="numeric"
-                  onChange={(e) => {
-                    const v = parseWhole(e.target.value);
-                    if (Number.isFinite(v) && v >= 0) updateTask(task.id, { weight: v });
-                  }}
+                <WholeInput
+                  value={task.weight}
+                  onCommit={(weight) => updateTask(task.id, { weight })}
                   className="h-8 w-16 text-xs"
                   aria-label="Jak moc se počítá do projektu"
                 />
@@ -498,31 +499,33 @@ export function TaskDetail({ taskId }: { taskId: string }) {
           <Button onClick={() => setStepOpen(false)}>Hotovo</Button>
         }
       >
-        <div className="grid grid-cols-2 gap-3">
+        <form
+          className="grid grid-cols-2 gap-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            commitManual();
+            setStepOpen(false);
+          }}
+        >
           <Field label="Hotovo" htmlFor="task-manual" hint={`z ${formatNumber(task.target)}`}>
             <Input
               id="task-manual"
               value={manual}
               inputMode="numeric"
               onChange={(e) => setManual(e.target.value)}
-              onBlur={() => {
-                const v = parseWhole(manual);
-                if (Number.isFinite(v)) setTaskCurrent(task.id, v);
-              }}
+              onBlur={commitManual}
             />
           </Field>
           <Field label="O kolik skočí + a −" htmlFor="task-step-inline" hint="1 = po jednom">
-            <Input
+            <WholeInput
               id="task-step-inline"
-              value={String(task.step)}
-              inputMode="numeric"
-              onChange={(e) => {
-                const v = parseWhole(e.target.value);
-                if (Number.isFinite(v) && v > 0) updateTask(task.id, { step: v });
-              }}
+              value={task.step}
+              min={1}
+              onCommit={(step) => updateTask(task.id, { step })}
             />
           </Field>
-        </div>
+          <button type="submit" className="hidden" aria-hidden />
+        </form>
       </Dialog>
 
       <Dialog
@@ -543,7 +546,8 @@ export function TaskDetail({ taskId }: { taskId: string }) {
               variant="destructive"
               onClick={() => {
                 deleteTask(task.id);
-                router.push(`/projects?id=${task.projectId}`);
+                // Bez `push`: Zpět by jinak vedlo na smazaný úkol.
+                router.replace(parentHref);
               }}
             >
               <Trash2 /> Smazat

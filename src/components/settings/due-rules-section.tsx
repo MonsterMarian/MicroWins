@@ -4,7 +4,7 @@ import * as React from "react";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import { Field, Input, Select } from "@/components/ui/input";
+import { Field, Input, Select, WholeInput } from "@/components/ui/input";
 import { usePrefs, setPrefs } from "@/components/providers/use-prefs";
 import { DAY_NAMES } from "@/lib/date";
 import {
@@ -195,22 +195,21 @@ function RuleDialog({
 
         {draft.kind === "offset" ? (
           <Field label="Za kolik minut" htmlFor="rule-minutes" hint="60 = za hodinu">
-            <Input
+            <WholeInput
               id="rule-minutes"
-              inputMode="numeric"
-              value={String(draft.minutes)}
-              onChange={(e) => set({ minutes: Math.max(1, Number(e.target.value) || 0) })}
+              value={draft.minutes}
+              min={1}
+              onCommit={(minutes) => set({ minutes })}
             />
           </Field>
         ) : (
           <div className="grid grid-cols-2 gap-3">
             {draft.kind === "day" ? (
               <Field label="Za kolik dní" htmlFor="rule-days" hint="0 = dnes, 1 = zítra">
-                <Input
+                <WholeInput
                   id="rule-days"
-                  inputMode="numeric"
-                  value={String(draft.days)}
-                  onChange={(e) => set({ days: Math.max(0, Number(e.target.value) || 0) })}
+                  value={draft.days}
+                  onCommit={(days) => set({ days })}
                 />
               </Field>
             ) : (

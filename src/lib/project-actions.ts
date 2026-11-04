@@ -512,6 +512,9 @@ export function reparentTask(
     if (descendantsOf(state, id).some((child) => child.id === parentId)) return state;
   }
 
+  // Stejně jako u prvního podúkolu: rodič by přetažením ztratil vlastní postup.
+  if (parentId !== null) state = carryProgressToSubtask(state, parentId, today);
+
   // Na konec nových sourozenců - přetažený kus se nemá vecpat mezi ty, co tam
   // už jsou v nějakém pořadí.
   const siblings =

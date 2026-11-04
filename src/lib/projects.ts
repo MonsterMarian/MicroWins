@@ -10,6 +10,7 @@ import type {
   TaskSnapshot,
   TaskTracker,
 } from "./types";
+import { plural } from "./utils";
 
 /**
  * Výpočty postupu projektů (čisté funkce).
@@ -431,6 +432,13 @@ export interface DayRing {
   days: number;
   /** Jmenovatel pod ním; null = neukazovat. */
   total: number | null;
+}
+
+/** "zbývá 1 den", "3 dny po termínu" - řádek projektu a přehledy. */
+export function daysLeftLabel(daysLeft: number): string {
+  const days = Math.abs(daysLeft);
+  const unit = plural(days, "den", "dny", "dní");
+  return daysLeft >= 0 ? `zbývá ${days} ${unit}` : `${days} ${unit} po termínu`;
 }
 
 export function dayRing(stats: ProjectStats): DayRing {

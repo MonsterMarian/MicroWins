@@ -3,6 +3,7 @@
 import * as React from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
+import { lockBodyScroll } from "./scroll-lock";
 import { useBackClose } from "./back-stack";
 
 /** Kolik pixelů stažení dolů panel zavře. */
@@ -47,11 +48,10 @@ export function BottomSheet({
       if (e.key === "Escape") onClose();
     };
     document.addEventListener("keydown", onKey);
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    const unlockScroll = lockBodyScroll();
     return () => {
       document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = previousOverflow;
+      unlockScroll();
     };
   }, [open, onClose]);
 

@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { lockBodyScroll } from "@/components/ui/scroll-lock";
 import { ProgressBar } from "@/components/ui/progress";
 import { useStore } from "@/components/providers/store-provider";
 import { useToast } from "@/components/providers/toast-provider";
@@ -372,11 +373,10 @@ export function AtomCanvas(props: AtomCanvasProps) {
       if (e.key === "Escape") setFullscreen(false);
     };
     document.addEventListener("keydown", onKey);
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    const unlockScroll = lockBodyScroll();
     return () => {
       document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = previous;
+      unlockScroll();
     };
   }, [fullscreen]);
 

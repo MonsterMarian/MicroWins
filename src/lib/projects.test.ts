@@ -903,6 +903,19 @@ describe("první podúkol a vlastní postup úkolu", () => {
 
     expect(taskPercent(sub.state, taskById(sub.state, t.task.id)!)).toBe(50);
   });
+
+  /* Stejná chyba jinudy: kus přetažený v mapě atomů pod úkol s postupem z něj
+     udělal rodiče a 50 / 250 z procent zmizelo. */
+  it("kus převěšený pod úkol s postupem ho taky nesmaže", () => {
+    const { state, projectId, task } = klikyState();
+    const other = createTask(state, projectId, { name: "Dřepy", target: 10 }, DAY);
+    const piece = createTask(other.state, projectId, { name: "Kus", target: 1, parentId: other.task.id }, DAY);
+
+    const moved = reparentTask(piece.state, piece.task.id, task.id, DAY);
+
+    expect(subtasksOf(moved, task.id).map((c) => c.name)).toEqual(["Kliky", "Kus"]);
+    expect(taskPercent(moved, taskById(moved, task.id)!)).toBe(10);
+  });
 });
 
 describe("z čeho se počítá úkol s podúkoly", () => {

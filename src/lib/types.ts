@@ -33,7 +33,8 @@ export const WIN_KINDS = ["metric", "check", "once"] as const satisfies readonly
  * - `sum` (výchozí): 2 + 3 hovory = 5 za den. Vhodné pro počty, hodiny, km.
  * - `max`: rozhoduje nejlepší jednotlivý pokus (např. max. zvednutá váha).
  */
-export type Aggregation = "sum" | "max";
+/** `min` = nejmenší hodnota je nejlepší (např. výzva za méně dní). */
+export type Aggregation = "sum" | "max" | "min";
 
 export interface TreeNode {
   id: string;

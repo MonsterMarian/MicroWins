@@ -110,13 +110,14 @@ export function EntryDialog({
         description: "Zpětný zápis posunul rekord nad dnešní výkon.",
       });
     } else {
-      const missing = res.evaluation.previousRecord - res.evaluation.dayTotal;
+      const lower = aggregation === "min";
+      const missing = (res.evaluation.previousRecord - res.evaluation.dayTotal) * (lower ? -1 : 1);
       toast({
         tone: "info",
         title: `Zapsáno: ${label}`,
         description:
           missing > 0
-            ? `Do rekordu chybí ${formatNumber(missing)}.`
+            ? `${lower ? "Na rekord ubrat" : "Do rekordu chybí"} ${formatNumber(missing)}.`
             : "Rekord zůstává, ale zápis se počítá.",
       });
     }
@@ -223,6 +224,12 @@ export function EntryDialog({
           {aggregation === "max" ? (
             <p className="mt-2 text-xs text-muted-foreground">
               Metrika počítá nejlepší pokus dne, ne součet.
+            </p>
+          ) : null}
+
+          {aggregation === "min" ? (
+            <p className="mt-2 text-xs text-muted-foreground">
+              Méně je lépe - rekord padne, když zapíšeš menší číslo.
             </p>
           ) : null}
         </div>

@@ -227,6 +227,7 @@ export function NodeDialog({
                 >
                   <option value="sum">sečíst (2 + 3 = 5)</option>
                   <option value="max">nejlepší pokus (max)</option>
+                  <option value="min">méně je lépe (min, např. dny)</option>
                 </Select>
               </Field>
             </div>

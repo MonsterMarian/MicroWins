@@ -291,7 +291,10 @@ export function winOverview(state: MicroWinsState, today: ISODate = todayISO()):
         recordDate: s.record.date,
         todayTotal: s.todayTotal,
         toRecord: s.toRecord,
-        progress: s.record.value > 0 ? Math.min(100, (s.todayTotal / s.record.value) * 100) : 0,
+        progress:
+          s.aggregation === "min"
+            ? s.todayTotal > 0 ? Math.min(100, (s.record.value / s.todayTotal) * 100) : 0
+            : s.record.value > 0 ? Math.min(100, (s.todayTotal / s.record.value) * 100) : 0,
         entryCount: s.entryCount,
         unit: node.unit,
       });

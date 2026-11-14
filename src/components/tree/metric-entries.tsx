@@ -64,7 +64,7 @@ export function MetricEntries({ metric }: { metric: TreeNode }) {
               ) : null}
               {dayEntries.length > 1 ? (
                 <span className="text-xs text-muted-foreground">
-                  {dayEntries.length}× {aggregation === "sum" ? "sečteno" : "nejlepší z"}
+                  {dayEntries.length}× {aggregation === "sum" ? "sečteno" : aggregation === "min" ? "nejmenší z" : "nejlepší z"}
                 </span>
               ) : null}
               <div className="ml-auto flex items-center gap-1">

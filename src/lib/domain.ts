@@ -9,7 +9,8 @@ import { formatNumber } from "./utils";
  * 1. Hodnota záznamu je vždy číslo > 0, může být desetinné (2.5 H).
  *    0 se ignoruje (není to chyba, jen se nic nestane), záporné číslo je chyba.
  * 2. Denní součet metriky = agregace všech záznamů daného dne (sum / max).
- * 3. Rekord metriky = nejvyšší denní součet napříč všemi dny.
+ * 3. Rekord metriky = nejvyšší denní součet napříč všemi dny
+ *    (u agregace `min` naopak nejnižší - "stihnout to za méně dní").
  * 4. Microwin = záznam k DNEŠNÍMU dni, po kterém dnešní součet překoná
  *    dosavadní rekord (počítaný ze všech ostatních dnů).
  *    První záznam metriky vůbec je tedy vždy microwin (rekord byl 0).
@@ -190,7 +191,9 @@ export function totalsByDay(entries: Entry[], aggregation: Aggregation = "sum"):
   for (const e of entries) {
     const prev = map.get(e.date);
     if (prev === undefined) map.set(e.date, round4(e.value));
-    else map.set(e.date, aggregation === "max" ? Math.max(prev, e.value) : round4(prev + e.value));
+    else if (aggregation === "max") map.set(e.date, Math.max(prev, e.value));
+    else if (aggregation === "min") map.set(e.date, Math.min(prev, e.value));
+    else map.set(e.date, round4(prev + e.value));
   }
   return map;
 }
@@ -211,22 +214,27 @@ export interface RecordInfo {
   date: ISODate | null;
 }
 
+/**
+ * Překoná hodnota dne rekord? U `min` vyhrává menší číslo a cokoli nad 0
+ * překoná "žádný rekord" (date === null).
+ */
+export function beatsRecord(value: number, record: RecordInfo, aggregation: Aggregation): boolean {
+  if (aggregation !== "min") return gt(value, record.value);
+  return value > EPS && (record.date === null || gt(record.value, value));
+}
+
 /** Nejlepší denní součet; volitelně s vynecháním jednoho dne. */
 export function recordOf(
   entries: Entry[],
   aggregation: Aggregation = "sum",
   excludeDate?: ISODate,
 ): RecordInfo {
-  let value = 0;
-  let date: ISODate | null = null;
+  let best: RecordInfo = { value: 0, date: null };
   for (const [day, total] of totalsByDay(entries, aggregation)) {
     if (excludeDate && day === excludeDate) continue;
-    if (gt(total, value)) {
-      value = total;
-      date = day;
-    }
+    if (beatsRecord(total, best, aggregation)) best = { value: total, date: day };
   }
-  return { value, date };
+  return best;
 }
 
 // --- vyhodnocení zápisu -----------------------------------------------------
@@ -278,7 +286,7 @@ export function evaluate({
   const total = dayTotal(entries, date, aggregation);
   const previous = recordOf(entries, aggregation, date);
   const otherDays = new Set(entries.filter((e) => e.date !== date).map((e) => e.date));
-  const beatsRecord = validation.status === "ok" && gt(total, previous.value);
+  const beats = validation.status === "ok" && beatsRecord(total, previous, aggregation);
   const countsForToday = date === today;
 
   return {
@@ -287,8 +295,8 @@ export function evaluate({
     dayTotal: total,
     previousRecord: previous.value,
     previousRecordDate: previous.date,
-    beatsRecord,
-    isMicrowin: beatsRecord && countsForToday,
+    beatsRecord: beats,
+    isMicrowin: beats && countsForToday,
     isFirstEver: otherDays.size === 0,
     countsForToday,
   };
@@ -327,7 +335,10 @@ export function summarizeMetric(
     aggregation,
     record,
     todayTotal,
-    toRecord: gt(record.value, todayTotal) ? round4(record.value - todayTotal) : 0,
+    toRecord:
+      aggregation === "min"
+        ? record.date && gt(todayTotal, record.value) ? round4(todayTotal - record.value) : 0
+        : gt(record.value, todayTotal) ? round4(record.value - todayTotal) : 0,
     entryCount: entries.length,
     lastEntryDate: entries[0]?.date ?? null,
     hasMicrowinToday: microwins.some((m) => m.date === today),

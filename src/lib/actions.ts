@@ -2,10 +2,10 @@ import { todayISO } from "./date";
 import {
   aggregationOf,
   archivedIds,
+  beatsRecord,
   dayTotal,
   entriesOfMetric,
   evaluate,
-  gt,
   isFlagKind,
   isMarkedOn,
   nodeById,
@@ -290,7 +290,7 @@ export function syncTodayMicrowin(
   const total = dayTotal(entries, today, aggregation);
   const previous = recordOf(entries, aggregation, today);
   const existing = state.microwins.find((m) => m.metricId === metricId && m.date === today);
-  const isWin = gt(total, previous.value);
+  const isWin = beatsRecord(total, previous, aggregation);
 
   if (!isWin) {
     if (!existing) return { state, created: false, improved: false, revoked: false };
@@ -312,7 +312,7 @@ export function syncTodayMicrowin(
       state: { ...state, microwins: state.microwins.map((m) => (m === existing ? updated : m)) },
       microwin: updated,
       created: false,
-      improved: gt(total, existing.value),
+      improved: beatsRecord(total, { value: existing.value, date: existing.date }, aggregation),
       revoked: false,
     };
   }

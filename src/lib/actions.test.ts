@@ -147,6 +147,27 @@ describe("rekord a microwin", () => {
     expect(r2.improved).toBe(true);
   });
 
+  it("méně je lépe (min): rekord padne menším číslem", () => {
+    const m = addMetric(EMPTY_STATE, null, { name: "výzva za X dní", aggregation: "min" });
+    const metricId = m.node.id;
+    const r0 = addEntry(m.state, { metricId, value: 12, date: "2026-01-01" }, "2026-01-01");
+    expect(r0.evaluation.isMicrowin).toBe(true); // první zápis = rekord
+
+    const worse = addEntry(r0.state, { metricId, value: 15 }, TODAY);
+    expect(worse.evaluation.isMicrowin).toBe(false);
+
+    const r1 = addEntry(r0.state, { metricId, value: 9 }, TODAY);
+    expect(r1.evaluation.isMicrowin).toBe(true);
+    expect(r1.microwin?.previousRecord).toBe(12);
+
+    const r2 = addEntry(r1.state, { metricId, value: 7 }, TODAY);
+    expect(r2.improved).toBe(true);
+    const todayWins = r2.state.microwins.filter((w) => w.date === TODAY);
+    expect(todayWins).toHaveLength(1);
+    expect(todayWins[0].value).toBe(7);
+    expect(recordOf(r2.state.entries, "min").value).toBe(7);
+  });
+
   it("dva dílčí zápisy překonají rekord až v součtu", () => {
     const { state, metricId } = baseTree();
     const s1 = addEntry(state, { metricId, value: 5, date: "2026-01-01" }, "2026-01-01").state;

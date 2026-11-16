@@ -291,7 +291,41 @@ export type UpdateCheck =
   | { kind: "downloaded"; version: string; notes?: string }
   | { kind: "failed"; message: string };
 
-/** Stáhne novější balík, pokud je. Nasadí se až při příštím startu. */
+const CHECK_EVERY_MS = 5 * 60_000;
+
+/**
+ * Plně automatické aktualizace, bez tlačítek v Nastavení.
+ *  - start: nasadí balík stažený minule, jinak zkontroluje a stáhne nový
+ *  - návrat do appky: znovu kontrola (appka v paměti žije dny, studený start je vzácný)
+ *  - odchod z appky: stažený balík se nasadí, takže po návratu už běží nová
+ *    verze a nic se nepřekreslí uživateli pod rukama
+ * Vrací úklid posluchače.
+ */
+export function startAutoUpdate(): () => void {
+  if (!isNative()) return () => {};
+  let lastCheck = 0;
+  const check = () => {
+    lastCheck = Date.now();
+    void checkForUpdate();
+  };
+  const onVisibility = () => {
+    if (document.visibilityState === "hidden") {
+      if (pendingBundleVersion()) void applyPendingUpdate();
+    } else if (Date.now() - lastCheck > CHECK_EVERY_MS) {
+      check();
+    }
+  };
+
+  void applyPendingUpdate().then((res) => {
+    if (res.applied) return; // WebView se překresluje, kontrola počká na nový start
+    if (res.error) console.error("Nasazení aktualizace selhalo:", res.error);
+    check();
+  });
+  document.addEventListener("visibilitychange", onVisibility);
+  return () => document.removeEventListener("visibilitychange", onVisibility);
+}
+
+/** Stáhne novější balík, pokud je. Nasadí ho `startAutoUpdate` při odchodu z appky. */
 export async function checkForUpdate(): Promise<UpdateCheck> {
   if (!isNative()) return { kind: "disabled" };
   const url = getUpdateUrl();

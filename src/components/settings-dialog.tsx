@@ -33,7 +33,7 @@ import {
   syncNow,
   type SyncStatus,
 } from "@/lib/sync-runtime";
-import { ProgressBar } from "@/components/ui/progress";
+import { ProgressBar } from "@/components/ui/progress";
 import { SwitchPill } from "@/components/ui/switch-pill";
 import { ACCENTS, ADDONS, TODO_TTL_CHOICES, type Accent } from "@/lib/prefs";
 import { timeboxRowCount } from "@/lib/timebox";
@@ -53,16 +53,6 @@ import { DueRulesSection } from "./settings/due-rules-section";
 import { CalendarSection } from "./settings/calendar-section";
 import { formatDuration } from "@/lib/todos";
 import { logoImage } from "@/lib/logo-image";
-import {
-  applyPendingUpdate,
-  checkForUpdate,
-  currentBundleVersion,
-  DEFAULT_UPDATE_URL,
-  getUpdateUrl,
-  pendingBundleVersion,
-  setUpdateUrl,
-} from "@/lib/live-update";
-import { isNative } from "@/lib/native";
 import { getServerTheme, getTheme, setTheme, subscribeTheme } from "@/lib/theme";
 import { cn, plural } from "@/lib/utils";
 
@@ -74,9 +64,7 @@ export function SettingsDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const [activeTab, setActiveTab] = React.useState<Tab>("main");
-  const [native, setNative] = React.useState(false);
 
-  React.useEffect(() => setNative(isNative()), []);
   React.useEffect(() => {
     if (!open) {
       setActiveTab("main");
@@ -120,9 +108,6 @@ export function SettingsDialog({
         {activeTab === "main" ? (
           <div className="flex flex-col gap-5 animate-in-up">
             <AccountSection />
-            {native ? (
-              <UpdateSection />
-            ) : null}
           </div>
         ) : activeTab === "appearance" ? (
           <div className="flex flex-col gap-5 animate-in-up">
@@ -220,7 +205,7 @@ function AccountSection() {
       title="Účet"
       hint={
         signedIn
-          ? "Mezi zařízeními se synchronizují data i nastavení appky. Klíč k AI a adresa aktualizací zůstávají jen v tomhle zařízení."
+          ? "Mezi zařízeními se synchronizují data i nastavení appky. Klíč k AI zůstává jen v tomhle zařízení."
           : undefined
       }
     >
@@ -396,103 +381,6 @@ function syncLine(sync: SyncStatus): string {
     default:
       return "Připojuju…";
   }
-}
-
-function UpdateSection() {
-  const { toast } = useToast();
-  const [url, setUrl] = React.useState("");
-  const [current, setCurrent] = React.useState<string | null>(null);
-  const [pending, setPending] = React.useState<string | null>(null);
-  const [checking, setChecking] = React.useState(false);
-
-  React.useEffect(() => {
-    setUrl(getUpdateUrl());
-    setCurrent(currentBundleVersion());
-    setPending(pendingBundleVersion());
-  }, []);
-
-  const onApply = async () => {
-    const res = await applyPendingUpdate();
-    if (res.error) {
-      toast({ tone: "warn", title: "Nasazení selhalo", description: res.error });
-      setPending(pendingBundleVersion());
-      setCurrent(currentBundleVersion());
-    } else if (!res.applied) {
-      toast({ tone: "info", title: "Tahle verze už běží" });
-      setPending(null);
-    }
-  };
-
-  const onCheck = async () => {
-    setUpdateUrl(url);
-    setChecking(true);
-    const res = await checkForUpdate();
-    setChecking(false);
-    setPending(pendingBundleVersion());
-
-    if (res.kind === "downloaded") {
-      toast({
-        tone: "win",
-        title: `Aktualizace ${res.version} stažena`,
-        description: "Nasadí se po zavření a otevření appky.",
-      });
-    } else if (res.kind === "up-to-date") {
-      toast({ tone: "info", title: "Máš nejnovější verzi" });
-    } else if (res.kind === "disabled") {
-      toast({ tone: "warn", title: "Chybí adresa aktualizací" });
-    } else {
-      toast({ tone: "warn", title: "Aktualizace se nepovedla", description: res.message });
-    }
-  };
-
-  return (
-    <Section
-      title="Aktualizace"
-      hint="Appka si při startu sama stáhne novou verzi. Nové APK je potřeba jen při zásahu do nativní části."
-    >
-      <details className="text-xs">
-        <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
-          Adresa manifestu {url === DEFAULT_UPDATE_URL ? "(výchozí)" : "(vlastní)"}
-        </summary>
-        <Input
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          onBlur={() => setUpdateUrl(url)}
-          placeholder={DEFAULT_UPDATE_URL}
-          autoComplete="off"
-          spellCheck={false}
-          className="mt-2 font-mono text-xs"
-        />
-        {url !== DEFAULT_UPDATE_URL ? (
-          <button
-            type="button"
-            onClick={() => {
-              setUrl(DEFAULT_UPDATE_URL);
-              setUpdateUrl(DEFAULT_UPDATE_URL);
-            }}
-            className="mt-1.5 text-muted-foreground hover:text-foreground"
-          >
-            Vrátit výchozí adresu
-          </button>
-        ) : null}
-      </details>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <Button variant="outline" size="sm" disabled={checking} onClick={onCheck}>
-          <RefreshCw className={cn(checking && "animate-spin")} />
-          {checking ? "Hledám…" : "Zkontrolovat teď"}
-        </Button>
-        {pending ? (
-          <Button size="sm" onClick={onApply}>
-            Nasadit {pending}
-          </Button>
-        ) : null}
-        <span className="tabular text-xs text-muted-foreground">
-          {pending ? `čeká ${pending}` : current ? `verze ${current}` : "verze z APK"}
-        </span>
-      </div>
-    </Section>
-  );
 }
 
 function Section({

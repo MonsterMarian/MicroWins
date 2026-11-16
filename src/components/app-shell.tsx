@@ -12,7 +12,7 @@ import { usePrefs } from "@/components/providers/use-prefs";
 import { useTrackNavigation } from "@/components/providers/use-app-back";
 import { useSwipeNav } from "@/components/providers/use-swipe-nav";
 import { applyAccent } from "@/lib/prefs";
-import { applyPendingUpdate, checkForUpdate, markBootSucceeded } from "@/lib/live-update";
+import { markBootSucceeded, startAutoUpdate } from "@/lib/live-update";
 import { hideSplash, isNative, registerBackButton, syncStatusBar } from "@/lib/native";
 import { closeTopLayer } from "@/components/ui/back-stack";
 import { useCalendarWriter } from "@/components/timebox/use-calendar-writer";
@@ -77,11 +77,7 @@ function useNativeShell() {
     // Doběhli jsme až sem, takže tenhle balík umí naběhnout - značka o
     // rozjetém startu může pryč, jinak by ho příští spuštění vrátilo zpět.
     markBootSucceeded();
-    // Nejdřív nasadit balík stažený minule, teprve pak koukat po novém.
-    // Když se nasadilo, WebView se překresluje a kontrola nemá smysl.
-    void applyPendingUpdate().then((res) => {
-      if (!res.applied) void checkForUpdate();
-    });
+    return startAutoUpdate();
   }, []);
 
   React.useEffect(() => {
